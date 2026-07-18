@@ -1,6 +1,6 @@
 {
   "name": "blfp-client",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "BLFP - Minecraft Java 联机软件 - 客户端 (Electron + WebRTC P2P + frpc)",
   "main": "main.js",
   "scripts": {

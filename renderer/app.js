@@ -24,6 +24,8 @@ const state = {
   updateInfo: null,
   signingKey: null,
   signingKeyToken: null,
+  p2pTimer: null,
+  debugMode: false,
 };
 
 // WebRTC ICE 配置（公共 STUN）
@@ -48,12 +50,19 @@ function toast(msg, type = '') {
 function logLine(msg) {
   const box = $('log-box');
   if (!box) return;
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
   const time = new Date().toLocaleTimeString();
   const line = document.createElement('div');
   line.className = 'log-line';
   line.textContent = `[${time}] ${msg}`;
   box.appendChild(line);
-  box.scrollTop = box.scrollHeight;
+  const maxLines = state.debugMode ? 2000 : 500;
+  while (box.childElementCount > maxLines) box.firstElementChild.remove();
+  if (nearBottom) box.scrollTop = box.scrollHeight;
+}
+
+function debugLog(msg) {
+  if (state.debugMode) logLine('[调试] ' + msg);
 }
 
 function assertSecureServer(server) {
@@ -298,6 +307,12 @@ function navTo(page, btn) {
   currentPage = page;
   document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'));
   (btn || document.querySelector(`.nav-item[data-page="${page}"]`))?.classList.add('active');
+  if (document.body.classList.contains('sidebar-floating')) {
+    btn?.blur();
+    $('app-sidebar')?.classList.add('sidebar-retract');
+    requestAnimationFrame(() => $('app-sidebar')?.classList.remove('sidebar-retract'));
+  }
+  if (page === 'host' && state.token) loadFrpNodes({ silent: true, preserveSelection: true });
 }
 
 /* ============ 模式选择 ============ */
@@ -308,27 +323,49 @@ function selectMode(mode) {
   $('frp-node-section').classList.toggle('hidden', mode !== 'frp');
 }
 
-async function loadFrpNodes() {
-  try {
-    const nodes = await api('/nodes');
-    state.frpNodes = nodes;
-    const selects = [$('frp-node-select'), $('quick-frp-node-select')].filter(Boolean);
-    if (!nodes.length) {
-      selects.forEach((sel) => { sel.innerHTML = '<option value="">暂无可用节点</option>'; });
-      return;
+let frpLoadPromise = null;
+let frpPingSequence = 0;
+async function loadFrpNodes(options = {}) {
+  if (frpLoadPromise && !options.force) return frpLoadPromise;
+  const selects = [$('frp-node-select'), $('quick-frp-node-select')].filter(Boolean);
+  const previousId = options.preserveSelection ? state.frpNodeId : null;
+  selects.forEach((sel) => { sel.disabled = true; sel.innerHTML = '<option value="">正在获取节点...</option>'; });
+  frpLoadPromise = (async () => {
+    try {
+      const result = await api('/nodes');
+      const nodes = Array.isArray(result) ? result : [];
+      state.frpNodes = nodes;
+      if (!nodes.length) {
+        state.frpNodeId = null;
+        selects.forEach((sel) => { sel.innerHTML = '<option value="">暂无可用节点</option>'; });
+        return [];
+      }
+      const optionsHtml = nodes.map((n) =>
+        `<option value="${n.id}">${escapeHtml(n.name)} (${escapeHtml(n.region || '未知')} · ${escapeHtml(n.bandwidth || '未知')})</option>`
+      ).join('');
+      selects.forEach((sel) => { sel.innerHTML = optionsHtml; sel.disabled = false; });
+      const selected = nodes.find((n) => n.id === previousId) || nodes[0];
+      state.frpNodeId = selected.id;
+      selects.forEach((sel) => { sel.value = String(selected.id); });
+      await pingSelectedNode(selected);
+      debugLog(`已刷新 ${nodes.length} 个 frp 节点`);
+      return nodes;
+    } catch (e) {
+      state.frpNodes = [];
+      state.frpNodeId = null;
+      selects.forEach((sel) => { sel.innerHTML = '<option value="">节点获取失败，请重试</option>'; sel.disabled = false; });
+      logLine('加载 frp 节点失败: ' + e.message);
+      if (!options.silent) toast('frp 节点获取失败：' + e.message, 'error');
+      return [];
+    } finally {
+      frpLoadPromise = null;
     }
-    const options = nodes.map((n) =>
-      `<option value="${n.id}">${n.name} (${n.region} · ${n.bandwidth})</option>`
-    ).join('');
-    selects.forEach((sel) => { sel.innerHTML = options; });
-    state.frpNodeId = nodes[0].id;
-    selects.forEach((sel) => { sel.value = String(state.frpNodeId); });
-    pingSelectedNode(nodes[0]);
+  })();
+  return frpLoadPromise;
+}
 
-    $('frp-node-select').onchange = () => selectFrpNode($('frp-node-select').value);
-  } catch (e) {
-    logLine('加载 frp 节点失败: ' + e.message);
-  }
+function refreshFrpNodes() {
+  return loadFrpNodes({ force: true, preserveSelection: true });
 }
 
 function selectFrpNode(value) {
@@ -339,18 +376,22 @@ function selectFrpNode(value) {
 }
 
 async function pingSelectedNode(node) {
+  const sequence = ++frpPingSequence;
   const badges = [$('frp-node-latency'), $('quick-frp-latency')].filter(Boolean);
   badges.forEach((badge) => { badge.textContent = '测速中...'; badge.className = 'latency-badge'; });
   try {
     const res = await window.mclink.pingNode({ host: node.host, port: node.port || 7000 });
+    if (sequence !== frpPingSequence || node.id !== state.frpNodeId) return;
     if (res.ok) {
       const ms = res.latency;
       badges.forEach((badge) => { badge.textContent = ms + ' ms'; badge.className = 'latency-badge ' + (ms < 80 ? 'good' : ms < 180 ? 'ok' : 'bad'); });
     } else {
       badges.forEach((badge) => { badge.textContent = '超时'; badge.className = 'latency-badge bad'; });
     }
-  } catch {
+  } catch (e) {
+    if (sequence !== frpPingSequence) return;
     badges.forEach((badge) => { badge.textContent = '失败'; badge.className = 'latency-badge bad'; });
+    debugLog('节点测速失败: ' + e.message);
   }
 }
 
@@ -416,7 +457,10 @@ function connectSignaling() {
     state.ws = new WebSocket(wsUrl);
     state.ws.onopen = () => { logLine('信令服务器已连接'); resolve(); };
     state.ws.onerror = () => reject(new Error('无法连接信令服务器'));
-    state.ws.onclose = () => logLine('信令连接已关闭');
+    state.ws.onclose = () => {
+      logLine('信令连接已关闭');
+      if (state.role === 'guest') failGuestP2P('信令连接中断，请重新连接');
+    };
     state.ws.onmessage = (ev) => handleSignal(JSON.parse(ev.data));
   });
 }
@@ -428,13 +472,18 @@ function sendSignal(obj) {
 }
 
 function handleSignal(msg) {
+  const safeAsync = (promise, label) => Promise.resolve(promise).catch((e) => {
+    logLine(`${label}: ${e.message}`);
+    toast(`${label}：${e.message}`, 'error');
+    if (state.role === 'guest') failGuestP2P(label + '，请重试或改用 frp');
+  });
   switch (msg.type) {
-    case 'created': onRoomCreated(msg); break;
-    case 'joined': onRoomJoined(msg); break;
-    case 'peer-joined': onPeerJoined(msg); break;
+    case 'created': safeAsync(onRoomCreated(msg), '创建房间失败'); break;
+    case 'joined': safeAsync(onRoomJoined(msg), '加入房间失败'); break;
+    case 'peer-joined': safeAsync(onPeerJoined(msg), 'P2P 协商失败'); break;
     case 'peer-left': onPeerLeft(msg); break;
     case 'members': onMembers(msg); break;
-    case 'signal': onRemoteSignal(msg); break;
+    case 'signal': safeAsync(onRemoteSignal(msg), 'P2P 信令处理失败'); break;
     case 'closed': onRoomClosed(msg); break;
     case 'error':
       toast(msg.error, 'error');
@@ -457,10 +506,7 @@ async function createRoom(options = {}) {
   state.mcPort = port;
   selectMode(mode);
 
-  if (mode === 'frp') {
-    if (!state.frpNodeId) return toast('请选择 frp 节点', 'error');
-    return createFrpRoom(button);
-  }
+  if (mode === 'frp') return createFrpRoom(button);
 
   try {
     button.disabled = true;
@@ -543,9 +589,13 @@ async function onPeerJoined(msg) {
     if (e.candidate) sendSignal({ type: 'signal', to: guestId, data: { candidate: e.candidate } });
   };
   pc.onconnectionstatechange = () => {
-    logLine('P2P 状态 (' + guestId + '): ' + pc.connectionState);
-    if (pc.connectionState === 'connected') {
-      $('host-status').textContent = 'P2P 直连已建立';
+    const connectionState = pc.connectionState;
+    debugLog(`访客 ${guestId} P2P 状态: ${connectionState}`);
+    if (connectionState === 'connected') $('host-status').textContent = 'P2P 直连已建立';
+    if (connectionState === 'failed') {
+      $('host-status').textContent = '一名访客 P2P 打洞失败，可建议其重试或改用 frp';
+      toast('访客 P2P 打洞失败，建议改用 frp 模式', 'warn');
+      cleanupHostPeer(guestId);
     }
   };
 
@@ -687,8 +737,12 @@ function randomFrpPort() {
 }
 
 async function createFrpRoom(button = $('btn-create')) {
+  if (!state.frpNodes.length) await loadFrpNodes({ force: true });
   const node = state.frpNodes.find((n) => n.id === state.frpNodeId);
-  if (!node) return toast('节点无效', 'error');
+  if (!node) {
+    button.disabled = false;
+    return toast('没有可用的 frp 节点，请刷新节点后重试', 'error');
+  }
 
   logLine('正在启动 frp 内网穿透: ' + node.name);
   toast('提示：中转模式延迟高于 P2P', 'warn');
@@ -710,7 +764,12 @@ async function createFrpRoom(button = $('btn-create')) {
         localPort: state.mcPort,
         remotePort,
       });
-      if (res.ok) break;
+      if (res.ok) {
+        remotePort = res.remotePort || remotePort;
+        break;
+      }
+      const retryable = /端口|already|unavailable|占用/i.test(res.error || '');
+      if (!retryable) throw new Error(res.error || 'frpc 启动失败');
       logLine('frp 端口 ' + remotePort + ' 不可用，正在重新随机...');
     }
     if (!res || !res.ok) throw new Error((res && res.error) || '未找到可用的随机公网端口');
@@ -753,6 +812,7 @@ function openQuickHost(mode) {
   $('quick-frp-section').classList.toggle('hidden', mode !== 'frp');
   $('quick-mc-port').value = $('mc-port').value || 25565;
   if (state.frpNodeId) $('quick-frp-node-select').value = String(state.frpNodeId);
+  if (mode === 'frp') loadFrpNodes({ force: true, preserveSelection: true, silent: true });
   $('quick-host-confirm').disabled = false;
   $('quick-host-modal').classList.remove('hidden');
 }
@@ -789,17 +849,51 @@ async function joinRoom() {
   } catch (e) {
     toast(e.message, 'error');
     $('join-status').textContent = '连接失败: ' + e.message;
+    cleanupGuestConnection();
     $('btn-join').disabled = false;
   }
+}
+
+function clearP2PTimer() {
+  if (state.p2pTimer) clearTimeout(state.p2pTimer);
+  state.p2pTimer = null;
+}
+
+function cleanupGuestConnection() {
+  clearP2PTimer();
+  state.role = null;
+  state.roomCode = null;
+  const channel = state.dataChannel;
+  const pc = state.pc;
+  state.dataChannel = null;
+  state.pc = null;
+  if (channel) { try { channel.close(); } catch {} }
+  if (pc) { try { pc.close(); } catch {} }
+  window.mclink.tunnelStopAll();
+  if (state.ws) { try { state.ws.close(); } catch {} state.ws = null; }
+}
+
+function failGuestP2P(message) {
+  if (state.role !== 'guest') return;
+  cleanupGuestConnection();
+  $('join-active').classList.add('hidden');
+  $('join-form').classList.remove('hidden');
+  $('join-status').classList.remove('hidden');
+  $('join-status').textContent = message;
+  $('btn-join').disabled = false;
+  toast(message, 'error');
 }
 
 function setupGuestPeer() {
   const pc = new RTCPeerConnection(RTC_CONFIG);
   state.pc = pc;
+  clearP2PTimer();
+  state.p2pTimer = setTimeout(() => failGuestP2P('P2P 打洞超时，请重试或让房主改用 frp 模式'), 18000);
 
   pc.onicecandidate = (e) => {
     if (e.candidate) sendSignal({ type: 'signal', data: { candidate: e.candidate } });
   };
+  pc.onicecandidateerror = (e) => debugLog(`ICE 候选失败: ${e.errorText || e.errorCode || '未知错误'}`);
 
   pc.ondatachannel = (ev) => {
     const channel = ev.channel;
@@ -807,16 +901,27 @@ function setupGuestPeer() {
     state.dataChannel = channel;
 
     channel.onopen = async () => {
+      clearP2PTimer();
       logLine('P2P 数据通道已打开，启动本地代理...');
       await startGuestProxy();
     };
     channel.onmessage = (e) => handleGuestChannelData(e.data);
-    channel.onclose = () => { logLine('数据通道关闭'); };
+    channel.onclose = () => {
+      logLine('P2P 数据通道已关闭');
+      if (state.role === 'guest') failGuestP2P('P2P 连接已断开，请重新连接');
+    };
   };
 
   pc.onconnectionstatechange = () => {
-    logLine('P2P 状态: ' + pc.connectionState);
-    $('j-status').textContent = pc.connectionState === 'connected' ? '已直连 (P2P)' : pc.connectionState;
+    const connectionState = pc.connectionState;
+    debugLog('P2P connectionState: ' + connectionState);
+    $('j-status').textContent = connectionState === 'connected' ? '已直连 (P2P)' : connectionState;
+    if (connectionState === 'connecting') $('join-status').textContent = '正在进行 P2P 打洞...';
+    if (connectionState === 'failed') failGuestP2P('P2P 打洞失败，请重试或让房主改用 frp 模式');
+    if (connectionState === 'disconnected') {
+      $('join-status').classList.remove('hidden');
+      $('join-status').textContent = 'P2P 连接中断，正在尝试恢复...';
+    }
   };
 }
 
@@ -843,7 +948,10 @@ async function startGuestProxy() {
   const preferPort = occupied ? 0 : 25565;
 
   const res = await window.mclink.tunnelGuestListen({ proxyPort: preferPort });
-  if (!res.ok) { toast('本地代理启动失败: ' + res.error, 'error'); return; }
+  if (!res.ok) {
+    failGuestP2P('本地代理启动失败：' + res.error);
+    return;
+  }
 
   state.proxyPort = res.port;
   $('join-form').classList.add('hidden');
@@ -883,7 +991,13 @@ async function joinFrpRoom(room) {
   // room 来自信令 joined 消息（含 frp: {host, port}）或旧 REST 接口
   const frpHost = (room.frp && room.frp.host) || room.frp_host;
   const frpPort = (room.frp && room.frp.port) || room.frp_remote_port;
+  if (!frpHost || !frpPort) {
+    failGuestP2P('frp 节点未返回可用连接地址，请让房主重新创建房间');
+    return;
+  }
 
+  clearP2PTimer();
+  if (state.pc) { try { state.pc.close(); } catch {} state.pc = null; }
   logLine('frp 中转房间，连接: ' + frpHost + ':' + frpPort);
   toast('提示：中转模式延迟高于 P2P', 'warn');
 
@@ -900,13 +1014,11 @@ async function joinFrpRoom(room) {
 
 function leaveRoom() {
   if (state.role === 'guest') {
-    if (state.pc) { try { state.pc.close(); } catch {} state.pc = null; }
-    window.mclink.tunnelStopAll();
     sendSignal({ type: 'leave', room: state.roomCode });
-    if (state.ws) { state.ws.close(); state.ws = null; }
-    state.role = null;
+    cleanupGuestConnection();
     $('join-active').classList.add('hidden');
     $('join-form').classList.remove('hidden');
+    $('join-status').classList.add('hidden');
     $('btn-join').disabled = false;
     logLine('已断开连接');
   }
@@ -966,13 +1078,10 @@ function setupTunnelBridge() {
 
   // frpc 日志过滤（t12）：只显示关键状态行
   window.mclink.onFrpcLog((line) => {
-    // 只显示 frpc 状态关键词，过滤无关调试输出
     const KEY = ['start proxy', 'login to server', 'proxy added', 'proxy removed',
                  'reconnecting', 'disconnected', 'connected', 'error', 'failed'];
     const lower = line.toLowerCase();
-    if (KEY.some((k) => lower.includes(k))) {
-      logLine('[frpc] ' + line.trim());
-    }
+    if (state.debugMode || KEY.some((k) => lower.includes(k))) logLine('[frpc] ' + line.trim());
   });
   window.mclink.onFrpcError((err) => { logLine('[frpc错误] ' + err); toast('frp: ' + err, 'error'); });
 }
@@ -1063,24 +1172,28 @@ function doExitApp() {
 const SETTINGS_KEY = 'blfp_settings';
 
 function loadSettings() {
-  try {
-    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-    // 主题
-    if (s.theme) applyTheme(s.theme, false);
-    // 侧边栏与性能档位
-    applySidebarMode(s.sidebarMode || 'normal', false);
-    if (s.perf) applyPerfLevel(s.perf, false);
-    // 鼠标拖尾
-    if (s.cursorTrail) enableCursorTrail();
-    // 设置页字段回填
-    if ($('s-server')) $('s-server').value = s.server || DEFAULT_SERVER;
-    if ($('s-mc-port')) $('s-mc-port').value = s.mcPort || 25565;
-    if ($('s-launch-behavior')) $('s-launch-behavior').value = s.launchBehavior || 'ask';
-    if ($('sidebar-mode')) $('sidebar-mode').value = s.sidebarMode || 'normal';
-    if ($('perf-level')) $('perf-level').value = s.perf || 'medium';
-    if ($('cursor-trail-toggle')) $('cursor-trail-toggle').checked = !!s.cursorTrail;
-    return s;
-  } catch { return {}; }
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch { localStorage.removeItem(SETTINGS_KEY); }
+  const server = s.server || localStorage.getItem('mclink_server') || DEFAULT_SERVER;
+  const mcPort = Number(s.mcPort) || 25565;
+  state.server = server;
+  state.mcPort = mcPort;
+  state.debugMode = !!s.debugMode;
+  applyTheme(s.theme || 'dark', false);
+  applySidebarMode(s.sidebarMode || 'normal', false);
+  applyPerfLevel(s.perf || 'medium', false);
+  if (s.cursorTrail) enableCursorTrail();
+  if ($('s-server')) $('s-server').value = server;
+  if ($('a-server')) $('a-server').value = server;
+  if ($('s-mc-port')) $('s-mc-port').value = mcPort;
+  if ($('mc-port')) $('mc-port').value = mcPort;
+  if ($('quick-mc-port')) $('quick-mc-port').value = mcPort;
+  if ($('s-launch-behavior')) $('s-launch-behavior').value = s.launchBehavior || 'ask';
+  if ($('sidebar-mode')) $('sidebar-mode').value = s.sidebarMode || 'normal';
+  if ($('perf-level')) $('perf-level').value = s.perf || 'medium';
+  if ($('cursor-trail-toggle')) $('cursor-trail-toggle').checked = !!s.cursorTrail;
+  if ($('debug-mode-toggle')) $('debug-mode-toggle').checked = state.debugMode;
+  return s;
 }
 
 function saveSettings() {
@@ -1090,17 +1203,30 @@ function saveSettings() {
   const sidebarMode = $('sidebar-mode').value;
   const perf = $('perf-level').value;
   const cursorTrail = $('cursor-trail-toggle').checked;
+  const debugMode = $('debug-mode-toggle').checked;
   const theme = document.documentElement.getAttribute('data-theme') || 'dark';
 
-  const s = { server, mcPort, launchBehavior, sidebarMode, perf, cursorTrail, theme };
+  const s = { server, mcPort, launchBehavior, sidebarMode, perf, cursorTrail, debugMode, theme };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
-  // 更新服务器地址
+  localStorage.setItem('mclink_server', server);
   state.server = server;
+  state.mcPort = mcPort;
+  state.debugMode = debugMode;
   $('a-server').value = server;
+  $('mc-port').value = mcPort;
+  $('quick-mc-port').value = mcPort;
   applySidebarMode(sidebarMode, false);
   applyPerfLevel(perf, false);
   if (cursorTrail) enableCursorTrail(); else disableCursorTrail();
   toast('设置已保存', 'success');
+}
+
+function setDebugMode(on) {
+  state.debugMode = !!on;
+  const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+  s.debugMode = state.debugMode;
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  logLine(state.debugMode ? '开发者调试模式已开启，底层日志不再过滤' : '开发者调试模式已关闭');
 }
 
 function setSidebarMode(mode) { applySidebarMode(mode, true); }
@@ -1121,7 +1247,8 @@ function setTheme(t) {
 }
 
 function applyTheme(t, save) {
-  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : '');
+  const theme = t === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
   $('theme-dark') && $('theme-dark').classList.toggle('active', t !== 'light');
   $('theme-light') && $('theme-light').classList.toggle('active', t === 'light');
   if (save) {
@@ -1133,15 +1260,17 @@ function applyTheme(t, save) {
 function setPerfLevel(level) { applyPerfLevel(level, true); }
 
 function applyPerfLevel(level, save) {
+  const value = ['off', 'low', 'medium', 'high'].includes(level) ? level : 'medium';
   document.body.classList.remove('perf-off', 'perf-low', 'perf-medium', 'perf-high');
-  document.body.classList.add('perf-' + level);
+  document.body.classList.add('perf-' + value);
+  if ($('perf-level')) $('perf-level').value = value;
   if ($('cursor-trail-toggle')?.checked) {
     if (level === 'off') disableCursorTrail();
     else { if (!particleEnabled) enableCursorTrail(); else resetParticles(); }
   }
   if (save) {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-    s.perf = level; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+    s.perf = value; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   }
 }
 
@@ -1168,11 +1297,15 @@ function resetParticles() {
   }));
 }
 function drawParticles() {
+  if (!particleEnabled) { particleFrame = null; return; }
+  if (document.hidden) { particleFrame = requestAnimationFrame(drawParticles); return; }
   const canvas = $('particle-bg');
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const mouseMoving = particleMouse.active && performance.now() - particleMouse.lastMove < 160;
-  const repelParticles = ['high', 'medium'].includes($('perf-level')?.value || 'medium');
+  const perf = $('perf-level')?.value || 'medium';
+  const repelParticles = ['high', 'medium'].includes(perf);
+  const drawConnections = perf === 'high' || (perf === 'medium' && Math.floor(performance.now() / 16) % 2 === 0);
   for (let i = 0; i < particles.length; i++) {
     const p = particles[i];
     if (mouseMoving) {
@@ -1196,7 +1329,7 @@ function drawParticles() {
     for (let j = i + 1; j < particles.length; j++) {
       const q = particles[j], dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
       if (repelParticles && d < 24 && d > 1) { const force = (1 - d / 24) * .0008; p.vx -= dx / d * force; p.vy -= dy / d * force; q.vx += dx / d * force; q.vy += dy / d * force; }
-      if (d < 85) { ctx.strokeStyle = `rgba(116,143,252,${(1 - d / 85) * .1})`; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke(); }
+      if (drawConnections && d < 85) { ctx.strokeStyle = `rgba(116,143,252,${(1 - d / 85) * .1})`; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke(); }
     }
   }
   particleFrame = requestAnimationFrame(drawParticles);

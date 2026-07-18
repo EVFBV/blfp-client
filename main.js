@@ -7,6 +7,9 @@ const FrpcManager = require('./src/frpc-manager');
 const TunnelManager = require('./src/tunnel');
 const MotdBroadcaster = require('./src/motd-broadcast');
 
+app.commandLine.appendSwitch('high-dpi-support', '1');
+app.commandLine.appendSwitch('force-color-profile', 'srgb');
+
 const GITHUB_RELEASE_API = 'https://api.github.com/repos/EVFBV/BLFP-client/releases/latest';
 let mainWindow;
 let frpcMgr = new FrpcManager();
@@ -44,6 +47,10 @@ function createWindow() {
     autoHideMenuBar: true,
   });
   mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.webContents.setVisualZoomLevelLimits(1, 1);
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('Renderer process exited:', details.reason);
+  });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 

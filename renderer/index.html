@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src *; img-src 'self' data:;">
   <title>BLFP 联机助手</title>
   <link rel="stylesheet" href="style.css">
@@ -166,8 +167,9 @@
           <div class="form-group">
             <label>选择 frp 节点</label>
             <div class="frp-node-row">
-              <select id="frp-node-select"><option value="">-- 加载中 --</option></select>
+              <select id="frp-node-select" onchange="selectFrpNode(this.value)"><option value="">-- 加载中 --</option></select>
               <span id="frp-node-latency" class="latency-badge"></span>
+              <button class="btn btn-outline btn-sm" onclick="refreshFrpNodes()">刷新</button>
             </div>
           </div>
           <div class="warn-box">中转模式延迟通常比 P2P 高 20-100ms 以上，建议先尝试 P2P 模式</div>
@@ -306,6 +308,19 @@
       </div>
 
       <div class="card">
+        <h2>开发者</h2>
+        <div class="form-group">
+          <label class="toggle-label">
+            <span>开发者调试模式（保留完整底层日志）</span>
+            <label class="switch">
+              <input type="checkbox" id="debug-mode-toggle" onchange="setDebugMode(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
         <h2>连接</h2>
         <div class="form-group">
           <label>默认服务器地址</label>
@@ -360,6 +375,7 @@
       <div class="frp-node-row">
         <select id="quick-frp-node-select" onchange="selectFrpNode(this.value)"><option value="">-- 加载中 --</option></select>
         <span id="quick-frp-latency" class="latency-badge"></span>
+        <button class="btn btn-outline btn-sm" onclick="refreshFrpNodes()">刷新</button>
       </div>
     </div>
     <div class="modal-actions">

@@ -36,9 +36,9 @@ class FrpcManager extends EventEmitter {
       throw new Error(`未找到 frpc 可执行文件: ${frpcPath}\n请将 frpc.exe 放入 client/bin/ 目录`);
     }
 
-    this._configPath = path.join(os.tmpdir(), `mclink_frpc_${Date.now()}.ini`);
-    const ini = this._buildIni(cfg);
-    fs.writeFileSync(this._configPath, ini, 'utf8');
+    this._configPath = path.join(os.tmpdir(), `blfp_frpc_${Date.now()}.toml`);
+    const config = this._buildToml(cfg);
+    fs.writeFileSync(this._configPath, config, 'utf8');
 
     return new Promise((resolve, reject) => {
       this._proc = spawn(frpcPath, ['-c', this._configPath], {
@@ -53,8 +53,8 @@ class FrpcManager extends EventEmitter {
           this.emit('log', l);
 
           // 指定端口时必须等到 frpc 明确报告启动成功，避免把冲突端口误判为可用
-          const success = /start proxy success|proxy added|\[.*\] start proxy success/i.test(l);
-          const portMatch = l.match(/remotePort=(\d+)|remote_port\s*=\s*(\d+)|start proxy success.*:(\d+)/i);
+          const success = /start proxy success|proxy added|proxy started|start proxy.*success/i.test(l);
+          const portMatch = l.match(/remotePort[=:]\s*(\d+)|remote_port\s*=\s*(\d+)|start proxy success.*:(\d+)/i);
           if (success && !resolved) {
             const port = parseInt((portMatch && (portMatch[1] || portMatch[2] || portMatch[3])) || cfg.remotePort);
             if (port) {
@@ -137,20 +137,21 @@ class FrpcManager extends EventEmitter {
     return prodPath;
   }
 
-  _buildIni(cfg) {
+  _buildToml(cfg) {
+    const quote = (value) => JSON.stringify(String(value));
     const lines = [
-      '[common]',
-      `server_addr = ${cfg.serverAddr}`,
-      `server_port = ${cfg.serverPort || 7000}`,
+      `serverAddr = ${quote(cfg.serverAddr)}`,
+      `serverPort = ${Number(cfg.serverPort) || 7000}`,
     ];
-    if (cfg.token) lines.push(`token = ${cfg.token}`);
+    if (cfg.token) lines.push(`auth.token = ${quote(cfg.token)}`);
     lines.push(
       '',
-      '[mclink_tcp]',
-      `type = tcp`,
-      `local_ip = 127.0.0.1`,
-      `local_port = ${cfg.localPort || 25565}`,
-      `remote_port = ${cfg.remotePort || 0}`,
+      '[[proxies]]',
+      'name = "blfp_tcp"',
+      'type = "tcp"',
+      'localIP = "127.0.0.1"',
+      `localPort = ${Number(cfg.localPort) || 25565}`,
+      `remotePort = ${Number(cfg.remotePort) || 0}`,
     );
     return lines.join('\n');
   }
