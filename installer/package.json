@@ -1,0 +1,38 @@
+{
+  "name": "blfp-installer",
+  "version": "1.0.0",
+  "description": "BLFP 客户端安装程序",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --dir"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "adm-zip": "^0.5.16"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.blfp.installer",
+    "productName": "BLFP-Installer",
+    "directories": {
+      "output": "out"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**",
+      "package.json"
+    ],
+    "win": {
+      "target": "dir"
+    },
+    "extraResources": [
+      "payload/**"
+    ]
+  }
+}

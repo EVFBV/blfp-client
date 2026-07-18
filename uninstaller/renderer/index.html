@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>卸载 BLFP</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="panel">
+    <div class="brand"><span class="icon">⛏</span><strong>卸载 BLFP</strong></div>
+    <p id="message">确定要从此电脑中移除 BLFP 吗？程序文件与快捷方式将被删除。</p>
+    <div id="progress" class="progress hidden"><div class="bar"></div></div>
+    <div id="actions" class="actions">
+      <button id="cancel" class="btn ghost">取消</button>
+      <button id="uninstall" class="btn danger">确认卸载</button>
+    </div>
+    <div id="done-actions" class="actions hidden">
+      <button id="finish" class="btn primary">完成</button>
+    </div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

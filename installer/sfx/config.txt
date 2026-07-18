@@ -1,0 +1,6 @@
+;!@Install@!UTF-8!
+Title="BLFP 安装程序"
+ExecuteFile="BLFP-Installer.exe"
+GUIMode="1"
+OverwriteMode="1"
+;!@InstallEnd@!

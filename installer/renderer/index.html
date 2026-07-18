@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BLFP 安装程序</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="win">
+  <!-- 顶部品牌区 -->
+  <div class="hero">
+    <div class="logo">BLFP</div>
+    <div class="tagline">我的世界 Java 版联机客户端</div>
+  </div>
+
+  <!-- 步骤1：欢迎 + 选择路径 -->
+  <div id="step-setup" class="step active">
+    <p class="desc">欢迎安装 BLFP 客户端。支持 WebRTC P2P 直连与 frp 中转联机，免公网 IP。</p>
+    <label class="field-label">安装位置</label>
+    <div class="path-row">
+      <input id="install-dir" type="text" readonly>
+      <button class="btn btn-outline" id="btn-browse">浏览...</button>
+    </div>
+    <label class="checkbox">
+      <input id="opt-desktop" type="checkbox" checked> 创建桌面快捷方式
+    </label>
+    <div class="actions">
+      <button class="btn btn-ghost" id="btn-cancel">取消</button>
+      <button class="btn btn-primary" id="btn-install">开始安装</button>
+    </div>
+  </div>
+
+  <!-- 步骤2：安装进度 -->
+  <div id="step-progress" class="step">
+    <p class="desc" id="progress-text">正在准备安装...</p>
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    <div class="progress-pct" id="progress-pct">0%</div>
+  </div>
+
+  <!-- 步骤3：完成 -->
+  <div id="step-done" class="step">
+    <div class="done-icon">✓</div>
+    <p class="desc" id="done-text">BLFP 已成功安装到您的电脑。</p>
+    <label class="checkbox">
+      <input id="opt-launch" type="checkbox" checked> 立即启动 BLFP
+    </label>
+    <div class="actions">
+      <button class="btn btn-primary" id="btn-finish">完成</button>
+    </div>
+  </div>
+
+  <!-- 错误 -->
+  <div id="step-error" class="step">
+    <div class="error-icon">!</div>
+    <p class="desc" id="error-text">安装失败</p>
+    <div class="actions">
+      <button class="btn btn-outline" id="btn-retry">返回</button>
+      <button class="btn btn-ghost" id="btn-close-err">关闭</button>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+node_modules/
+
+# Electron 构建产物
+build_*/
+setup_out/
+dist/
+out/
+release/
+installer/win-unpacked/
+*.blockmap
+latest*.yml
+
+# 自制安装器中间产物
+installer/node_modules/
+installer/out/
+installer/release_*/
+installer/payload/*.zip
+installer/sfx/*.7z
+uninstaller/node_modules/
+uninstaller/out/
+
+# Release 文件通过 GitHub Release 发布，不进入源码仓库
+BLFP-Setup*.exe
+
+# 本地配置与日志
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+Thumbs.db

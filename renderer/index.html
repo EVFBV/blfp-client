@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src *; img-src 'self' data:;">
+  <title>BLFP 联机助手</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="window-titlebar">BLFP 联机助手</div>
+<canvas id="particle-bg" aria-hidden="true"></canvas>
+<div id="login-loading" class="login-loading hidden" aria-live="polite">
+  <div class="loading-spinner"></div>
+  <div id="login-loading-text">登录中…</div>
+</div>
+
+<!-- ====== 登录页 ====== -->
+<div id="auth-page" class="auth-wrap hidden">
+  <div class="auth-box">
+    <div class="logo-wrap">
+      <div class="logo-icon">⛏</div>
+      <div class="logo-text">BLFP</div>
+    </div>
+    <div class="subtitle">我的世界 Java 版联机助手</div>
+
+    <div id="server-cfg" class="server-cfg">
+      <div class="form-group">
+        <label>服务器地址</label>
+        <input id="a-server" type="text" value="https://p.blfp.cn" placeholder="https://your-server">
+      </div>
+    </div>
+
+    <div class="auth-tabs">
+      <button id="tab-login" class="active" onclick="showAuthTab('login')">登录</button>
+      <button id="tab-reg" onclick="showAuthTab('reg')">注册</button>
+    </div>
+
+    <div id="form-login">
+      <div class="form-group"><label>用户名 / 邮箱</label><input id="l-user" type="text" placeholder="请输入用户名或邮箱" onkeydown="if(event.key==='Enter')doLogin()"></div>
+
+      <div class="login-method-tabs">
+        <button id="lm-pass" class="active" onclick="switchLoginMethod('pass')">密码登录</button>
+        <button id="lm-code" onclick="switchLoginMethod('code')">验证码登录</button>
+      </div>
+
+      <div id="login-by-pass" class="form-group">
+        <label>密码</label>
+        <input id="l-pass" type="password" placeholder="请输入密码" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+
+      <div id="login-by-code" class="form-group hidden">
+        <label>邮箱验证码</label>
+        <div class="code-row">
+          <input id="l-code" type="text" placeholder="6位验证码" maxlength="6" onkeydown="if(event.key==='Enter')doLogin()">
+          <button class="btn btn-outline btn-sm" id="l-send-code" onclick="sendCode('login')">获取验证码</button>
+        </div>
+      </div>
+
+      <button id="btn-login" class="btn btn-primary btn-full" onclick="doLogin()">登录</button>
+    </div>
+
+    <div id="form-reg" class="hidden">
+      <div class="form-group"><label>用户名 (3-20位)</label><input id="r-user" type="text" placeholder="请输入用户名"></div>
+      <div class="form-group"><label>邮箱</label><input id="r-email" type="email" placeholder="用于接收验证码"></div>
+      <div class="form-group">
+        <label>邮箱验证码</label>
+        <div class="code-row">
+          <input id="r-code" type="text" placeholder="6位验证码" maxlength="6">
+          <button class="btn btn-outline btn-sm" id="r-send-code" onclick="sendCode('register')">获取验证码</button>
+        </div>
+      </div>
+      <div class="form-group"><label>密码 (至少6位)</label><input id="r-pass" type="password" placeholder="请设置密码"></div>
+      <button class="btn btn-primary btn-full" onclick="doRegister()">注册</button>
+    </div>
+
+    <div id="auth-err" class="err-msg hidden"></div>
+  </div>
+</div>
+
+<!-- ====== 主应用 ====== -->
+<div id="main-app" class="hidden">
+  <!-- 侧边栏 -->
+  <aside class="sidebar" id="app-sidebar">
+    <div class="sidebar-logo">⛏ <span class="logo-label">BLFP</span></div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-page="home" title="主页" onclick="navTo('home', this)">
+        <span class="nav-icon">🏠</span><span class="nav-label">主页</span>
+      </button>
+      <button class="nav-item" data-page="host" title="创建房间" onclick="navTo('host', this)">
+        <span class="nav-icon">🟢</span><span class="nav-label">创建房间</span>
+      </button>
+      <button class="nav-item" data-page="join" title="加入房间" onclick="navTo('join', this)">
+        <span class="nav-icon">🔗</span><span class="nav-label">加入房间</span>
+      </button>
+      <button class="nav-item" data-page="log" title="日志" onclick="navTo('log', this)">
+        <span class="nav-icon">📋</span><span class="nav-label">日志</span>
+      </button>
+      <button class="nav-item" data-page="settings" title="设置" onclick="navTo('settings', this)">
+        <span class="nav-icon">⚙️</span><span class="nav-label">设置</span>
+      </button>
+    </nav>
+    <div class="sidebar-user">
+      <div class="user-name" id="s-username"></div>
+      <div class="user-role" id="s-role"></div>
+      <div class="sidebar-user-btns">
+        <button class="btn btn-sm btn-outline" title="退出登录" onclick="doLogout()"><span class="user-btn-icon">↩</span><span class="user-btn-label">退出登录</span></button>
+        <button class="btn btn-sm btn-danger-outline" title="退出软件" onclick="doExitApp()"><span class="user-btn-icon">⏻</span><span class="user-btn-label">退出软件</span></button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 内容区 -->
+  <main class="content">
+
+    <!-- 主页 -->
+    <div id="page-home" class="page active">
+      <h1 class="page-title">欢迎使用 BLFP</h1>
+      <p id="home-welcome" class="home-welcome"></p>
+      <div class="cards-row">
+        <div class="card quick-host-card" role="button" tabindex="0" aria-label="快捷创建 P2P 房间" onclick="openQuickHost('p2p')" onkeydown="quickHostKey(event, 'p2p')">
+          <div class="card-icon">🟢</div>
+          <h3>P2P 端到端</h3>
+          <p>点对点直连，延迟最低，优先推荐</p>
+          <div class="mode-badge p2p">推荐</div>
+        </div>
+        <div class="card quick-host-card" role="button" tabindex="0" aria-label="快捷创建 frp 房间" onclick="openQuickHost('frp')" onkeydown="quickHostKey(event, 'frp')">
+          <div class="card-icon">🔄</div>
+          <h3>frp 中转</h3>
+          <p>通过中转服务器连接，适合打洞失败时</p>
+          <div class="mode-badge frp warn">延迟较高</div>
+        </div>
+      </div>
+      <div class="info-box">
+        <h3>使用流程</h3>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span>打开 Minecraft Java 版，进入单人游戏，开启局域网</span></div>
+          <div class="step"><span class="step-n">2</span><span>在「创建房间」页面选择连接模式，软件会自动检测端口</span></div>
+          <div class="step"><span class="step-n">3</span><span>将 6 位房间号发给朋友，朋友在「加入房间」输入</span></div>
+          <div class="step"><span class="step-n">4</span><span>朋友连接本地出现的代理地址 (127.0.0.1:端口) 即可</span></div>
+        </div>
+      </div>
+      <div class="community-link">官方交流群：<button onclick="copyQQGroup()">QQ群 229527551（点击复制）</button></div>
+    </div>
+
+    <!-- 创建房间（Host） -->
+    <div id="page-host" class="page">
+      <h1 class="page-title">创建房间（我是房主）</h1>
+
+      <div class="card" id="host-setup">
+        <h2>连接模式</h2>
+        <div class="mode-select">
+          <div class="mode-card active" id="mode-p2p" onclick="selectMode('p2p')">
+            <div class="mc-icon">⚡</div>
+            <div class="mc-title">P2P 端到端</div>
+            <div class="mc-desc">WebRTC 直连，延迟最低<br><strong style="color:var(--success)">优先推荐</strong></div>
+          </div>
+          <div class="mode-card" id="mode-frp" onclick="selectMode('frp')">
+            <div class="mc-icon">🔄</div>
+            <div class="mc-title">frp 中转</div>
+            <div class="mc-desc">通过中转服务器连接<br><strong style="color:var(--warn)">延迟不如P2P</strong></div>
+          </div>
+        </div>
+
+    <!-- frp节点选择区域加ping显示 -->
+        <div id="frp-node-section" class="hidden" style="margin-top:16px">
+          <div class="form-group">
+            <label>选择 frp 节点</label>
+            <div class="frp-node-row">
+              <select id="frp-node-select"><option value="">-- 加载中 --</option></select>
+              <span id="frp-node-latency" class="latency-badge"></span>
+            </div>
+          </div>
+          <div class="warn-box">中转模式延迟通常比 P2P 高 20-100ms 以上，建议先尝试 P2P 模式</div>
+        </div>
+
+        <div id="port-section" style="margin-top:16px">
+          <div class="form-group">
+            <label>Minecraft 端口</label>
+            <div class="port-row">
+              <input id="mc-port" type="number" value="25565" min="1" max="65535">
+              <button class="btn btn-outline btn-sm" onclick="detectPort()">自动检测</button>
+            </div>
+          </div>
+          <div id="port-list" class="hidden">
+            <p style="color:var(--text2);font-size:.85rem;margin-bottom:8px">检测到以下 Minecraft 进程：</p>
+            <div id="port-options"></div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" onclick="createRoom()" id="btn-create">创建房间</button>
+      </div>
+
+      <!-- 房间已创建 -->
+      <div class="card hidden" id="host-active">
+        <h2>房间已开启</h2>
+        <div class="room-code-wrap">
+          <div class="room-code-label">房间号</div>
+          <div class="room-code" id="room-code-display">------</div>
+          <button class="btn btn-outline btn-sm" onclick="copyRoomCode()">复制</button>
+        </div>
+
+        <div class="room-meta">
+          <div class="rm-item">
+            <span class="rm-label">在线人数</span>
+            <span class="rm-value" id="host-online-count">0</span>
+          </div>
+          <div class="rm-item">
+            <span class="rm-label">局域网连接地址</span>
+            <span class="rm-value" id="host-lan-addr">获取中...</span>
+            <button class="btn btn-outline btn-sm" onclick="copyHostAddr()">复制IP</button>
+          </div>
+        </div>
+
+        <div id="host-status" class="status-bar">等待好友加入...</div>
+        <div id="host-peers" class="peers-list"></div>
+        <div style="margin-top:16px;display:flex;gap:10px">
+          <button class="btn btn-danger btn-sm" onclick="closeRoom()">关闭房间</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 加入房间（Guest） -->
+    <div id="page-join" class="page">
+      <h1 class="page-title">加入房间</h1>
+
+      <div class="card" id="join-form">
+        <h2>输入房间号</h2>
+        <div class="room-input-wrap">
+          <input id="room-input" type="text" class="room-input" placeholder="请输入 6 位房间号" maxlength="6" pattern="[0-9]*" oninput="this.value=this.value.replace(/\D/g,'')" onkeydown="if(event.key==='Enter')joinRoom()">
+        </div>
+        <button class="btn btn-primary" onclick="joinRoom()" id="btn-join">连接</button>
+        <div id="join-status" class="status-bar hidden"></div>
+      </div>
+
+      <!-- 已连接 -->
+      <div class="card hidden" id="join-active">
+        <h2>已连接</h2>
+        <div class="connect-info">
+          <div class="ci-row"><span class="ci-label">房间号</span><span id="j-room"></span></div>
+          <div class="ci-row"><span class="ci-label">房主</span><span id="j-host"></span></div>
+          <div class="ci-row"><span class="ci-label">模式</span><span id="j-mode"></span></div>
+          <div class="ci-row">
+            <span class="ci-label">连接地址</span>
+            <strong id="j-addr" style="color:var(--accent2)">127.0.0.1:25565</strong>
+            <button class="btn btn-outline btn-sm" onclick="copyJoinAddr()">复制</button>
+          </div>
+          <div class="ci-row"><span class="ci-label">状态</span><span id="j-status"></span></div>
+        </div>
+        <div class="info-box" style="margin-top:12px">
+          在 Minecraft「多人游戏」中添加服务器，地址填写上方的连接地址
+        </div>
+        <h3 class="members-title">房间成员</h3>
+        <div id="guest-members" class="peers-list"></div>
+        <button class="btn btn-danger btn-sm" style="margin-top:12px" onclick="leaveRoom()">断开连接</button>
+      </div>
+    </div>
+
+    <!-- 日志 -->
+    <div id="page-log" class="page">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h1 class="page-title" style="margin:0">运行日志</h1>
+        <button class="btn btn-outline btn-sm" onclick="clearLog()">清除</button>
+      </div>
+      <div class="log-box" id="log-box"></div>
+    </div>
+
+    <!-- 设置 -->
+    <div id="page-settings" class="page">
+      <h1 class="page-title">设置</h1>
+
+      <div class="card">
+        <h2>外观</h2>
+        <div class="form-group">
+          <label>主题</label>
+          <div class="theme-toggle-row">
+            <button id="theme-dark" class="theme-btn active" onclick="setTheme('dark')">深色</button>
+            <button id="theme-light" class="theme-btn" onclick="setTheme('light')">浅色</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>侧边栏模式</label>
+          <select id="sidebar-mode" onchange="setSidebarMode(this.value)">
+            <option value="normal">正常（200px）</option>
+            <option value="collapsed">收起（仅图标）</option>
+            <option value="floating">悬浮伸缩</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>动画性能档位</label>
+          <select id="perf-level" onchange="setPerfLevel(this.value)">
+            <option value="high">高（全特效）</option>
+            <option value="medium" selected>中（推荐）</option>
+            <option value="low">低（省电）</option>
+            <option value="off">关闭</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="toggle-label">
+            <span>交互粒子背景</span>
+            <label class="switch">
+              <input type="checkbox" id="cursor-trail-toggle" onchange="setCursorTrail(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>连接</h2>
+        <div class="form-group">
+          <label>默认服务器地址</label>
+          <input id="s-server" type="text" placeholder="https://your-server">
+        </div>
+        <div class="form-group">
+          <label>默认 MC 端口</label>
+          <input id="s-mc-port" type="number" value="25565" min="1" max="65535">
+        </div>
+        <div class="form-group">
+          <label>启动行为</label>
+          <select id="s-launch-behavior">
+            <option value="ask">每次询问</option>
+            <option value="home">打开主页</option>
+            <option value="host">直接创建房间</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="saveSettings()">保存设置</button>
+      </div>
+
+      <div class="card">
+        <h2>关于与 GitHub Releases 更新</h2>
+        <div class="app-info-row"><span>当前版本</span><strong id="app-version">获取中…</strong></div>
+        <div class="app-info-row"><span>运行环境</span><span id="app-platform">--</span></div>
+        <button class="btn btn-outline" onclick="checkForUpdates(false)">检查更新</button>
+        <div id="update-status" class="status-bar">尚未检查更新</div>
+        <div id="source-repo" class="source-repo"><a onclick="openSourceRepo()">源码仓库：EVFBV/BLFP-client</a></div>
+      </div>
+      <div class="community-link settings-community">官方交流群：<button onclick="copyQQGroup()">QQ群 229527551（点击复制）</button></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ====== Toast ====== -->
+<div class="toast-wrap" id="toast-wrap"></div>
+
+<!-- ====== 快捷创建房间弹窗 ====== -->
+<div class="modal-backdrop hidden" id="quick-host-modal">
+  <div class="modal">
+    <h3>快捷创建房间</h3>
+    <div class="app-info-row"><span>连接模式</span><strong id="quick-host-mode">P2P 端到端</strong></div>
+    <div class="form-group">
+      <label for="quick-mc-port">Minecraft 端口</label>
+      <div class="port-row">
+        <input id="quick-mc-port" type="number" value="25565" min="1" max="65535">
+        <button class="btn btn-outline btn-sm" onclick="detectPort('quick-mc-port')">自动检测</button>
+      </div>
+    </div>
+    <div id="quick-frp-section" class="form-group hidden">
+      <label for="quick-frp-node-select">frp 节点</label>
+      <div class="frp-node-row">
+        <select id="quick-frp-node-select" onchange="selectFrpNode(this.value)"><option value="">-- 加载中 --</option></select>
+        <span id="quick-frp-latency" class="latency-badge"></span>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline btn-sm" onclick="closeModal('quick-host-modal')">取消</button>
+      <button class="btn btn-primary btn-sm" id="quick-host-confirm" onclick="confirmQuickHost()">创建房间</button>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 端口选择弹窗 ====== -->
+<div class="modal-backdrop hidden" id="port-modal">
+  <div class="modal">
+    <h3>选择 Minecraft 端口</h3>
+    <p style="color:var(--text2);font-size:.88rem;margin-bottom:14px">检测到以下 Java 进程正在监听端口，请选择：</p>
+    <div id="port-modal-list"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline btn-sm" onclick="closeModal('port-modal')">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 二次确认弹窗 ====== -->
+<div class="modal-backdrop hidden" id="confirm-modal">
+  <div class="modal confirm-modal">
+    <h3 id="confirm-title">确认操作</h3>
+    <p id="confirm-msg" style="color:var(--text2);font-size:.9rem;margin-bottom:4px"></p>
+    <div class="modal-actions">
+      <button class="btn btn-outline btn-sm" onclick="confirmCancel()">取消</button>
+      <button class="btn btn-primary btn-sm" id="confirm-ok" onclick="confirmOk()">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop hidden" id="update-modal">
+  <div class="modal">
+    <h3 id="update-title">发现新版本</h3>
+    <p id="update-notes" class="update-notes"></p>
+    <div class="modal-actions">
+      <button class="btn btn-outline btn-sm" onclick="closeModal('update-modal')">稍后</button>
+      <button class="btn btn-primary btn-sm" id="update-download" onclick="openUpdateDownload()">打开下载页</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

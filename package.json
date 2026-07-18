@@ -1,0 +1,46 @@
+{
+  "name": "blfp-client",
+  "version": "1.0.0",
+  "description": "BLFP - Minecraft Java 联机软件 - 客户端 (Electron + WebRTC P2P + frpc)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.blfp.client",
+    "productName": "BLFP",
+    "directories": {
+      "output": "setup_out"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**",
+      "src/**",
+      "!**/*.map"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "BLFP"
+    },
+    "extraResources": [
+      "bin/**"
+    ]
+  }
+}
