@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  NODE_VERSION: 20
+
 jobs:
   release:
     runs-on: windows-latest
@@ -18,19 +21,117 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+            client/uninstaller/package-lock.json
+            client/installer/package-lock.json
 
-      - name: Install dependencies
+      - name: Resolve client directory
+        id: paths
+        shell: pwsh
+        run: |
+          if (Test-Path 'client/package.json') {
+            $clientDir = (Resolve-Path 'client').Path
+            $clientRelative = 'client'
+          } elseif (Test-Path 'package.json') {
+            $clientDir = (Get-Location).Path
+            $clientRelative = '.'
+          } else {
+            throw '无法找到客户端 package.json'
+          }
+          "client_dir=$clientDir" >> $env:GITHUB_OUTPUT
+          "uninstaller_dir=$clientDir/uninstaller" >> $env:GITHUB_OUTPUT
+          "installer_dir=$clientDir/installer" >> $env:GITHUB_OUTPUT
+          "release_file=$clientRelative/installer/out_v1.0.2-final/BLFP-Setup-v1.0.2.exe" >> $env:GITHUB_OUTPUT
+
+      - name: Install client dependencies
+        working-directory: ${{ steps.paths.outputs.client_dir }}
         run: npm ci
 
-      - name: Build Windows installer
+      - name: Install uninstaller dependencies
+        working-directory: ${{ steps.paths.outputs.uninstaller_dir }}
+        run: npm ci
+
+      - name: Install installer dependencies
+        working-directory: ${{ steps.paths.outputs.installer_dir }}
+        run: npm ci
+
+      - name: Build uninstaller
+        working-directory: ${{ steps.paths.outputs.uninstaller_dir }}
+        run: npm run build -- --publish never
+
+      - name: Build client directory
+        working-directory: ${{ steps.paths.outputs.client_dir }}
         run: npm run dist -- --publish never
+
+      - name: Assemble and validate payload
+        shell: pwsh
+        env:
+          CLIENT_DIR: ${{ steps.paths.outputs.client_dir }}
+          UNINSTALLER_DIR: ${{ steps.paths.outputs.uninstaller_dir }}
+        run: |
+          $clientOutput = Join-Path $env:CLIENT_DIR 'build_v1.0.2/win-unpacked'
+          $uninstaller = Join-Path $env:UNINSTALLER_DIR 'out_v1.0.2/BLFP-Uninstall.exe'
+          $uninstallerTarget = Join-Path $clientOutput '卸载 BLFP.exe'
+          $payloadDir = Join-Path $env:CLIENT_DIR 'installer/payload'
+          $payload = Join-Path $payloadDir 'payload.zip'
+          $requiredFiles = @(
+            'BLFP.exe',
+            'resources/bin/easytier-core.exe',
+            'resources/bin/easytier-cli.exe',
+            'resources/bin/wintun.dll',
+            'resources/bin/Packet.dll',
+            'resources/bin/WinDivert64.sys',
+            'resources/bin/frpc.exe',
+            '卸载 BLFP.exe'
+          )
+          if (-not (Test-Path -LiteralPath $clientOutput -PathType Container)) { throw "缺少客户端构建目录: $clientOutput" }
+          if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { throw "缺少卸载器构建产物: $uninstaller" }
+          Copy-Item -LiteralPath $uninstaller -Destination $uninstallerTarget -Force
+          foreach ($relativePath in $requiredFiles) {
+            $path = Join-Path $clientOutput $relativePath
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "客户端构建目录缺少关键文件: $relativePath"
+            }
+          }
+          if (Test-Path -LiteralPath $payload) { Remove-Item -LiteralPath $payload -Force }
+          New-Item -ItemType Directory -Path $payloadDir -Force | Out-Null
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory($clientOutput, $payload, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+          if (-not (Test-Path -LiteralPath $payload -PathType Leaf)) { throw 'payload.zip 生成失败' }
+          $payloadHash = Get-FileHash -LiteralPath $payload -Algorithm SHA256
+          "PAYLOAD_SHA256=$($payloadHash.Hash)" >> $env:GITHUB_ENV
+
+      - name: Build installer
+        working-directory: ${{ steps.paths.outputs.installer_dir }}
+        run: npm run dist -- --publish never
+
+      - name: Validate installer and hashes
+        shell: pwsh
+        env:
+          CLIENT_DIR: ${{ steps.paths.outputs.client_dir }}
+        run: |
+          $installerPath = Join-Path $env:CLIENT_DIR 'installer/out_v1.0.2-final/BLFP-Setup-v1.0.2.exe'
+          $payloadPath = Join-Path $env:CLIENT_DIR 'installer/payload/payload.zip'
+          if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) { throw "真实安装器不存在: $installerPath" }
+          if (-not (Test-Path -LiteralPath $payloadPath -PathType Leaf)) { throw "payload.zip 不存在: $payloadPath" }
+          $embeddedPayload = Join-Path $env:CLIENT_DIR 'installer/out_v1.0.2-final/win-unpacked/resources/payload/payload.zip'
+          if (-not (Test-Path -LiteralPath $embeddedPayload -PathType Leaf)) { throw "安装器内缺少 payload.zip: $embeddedPayload" }
+          $payloadHash = (Get-FileHash -LiteralPath $payloadPath -Algorithm SHA256).Hash
+          $embeddedHash = (Get-FileHash -LiteralPath $embeddedPayload -Algorithm SHA256).Hash
+          if ($payloadHash -ne $embeddedHash) { throw '安装器内 payload.zip 与输入文件 SHA256 不一致' }
+          $installerHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
+          "Installer: $installerPath"
+          "Installer SHA256: $installerHash"
+          "Payload SHA256: $payloadHash"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: setup_out/*.exe
+          files: ${{ steps.paths.outputs.release_file }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

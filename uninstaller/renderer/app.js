@@ -1,5 +1,9 @@
 const $ = (id) => document.getElementById(id);
 
+window.uninstaller.getInstallDir().then((dir) => {
+  $('install-dir').textContent = dir || '未找到安装目录';
+});
+
 $('cancel').addEventListener('click', () => window.uninstaller.quit());
 $('finish').addEventListener('click', () => window.uninstaller.quit());
 $('uninstall').addEventListener('click', async () => {

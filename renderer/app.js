@@ -5,45 +5,41 @@ const state = {
   server: DEFAULT_SERVER,
   token: null,
   user: null,
-  mode: 'p2p',
+  mode: 'easytier',
   ws: null,            // 信令 WebSocket
-  pc: null,            // RTCPeerConnection (guest 侧单个；host 侧见 hostPeers)
   role: null,          // 'host' | 'guest'
   roomCode: null,
   mcPort: 25565,
-  // host 侧：guestId -> { pc, channel, tcpConnId }
-  hostPeers: new Map(),
-  // guest 侧
-  dataChannel: null,
-  proxyPort: 25565,
+  easytier: { state: 'stopped', running: false, virtualIp: null, error: null },
   frpNodes: [],
   frpNodeId: null,
+  frpNode: null,
+  frpEndpoint: null,
+  hostResetPromise: null,
   members: [],
   maxMembers: 12,
   appInfo: null,
   updateInfo: null,
   signingKey: null,
   signingKeyToken: null,
-  p2pTimer: null,
   debugMode: false,
-};
-
-// WebRTC ICE 配置（公共 STUN）
-const RTC_CONFIG = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ],
+  isPublic: false,
+  presenceTimer: null,
+  closingSignaling: false,
+  announcement: null,
+  announcementTimer: null,
 };
 
 /* ============ 工具函数 ============ */
 function $(id) { return document.getElementById(id); }
 
 function toast(msg, type = '') {
+  const wrap = $('toast-wrap');
+  if (!wrap) return console.error('Toast 容器未准备:', msg);
   const el = document.createElement('div');
   el.className = 'toast ' + type;
   el.textContent = msg;
-  $('toast-wrap').appendChild(el);
+  wrap.appendChild(el);
   setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
 }
 
@@ -134,7 +130,9 @@ function showAuthTab(tab) {
   $('tab-reg').classList.toggle('active', tab === 'reg');
   $('form-login').classList.toggle('hidden', tab !== 'login');
   $('form-reg').classList.toggle('hidden', tab !== 'reg');
+  $('form-2fa').classList.add('hidden');
   $('auth-err').classList.add('hidden');
+  tfaSession = null;
 }
 
 function showAuthErr(msg) {
@@ -156,7 +154,7 @@ function switchLoginMethod(m) {
 
 // 发送邮箱验证码。scene: 'register' | 'login'
 async function sendCode(scene) {
-  state.server = $('a-server').value.trim().replace(/\/$/, '');
+  state.server = DEFAULT_SERVER;
   const email = scene === 'register' ? $('r-email').value.trim() : $('l-user').value.trim();
   if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return showAuthErr(scene === 'register' ? '请填写正确的邮箱' : '验证码登录请在上方填写邮箱');
@@ -179,8 +177,10 @@ async function sendCode(scene) {
   }
 }
 
+let tfaSession = null;
+
 async function doLogin() {
-  state.server = $('a-server').value.trim().replace(/\/$/, '');
+  state.server = DEFAULT_SERVER;
   const username = $('l-user').value.trim();
   if (!username) return showAuthErr('请输入用户名或邮箱');
 
@@ -198,10 +198,23 @@ async function doLogin() {
   try {
     setLoginLoading(true, '登录中…');
     const data = await api('/auth/login', { method: 'POST', body: JSON.stringify(body) });
+
+    if (data.tfa_required) {
+      tfaSession = { tfaToken: data.tfa_token, methods: data.tfa_methods || {} };
+      $('form-login').classList.add('hidden');
+      $('form-reg').classList.add('hidden');
+      $('form-2fa').classList.remove('hidden');
+      $('tfa-btn-email').classList.toggle('hidden', !tfaSession.methods.email);
+      $('tfa-btn-qq').classList.toggle('hidden', !tfaSession.methods.qq);
+      setLoginLoading(false);
+      return;
+    }
+
     state.token = data.token;
     state.user = data.user;
+    state.server = DEFAULT_SERVER;
     localStorage.setItem('mclink_token', data.token);
-    localStorage.setItem('mclink_server', state.server);
+    localStorage.removeItem('mclink_server');
     enterApp();
   } catch (e) {
     showAuthErr(e.message);
@@ -210,8 +223,53 @@ async function doLogin() {
   }
 }
 
+async function requestTfaCode(method) {
+  if (!tfaSession) return;
+  try {
+    const emailEl = $('l-user');
+    await api('/auth/tfa/send', { method: 'POST', body: JSON.stringify({ tfa_token: tfaSession.tfaToken, method }) });
+    $('tfa-method').value = method;
+    toast('验证码已发送，请查收邮箱', 'success');
+  } catch (e) { showAuthErr(e.message); }
+}
+
+function showTfaQqTip() {
+  $('tfa-method').value = 'qq';
+  toast('请在QQ机器人发送 /verify [验证码]，再将验证码填入下方输入框', 'info');
+}
+
+async function submitTfa() {
+  if (!tfaSession) return;
+  const code = $('tfa-code').value.trim();
+  const method = $('tfa-method').value;
+  if (!code) return showAuthErr('请输入验证码');
+  try {
+    setLoginLoading(true, '验证中…');
+    const data = await api('/auth/tfa/verify', { method: 'POST', body: JSON.stringify({ tfa_token: tfaSession.tfaToken, code, method }) });
+    tfaSession = null;
+    state.token = data.token;
+    state.user = data.user;
+    state.server = DEFAULT_SERVER;
+    localStorage.setItem('mclink_token', data.token);
+    localStorage.removeItem('mclink_server');
+    cancelTfa(true);
+    enterApp();
+  } catch (e) {
+    showAuthErr(e.message);
+  } finally {
+    setLoginLoading(false);
+  }
+}
+
+function cancelTfa(silent) {
+  tfaSession = null;
+  $('form-2fa').classList.add('hidden');
+  $('tfa-code').value = '';
+  if (!silent) showAuthTab('login');
+}
+
 async function doRegister() {
-  state.server = $('a-server').value.trim().replace(/\/$/, '');
+  state.server = DEFAULT_SERVER;
   const username = $('r-user').value.trim();
   const email = $('r-email').value.trim();
   const code = $('r-code').value.trim();
@@ -235,6 +293,11 @@ function doLogout() {
   showConfirm('确认退出登录？', '退出后需重新登录才能使用联机功能。', async () => {
     if (state.role === 'guest') await leaveRoom();
     else if (state.role === 'host') await closeRoom();
+    await stopEasyTier();
+    try { await window.mclink.frpcStop(); } catch {}
+    try { await syncPresence(false); } catch {}
+    if (state.presenceTimer) clearInterval(state.presenceTimer);
+    state.presenceTimer = null;
     state.token = null;
     state.user = null;
     state.signingKey = null;
@@ -261,13 +324,27 @@ function confirmCancel() {
   $('confirm-modal').classList.add('hidden');
 }
 
+function syncPresence(online = true) {
+  return api('/auth/presence', { method: 'POST', body: JSON.stringify({ online }) });
+}
+
+function safeUserTheme(theme) {
+  return (theme === 'light' || theme === 'dark') ? theme : null;
+}
+
+function applyUserAppearance(user) {
+  const title = user.title || ({ admin: '管理员', sponsor: '赞助用户', user: '普通用户' }[user.role] || '普通用户');
+  const theme = safeUserTheme(user.theme);
+  $('s-role').textContent = title;
+  $('s-role').className = `user-role ${user.role === 'admin' ? 'admin' : user.role === 'sponsor' ? 'sponsor' : ''} ${theme ? 'theme-' + theme : ''}`.trim();
+  $('s-role').dataset.userTheme = theme;
+}
+
 function enterApp() {
   $('auth-page').classList.add('hidden');
   $('main-app').classList.remove('hidden');
   $('s-username').textContent = state.user.username;
-  const roleLabels = { admin: '管理员', sponsor: '赞助用户', user: '普通用户' };
-  $('s-role').textContent = roleLabels[state.user.role] || '普通用户';
-  $('s-role').className = 'user-role ' + (state.user.role === 'admin' ? 'admin' : state.user.role === 'sponsor' ? 'sponsor' : '');
+  applyUserAppearance(state.user);
   const welcome = state.user.role === 'sponsor' ? `感谢赞助，${state.user.username}！欢迎回到 BLFP。` : `欢迎回来，${state.user.username}。`;
   $('home-welcome').textContent = welcome;
   logLine(welcome);
@@ -275,11 +352,17 @@ function enterApp() {
   home.classList.add('enter-from-right');
   setTimeout(() => home.classList.remove('enter-from-right'), 230);
   loadFrpNodes();
-  checkForUpdates(true);
+  loadPublicRooms(true);
+  loadFriends(true);
+  if (state.user.role === 'sponsor' && !sessionStorage.getItem('blfp_sponsor_welcome')) { sessionStorage.setItem('blfp_sponsor_welcome', '1'); toast(`感谢赞助，${state.user.username}，欢迎回来！`, 'success'); }
+  syncPresence(true).catch((e) => logLine('在线状态同步失败: ' + e.message));
+  if (state.presenceTimer) clearInterval(state.presenceTimer);
+  state.presenceTimer = setInterval(() => syncPresence(true).catch((e) => debugLog('在线状态同步失败: ' + e.message)), 60000);
+  loadAnnouncement();
 }
 
 /* ============ 导航 ============ */
-const NAV_ORDER = ['home', 'host', 'join', 'log', 'settings'];
+const NAV_ORDER = ['home', 'host', 'join', 'square', 'friends', 'log', 'settings'];
 let currentPage = 'home';
 let navTimer = null;
 function navTo(page, btn) {
@@ -313,12 +396,14 @@ function navTo(page, btn) {
     requestAnimationFrame(() => $('app-sidebar')?.classList.remove('sidebar-retract'));
   }
   if (page === 'host' && state.token) loadFrpNodes({ silent: true, preserveSelection: true });
+  if (page === 'square' && state.token) loadPublicRooms(true);
+  if (page === 'friends' && state.token) loadFriends(true);
 }
 
 /* ============ 模式选择 ============ */
 function selectMode(mode) {
   state.mode = mode;
-  $('mode-p2p').classList.toggle('active', mode === 'p2p');
+  $('mode-easytier').classList.toggle('active', mode === 'easytier');
   $('mode-frp').classList.toggle('active', mode === 'frp');
   $('frp-node-section').classList.toggle('hidden', mode !== 'frp');
 }
@@ -454,14 +539,31 @@ function connectSignaling() {
     const serverUrl = assertSecureServer(state.server);
     const wsProtocol = serverUrl.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProtocol}//${serverUrl.host}/ws?token=${encodeURIComponent(state.token)}`;
+    state.closingSignaling = false;
     state.ws = new WebSocket(wsUrl);
     state.ws.onopen = () => { logLine('信令服务器已连接'); resolve(); };
     state.ws.onerror = () => reject(new Error('无法连接信令服务器'));
-    state.ws.onclose = () => {
+    state.ws.onclose = async () => {
+      state.ws = null;
       logLine('信令连接已关闭');
-      if (state.role === 'guest') failGuestP2P('信令连接中断，请重新连接');
+      if (state.closingSignaling) { state.closingSignaling = false; return; }
+      if (state.role === 'guest') await failGuestConnection('服务端连接中断/房间已关闭');
+      else if (state.role === 'host') await resetHostRoom('服务端连接中断/房间已关闭', true);
     };
-    state.ws.onmessage = (ev) => handleSignal(JSON.parse(ev.data));
+    state.ws.onmessage = (ev) => {
+      let msg;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch (e) {
+        logLine('忽略无效的信令消息: ' + e.message);
+        return;
+      }
+      if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.type !== 'string') {
+        logLine('忽略格式错误的信令消息');
+        return;
+      }
+      handleSignal(msg);
+    };
   });
 }
 
@@ -475,22 +577,31 @@ function handleSignal(msg) {
   const safeAsync = (promise, label) => Promise.resolve(promise).catch((e) => {
     logLine(`${label}: ${e.message}`);
     toast(`${label}：${e.message}`, 'error');
-    if (state.role === 'guest') failGuestP2P(label + '，请重试或改用 frp');
+    if (state.role === 'guest') safeAsync(failGuestConnection(label + '，请重试或改用 frp'), '清理访客连接失败');
   });
   switch (msg.type) {
-    case 'created': safeAsync(onRoomCreated(msg), '创建房间失败'); break;
+    case 'created':
+      Promise.resolve(onRoomCreated(msg)).catch(async (e) => {
+        const detail = e instanceof Error ? e.message : String(e);
+        logLine('创建房间失败: ' + detail);
+        toast('创建房间失败：' + detail, 'error');
+        sendSignal({ type: 'close', room: state.roomCode });
+        await resetHostRoom('创建房间失败');
+      });
+      break;
     case 'joined': safeAsync(onRoomJoined(msg), '加入房间失败'); break;
-    case 'peer-joined': safeAsync(onPeerJoined(msg), 'P2P 协商失败'); break;
+    case 'peer-joined': onPeerJoined(msg); break;
     case 'peer-left': onPeerLeft(msg); break;
     case 'members': onMembers(msg); break;
-    case 'signal': safeAsync(onRemoteSignal(msg), 'P2P 信令处理失败'); break;
     case 'closed': onRoomClosed(msg); break;
     case 'error':
       toast(msg.error, 'error');
       logLine('信令错误: ' + msg.error);
+      if (state.role === 'guest' && !state.roomInfo) safeAsync(failGuestConnection(msg.error || '加入房间失败'), '清理访客连接失败');
       if (!state.roomCode && state.role === 'host') state.role = null;
       $('btn-create').disabled = false;
       $('quick-host-confirm').disabled = false;
+      $('btn-join').disabled = false;
       quickHostPending = false;
       break;
   }
@@ -498,6 +609,7 @@ function handleSignal(msg) {
 
 /* ============ Host 侧：创建房间 ============ */
 async function createRoom(options = {}) {
+  if (state.role) return toast('当前已在房间中，请先退出当前房间', 'warn');
   const inputId = options.inputId || 'mc-port';
   const mode = options.mode || state.mode;
   const button = $(options.buttonId || 'btn-create');
@@ -510,9 +622,11 @@ async function createRoom(options = {}) {
 
   try {
     button.disabled = true;
+    logLine('正在连接信令服务器...');
     await connectSignaling();
     state.role = 'host';
-    sendSignal({ type: 'create', mode: 'p2p', username: state.user.username, userId: state.user.id, mcPort: port });
+    state.isPublic = !!(options.isPublic ?? $('host-public')?.checked);
+    sendSignal({ type: 'create', mode: 'easytier', username: state.user.username, userId: state.user.id, mcPort: port, isPublic: state.isPublic });
   } catch (e) {
     toast(e.message, 'error');
     button.disabled = false;
@@ -520,9 +634,8 @@ async function createRoom(options = {}) {
 }
 
 async function onRoomCreated(msg) {
-  // msg 可能是 string（P2P旧格式）或 object（新格式）
   const code = typeof msg === 'string' ? msg : msg.room || msg;
-  const mode = typeof msg === 'object' ? (msg.mode || 'p2p') : 'p2p';
+  const mode = typeof msg === 'object' ? (msg.mode || 'easytier') : 'easytier';
   state.roomCode = code;
   state.maxMembers = Number(msg.maxMembers) || state.maxMembers;
   $('btn-create').disabled = false;
@@ -546,16 +659,17 @@ async function onRoomCreated(msg) {
     return;
   }
 
-  $('host-status').textContent = '房间已开启，等待好友加入... (P2P 模式)';
-  logLine('P2P 房间已创建: ' + code + '，映射本地端口 ' + state.mcPort);
-
-  try {
-    const ip = await window.mclink.getLanIp();
-    state.lanIp = ip;
-    $('host-lan-addr').textContent = ip + ':' + state.mcPort;
-  } catch {
-    $('host-lan-addr').textContent = '127.0.0.1:' + state.mcPort;
-  }
+  if (!msg.easytier) throw new Error('服务端未返回 EasyTier 配置');
+  $('host-status').textContent = '正在启动 EasyTier...';
+  const result = await window.mclink.easytierStart({ ...msg.easytier, mode: 'host', mcPort: state.mcPort });
+  if (!result?.ok) throw new Error(result?.error || 'EasyTier 启动失败');
+  state.easytier = result.status;
+  const hostVirtualIp = msg.easytier.hostVirtualIp || state.easytier.virtualIp;
+  if (!hostVirtualIp) throw new Error('未获取到房主虚拟 IP');
+  state.easytier.hostVirtualIp = hostVirtualIp;
+  $('host-status').textContent = 'EasyTier 已启动，等待好友加入...';
+  $('host-lan-addr').textContent = hostVirtualIp + ':25565';
+  logLine('EasyTier 房间已创建: ' + code + '，连接地址: ' + hostVirtualIp + ':25565');
 
   try {
     const r = await window.mclink.motdStart({ port: state.mcPort, roomCode: code, hostName: state.user.username });
@@ -565,96 +679,18 @@ async function onRoomCreated(msg) {
   }
 }
 
-// 有 guest 加入 -> host 为其创建 PeerConnection 并发起 offer
-async function onPeerJoined(msg) {
-  const guestId = msg.guestId;
-  if (typeof msg.guests === 'number') $('host-online-count').textContent = String(msg.guests);
-  logLine('好友加入 (guest ' + guestId + ')，正在建立 P2P 连接...');
-
-  const pc = new RTCPeerConnection(RTC_CONFIG);
-  const channel = pc.createDataChannel('mc-tunnel', { ordered: true });
-  channel.binaryType = 'arraybuffer';
-
-  const peer = { pc, channel, guestId };
-  state.hostPeers.set(guestId, peer);
-
-  channel.onopen = () => {
-    logLine('好友 ' + guestId + ' 的数据通道已打开');
-    updateHostPeers();
-  };
-  channel.onmessage = (ev) => handleHostChannelData(guestId, ev.data);
-  channel.onclose = () => { logLine('好友 ' + guestId + ' 断开'); cleanupHostPeer(guestId); };
-
-  pc.onicecandidate = (e) => {
-    if (e.candidate) sendSignal({ type: 'signal', to: guestId, data: { candidate: e.candidate } });
-  };
-  pc.onconnectionstatechange = () => {
-    const connectionState = pc.connectionState;
-    debugLog(`访客 ${guestId} P2P 状态: ${connectionState}`);
-    if (connectionState === 'connected') $('host-status').textContent = 'P2P 直连已建立';
-    if (connectionState === 'failed') {
-      $('host-status').textContent = '一名访客 P2P 打洞失败，可建议其重试或改用 frp';
-      toast('访客 P2P 打洞失败，建议改用 frp 模式', 'warn');
-      cleanupHostPeer(guestId);
-    }
-  };
-
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  sendSignal({ type: 'signal', to: guestId, data: { sdp: pc.localDescription } });
+function onPeerJoined(msg) {
+  if (state.role !== 'host') return;
+  if (typeof msg.members === 'number') $('host-online-count').textContent = String(msg.members);
+  $('host-status').textContent = '好友已加入，EasyTier 正在自动组网';
+  logLine((msg.username || '好友') + ' 已加入房间');
+  updateHostPeers();
 }
 
-// host 收到 guest 的 answer / candidate
-async function onRemoteSignal(msg) {
-  const data = msg.data;
-  if (state.role === 'host') {
-    const target = state.hostPeers.get(msg.from);
-    if (!target) return;
-    if (data.sdp) {
-      await target.pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-      target.answered = true;
-    } else if (data.candidate) {
-      try { await target.pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch {}
-    }
-  } else {
-    // guest 侧
-    if (data.sdp) {
-      await state.pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-      const answer = await state.pc.createAnswer();
-      await state.pc.setLocalDescription(answer);
-      sendSignal({ type: 'signal', data: { sdp: state.pc.localDescription } });
-    } else if (data.candidate) {
-      try { await state.pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch {}
-    }
-  }
-}
-
-// host 收到 DataChannel 数据：控制帧或 TCP 数据
-// 帧协议: {t:'open',c:connId} / {t:'data',c:connId,d:[...]} / {t:'close',c:connId}
-async function handleHostChannelData(guestId, raw) {
-  const msg = decodeFrame(raw);
-  if (!msg) return;
-  const connId = guestId + '_' + msg.c;
-
-  if (msg.t === 'open') {
-    // guest 的 MC 客户端发起新连接 -> host 连接本地 MC
-    const res = await window.mclink.tunnelHostConnect({ connId, mcPort: state.mcPort });
-    if (!res.ok) {
-      logLine('连接本地 MC 失败: ' + res.error);
-      sendHostFrame(guestId, { t: 'close', c: msg.c });
-    }
-  } else if (msg.t === 'data') {
-    window.mclink.tunnelSend(connId, msg.d);
-  } else if (msg.t === 'close') {
-    window.mclink.tunnelClose(connId);
-  }
-}
-
-function sendHostFrame(guestId, obj) {
-  const peer = state.hostPeers.get(guestId);
-  if (peer && peer.channel.readyState === 'open') {
-    peer.channel.send(encodeFrame(obj));
-  }
+function escapeHtml(value) {
+  const div = document.createElement('div');
+  div.textContent = String(value);
+  return div.innerHTML;
 }
 
 function memberRow(member, showIp) {
@@ -665,12 +701,6 @@ function memberRow(member, showIp) {
   return `<div class="peer-item"><span class="peer-name">${name}${hostBadge}</span>${showIp ? `<span class="peer-ip">${ip}</span>` : '<span></span>'}<span class="peer-ping">${ping}</span></div>`;
 }
 
-function escapeHtml(value) {
-  const div = document.createElement('div');
-  div.textContent = String(value);
-  return div.innerHTML;
-}
-
 function onMembers(msg) {
   state.members = Array.isArray(msg.members) ? msg.members : [];
   state.maxMembers = Number(msg.maxMembers) || state.maxMembers;
@@ -679,51 +709,73 @@ function onMembers(msg) {
 }
 
 function updateHostPeers() {
-  const total = state.members.length || (state.hostPeers.size + (state.role === 'host' ? 1 : 0));
+  const total = state.members.length || (state.role === 'host' ? 1 : 0);
   $('host-online-count').textContent = `${total}/${state.maxMembers}`;
   $('host-peers').innerHTML = state.members.map((m) => memberRow(m, true)).join('');
 }
 
-function cleanupHostPeer(guestId) {
-  const peer = state.hostPeers.get(guestId);
-  if (peer) {
-    try { peer.pc.close(); } catch {}
-    state.hostPeers.delete(guestId);
+function onPeerLeft(msg) {
+  logLine((msg.username || '好友') + ' 已离开房间');
+  if (state.role === 'host') {
+    $('host-status').textContent = 'EasyTier 已启动，等待好友加入...';
+    updateHostPeers();
+  } else if (state.role === 'guest') {
+    $('j-status').textContent = '房间成员已离开';
   }
-  updateHostPeers();
 }
 
-function onPeerLeft(msg) {
-  if (state.role === 'host' && msg.guestId) {
-    cleanupHostPeer(msg.guestId);
-    logLine('好友离开');
-  } else if (state.role === 'guest') {
-    toast('房主已断开连接', 'warn');
-    leaveRoom();
+async function stopEasyTier() {
+  try { await window.mclink.easytierStop(); } catch (e) { debugLog('停止 EasyTier 失败: ' + e.message); }
+  state.easytier = { state: 'stopped', running: false, virtualIp: null, error: null };
+}
+
+async function resetHostRoom(reason = '房间已关闭', notify = false) {
+  if (state.hostResetPromise) return state.hostResetPromise;
+  state.hostResetPromise = (async () => {
+    state.role = null;
+    state.roomCode = null;
+    state.members = [];
+    state.isPublic = false;
+    state.frpEndpoint = null;
+    state.frpNode = null;
+    const ws = state.ws;
+    state.ws = null;
+    if (ws) {
+      state.closingSignaling = true;
+      try { ws.close(); } catch {}
+    }
+    const cleanupResults = await Promise.allSettled([
+      stopEasyTier(),
+      Promise.resolve().then(() => window.mclink.frpcStop()),
+      Promise.resolve().then(() => window.mclink.motdStop()),
+    ]);
+    const cleanupLabels = ['EasyTier', 'frpc', '局域网广播'];
+    cleanupResults.forEach((result, index) => {
+      if (result.status === 'rejected') debugLog(`停止 ${cleanupLabels[index]} 失败: ${result.reason?.message || result.reason}`);
+    });
+    $('host-active').classList.add('hidden');
+    $('host-setup').classList.remove('hidden');
+    $('btn-create').disabled = false;
+    $('quick-host-confirm').disabled = false;
+    quickHostPending = false;
+    logLine(reason);
+    if (notify) toast(reason, 'warn');
+  })();
+  try {
+    await state.hostResetPromise;
+  } finally {
+    state.hostResetPromise = null;
   }
 }
 
 async function closeRoom() {
   if (state.role !== 'host') return;
-  state.hostPeers.forEach((_, id) => cleanupHostPeer(id));
-  await window.mclink.tunnelStopAll();
-  try { await window.mclink.motdStop(); } catch {}
-  // frp 模式：停止 frpc 并发信令 close
-  if (state.frpEndpoint) {
-    try { await window.mclink.frpcStop(); } catch {}
-    state.frpEndpoint = null;
-    sendSignal({ type: 'close' });
-  }
-  sendSignal({ type: 'leave', room: state.roomCode });
-  if (state.ws) { state.ws.close(); state.ws = null; }
-  state.role = null;
-  state.roomCode = null;
-  $('host-active').classList.add('hidden');
-  $('host-setup').classList.remove('hidden');
-  logLine('房间已关闭');
+  sendSignal({ type: 'close', room: state.roomCode });
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  await resetHostRoom('房间已关闭', true);
 }
 
-/* ============ frp 中转模式（Host） ============ */
+/* ============ frp 中转模式（Host）=========== */
 function randomFrpPort() {
   const min = 2000;
   const max = 5000;
@@ -745,7 +797,7 @@ async function createFrpRoom(button = $('btn-create')) {
   }
 
   logLine('正在启动 frp 内网穿透: ' + node.name);
-  toast('提示：中转模式延迟高于 P2P', 'warn');
+  toast('提示：frp 固定中转延迟通常高于 EasyTier', 'warn');
 
   try {
     button.disabled = true;
@@ -761,6 +813,7 @@ async function createFrpRoom(button = $('btn-create')) {
         serverAddr: node.host,
         serverPort: node.port || 7000,
         token: node.token || undefined,
+        tls: Boolean(node.tls_enabled),
         localPort: state.mcPort,
         remotePort,
       });
@@ -786,6 +839,7 @@ async function createFrpRoom(button = $('btn-create')) {
       username: state.user.username,
       mcPort: state.mcPort,
       frp: { host: node.host, port: remotePort, node: node.id },
+      isPublic: !!($('host-public')?.checked),
     });
     // 等待 'created' 回调处理 UI
   } catch (e) {
@@ -798,7 +852,7 @@ async function createFrpRoom(button = $('btn-create')) {
   }
 }
 
-let quickHostMode = 'p2p';
+let quickHostMode = 'easytier';
 let quickHostPending = false;
 function quickHostKey(event, mode) {
   if (event.key === 'Enter' || event.key === ' ') {
@@ -808,7 +862,7 @@ function quickHostKey(event, mode) {
 }
 function openQuickHost(mode) {
   quickHostMode = mode;
-  $('quick-host-mode').textContent = mode === 'frp' ? 'frp 中转' : 'P2P 端到端';
+  $('quick-host-mode').textContent = mode === 'frp' ? 'frp 中转' : 'EasyTier 智能组网';
   $('quick-frp-section').classList.toggle('hidden', mode !== 'frp');
   $('quick-mc-port').value = $('mc-port').value || 25565;
   if (state.frpNodeId) $('quick-frp-node-select').value = String(state.frpNodeId);
@@ -822,7 +876,7 @@ async function confirmQuickHost() {
   quickHostPending = true;
   $('mc-port').value = $('quick-mc-port').value;
   if (quickHostMode === 'frp') selectFrpNode($('quick-frp-node-select').value);
-  await createRoom({ inputId: 'quick-mc-port', mode: quickHostMode, buttonId: 'quick-host-confirm' });
+  await createRoom({ inputId: 'quick-mc-port', mode: quickHostMode, buttonId: 'quick-host-confirm', isPublic: !!$('quick-public')?.checked });
   if (state.role !== 'host') {
     quickHostPending = false;
     button.disabled = false;
@@ -831,6 +885,7 @@ async function confirmQuickHost() {
 
 /* ============ Guest 侧：加入房间 ============ */
 async function joinRoom() {
+  if (state.role) return toast('当前已在房间中，请先退出当前房间', 'warn');
   const code = $('room-input').value.trim();
   if (!/^\d{6}$/.test(code)) return toast('请输入 6 位纯数字房间号', 'error');
 
@@ -844,38 +899,26 @@ async function joinRoom() {
     await connectSignaling();
     state.role = 'guest';
     state.roomCode = code;
-    setupGuestPeer();
     sendSignal({ type: 'join', room: code });
   } catch (e) {
     toast(e.message, 'error');
     $('join-status').textContent = '连接失败: ' + e.message;
-    cleanupGuestConnection();
+    await cleanupGuestConnection();
     $('btn-join').disabled = false;
   }
 }
 
-function clearP2PTimer() {
-  if (state.p2pTimer) clearTimeout(state.p2pTimer);
-  state.p2pTimer = null;
-}
-
-function cleanupGuestConnection() {
-  clearP2PTimer();
+async function cleanupGuestConnection() {
   state.role = null;
   state.roomCode = null;
-  const channel = state.dataChannel;
-  const pc = state.pc;
-  state.dataChannel = null;
-  state.pc = null;
-  if (channel) { try { channel.close(); } catch {} }
-  if (pc) { try { pc.close(); } catch {} }
-  window.mclink.tunnelStopAll();
-  if (state.ws) { try { state.ws.close(); } catch {} state.ws = null; }
+  state.roomInfo = null;
+  await stopEasyTier();
+  if (state.ws) { state.closingSignaling = true; try { state.ws.close(); } catch {} state.ws = null; }
 }
 
-function failGuestP2P(message) {
+async function failGuestConnection(message) {
   if (state.role !== 'guest') return;
-  cleanupGuestConnection();
+  await cleanupGuestConnection();
   $('join-active').classList.add('hidden');
   $('join-form').classList.remove('hidden');
   $('join-status').classList.remove('hidden');
@@ -884,53 +927,11 @@ function failGuestP2P(message) {
   toast(message, 'error');
 }
 
-function setupGuestPeer() {
-  const pc = new RTCPeerConnection(RTC_CONFIG);
-  state.pc = pc;
-  clearP2PTimer();
-  state.p2pTimer = setTimeout(() => failGuestP2P('P2P 打洞超时，请重试或让房主改用 frp 模式'), 18000);
-
-  pc.onicecandidate = (e) => {
-    if (e.candidate) sendSignal({ type: 'signal', data: { candidate: e.candidate } });
-  };
-  pc.onicecandidateerror = (e) => debugLog(`ICE 候选失败: ${e.errorText || e.errorCode || '未知错误'}`);
-
-  pc.ondatachannel = (ev) => {
-    const channel = ev.channel;
-    channel.binaryType = 'arraybuffer';
-    state.dataChannel = channel;
-
-    channel.onopen = async () => {
-      clearP2PTimer();
-      logLine('P2P 数据通道已打开，启动本地代理...');
-      await startGuestProxy();
-    };
-    channel.onmessage = (e) => handleGuestChannelData(e.data);
-    channel.onclose = () => {
-      logLine('P2P 数据通道已关闭');
-      if (state.role === 'guest') failGuestP2P('P2P 连接已断开，请重新连接');
-    };
-  };
-
-  pc.onconnectionstatechange = () => {
-    const connectionState = pc.connectionState;
-    debugLog('P2P connectionState: ' + connectionState);
-    $('j-status').textContent = connectionState === 'connected' ? '已直连 (P2P)' : connectionState;
-    if (connectionState === 'connecting') $('join-status').textContent = '正在进行 P2P 打洞...';
-    if (connectionState === 'failed') failGuestP2P('P2P 打洞失败，请重试或让房主改用 frp 模式');
-    if (connectionState === 'disconnected') {
-      $('join-status').classList.remove('hidden');
-      $('join-status').textContent = 'P2P 连接中断，正在尝试恢复...';
-    }
-  };
-}
-
 async function onRoomJoined(msg) {
-  logLine('已加入房间 ' + msg.room + '，模式: ' + (msg.mode || 'p2p'));
-  state.roomInfo = { room: msg.room, hostUser: msg.hostUser, hostId: msg.hostId };
+  logLine('已加入房间 ' + msg.room + '，模式: ' + (msg.mode || 'easytier'));
+  state.roomInfo = { room: msg.room, hostUser: msg.hostUser };
   if (Array.isArray(msg.members)) onMembers(msg);
 
-  // frp 模式：服务端在 joined 消息里直接给 frp 端点，无需 WebRTC
   if (msg.mode === 'frp') {
     $('join-status').classList.add('hidden');
     $('btn-join').disabled = false;
@@ -938,68 +939,54 @@ async function onRoomJoined(msg) {
     return;
   }
 
-  $('join-status').textContent = '已加入，等待 P2P 连接建立...';
-}
+  if (!msg.easytier?.hostVirtualIp) throw new Error('服务端未返回 EasyTier 房主地址');
+  const address = msg.easytier.hostVirtualIp + ':25565';
+  $('join-status').textContent = '正在启动 EasyTier...';
+  const result = await window.mclink.easytierStart({ ...msg.easytier, mode: 'guest' });
+  if (!result?.ok) throw new Error(result?.error || 'EasyTier 启动失败');
+  state.easytier = result.status;
 
-// guest 启动本地 TCP 代理，MC 客户端连接它
-async function startGuestProxy() {
-  // 优先 25565，被占用则随机
-  const occupied = await window.mclink.checkPort(25565);
-  const preferPort = occupied ? 0 : 25565;
-
-  const res = await window.mclink.tunnelGuestListen({ proxyPort: preferPort });
-  if (!res.ok) {
-    failGuestP2P('本地代理启动失败：' + res.error);
-    return;
+  const deadline = Date.now() + 30000;
+  let test;
+  while (Date.now() < deadline) {
+    const attemptStarted = Date.now();
+    const remaining = deadline - attemptStarted;
+    test = await Promise.race([
+      window.mclink.easytierTest(msg.easytier.hostVirtualIp),
+      new Promise((resolve) => setTimeout(() => resolve({ ok: false, error: test?.error || '连接超时' }), remaining)),
+    ]);
+    if (test?.ok) break;
+    $('join-status').textContent = '正在等待 EasyTier 网络连通...';
+    const retryDelay = Math.min(Math.max(0, 1000 - (Date.now() - attemptStarted)), deadline - Date.now());
+    if (retryDelay > 0) await new Promise((resolve) => setTimeout(resolve, retryDelay));
   }
+  if (!test?.ok) throw new Error('无法连接房主 Minecraft 端口: ' + (test?.error || '未知原因'));
 
-  state.proxyPort = res.port;
+  $('join-status').classList.add('hidden');
+  $('btn-join').disabled = false;
   $('join-form').classList.add('hidden');
   $('join-active').classList.remove('hidden');
-  // 房间信息显示（功能4）
-  const info = state.roomInfo || {};
-  $('j-room').textContent = info.room || state.roomCode || '--';
-  $('j-host').textContent = (info.hostUser || '未知') + (info.hostId ? ' (ID ' + info.hostId + ')' : '');
-  $('j-mode').innerHTML = '<span class="tag tag-p2p">P2P 直连</span>';
-  $('j-addr').textContent = '127.0.0.1:' + res.port;
-  $('j-status').textContent = '已连接';
-  logLine('本地代理已启动: 127.0.0.1:' + res.port + '，请在 MC 中连接此地址');
-  toast('连接成功！请在 MC 中连接 127.0.0.1:' + res.port, 'success');
+  $('j-room').textContent = msg.room || state.roomCode || '--';
+  $('j-host').textContent = msg.hostUser || '未知';
+  $('j-mode').innerHTML = '<span class="tag tag-p2p">EasyTier 智能组网</span>';
+  $('j-addr').textContent = address;
+  $('j-status').textContent = 'EasyTier 连接已就绪';
+  logLine('EasyTier 连通性测试成功: ' + address);
+  toast('连接成功！请在 Minecraft 中连接 ' + address, 'success');
 }
 
-// guest 收到本地 TCP 事件（来自 main.js），转发到 DataChannel
-function handleGuestChannelData(raw) {
-  const msg = decodeFrame(raw);
-  if (!msg) return;
-  const connId = msg.c;
-
-  if (msg.t === 'data') {
-    window.mclink.tunnelSend(connId, msg.d);
-  } else if (msg.t === 'close') {
-    window.mclink.tunnelClose(connId);
-  }
-}
-
-function sendGuestFrame(obj) {
-  if (state.dataChannel && state.dataChannel.readyState === 'open') {
-    state.dataChannel.send(encodeFrame(obj));
-  }
-}
-
-/* ============ frp 中转模式（Guest） ============ */
+/* ============ frp 中转模式（Guest）=========== */
 async function joinFrpRoom(room) {
   // room 来自信令 joined 消息（含 frp: {host, port}）或旧 REST 接口
   const frpHost = (room.frp && room.frp.host) || room.frp_host;
   const frpPort = (room.frp && room.frp.port) || room.frp_remote_port;
   if (!frpHost || !frpPort) {
-    failGuestP2P('frp 节点未返回可用连接地址，请让房主重新创建房间');
+    await failGuestConnection('frp 节点未返回可用连接地址，请让房主重新创建房间');
     return;
   }
 
-  clearP2PTimer();
-  if (state.pc) { try { state.pc.close(); } catch {} state.pc = null; }
   logLine('frp 中转房间，连接: ' + frpHost + ':' + frpPort);
-  toast('提示：中转模式延迟高于 P2P', 'warn');
+  toast('提示：frp 固定中转延迟通常高于 EasyTier', 'warn');
 
   $('join-form').classList.add('hidden');
   $('join-active').classList.remove('hidden');
@@ -1012,10 +999,10 @@ async function joinFrpRoom(room) {
   logLine('请在 MC 中直连: ' + frpHost + ':' + frpPort);
 }
 
-function leaveRoom() {
+async function leaveRoom() {
   if (state.role === 'guest') {
     sendSignal({ type: 'leave', room: state.roomCode });
-    cleanupGuestConnection();
+    await cleanupGuestConnection();
     $('join-active').classList.add('hidden');
     $('join-form').classList.remove('hidden');
     $('join-status').classList.add('hidden');
@@ -1024,69 +1011,60 @@ function leaveRoom() {
   }
 }
 
-function onRoomClosed(msg) {
-  toast(msg.reason || '房间已关闭', 'warn');
-  if (state.role === 'guest') leaveRoom();
-  else closeRoom();
+async function onRoomClosed(msg) {
+  const reason = msg.reason || '房间已被服务端关闭';
+  toast(reason, 'warn');
+  logLine(reason);
+  if (state.role === 'guest') {
+    await cleanupGuestConnection();
+    $('join-active').classList.add('hidden');
+    $('join-form').classList.remove('hidden');
+    $('join-status').classList.remove('hidden');
+    $('join-status').textContent = reason;
+    $('btn-join').disabled = false;
+  } else if (state.role === 'host') {
+    await resetHostRoom(reason);
+  } else await cleanupGuestConnection();
 }
 
-/* ============ 帧编解码 (ArrayBuffer) ============ */
-// 帧结构: 1字节类型 + 4字节connId长度 + connId + 数据
-// 简化: 直接 JSON，data 用 Array。追求性能可换二进制，此处保证正确性。
-function encodeFrame(obj) {
-  const json = JSON.stringify(obj);
-  return new TextEncoder().encode(json).buffer;
-}
-
-function decodeFrame(raw) {
-  try {
-    const text = raw instanceof ArrayBuffer ? new TextDecoder().decode(raw) : raw;
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-/* ============ 房间创建后的 IPC 隧道回调桥接 ============ */
+/* ============ 运行时事件桥接 ============ */
 function setupTunnelBridge() {
-  // TCP -> DataChannel（数据流出）
-  window.mclink.onTunnelData(({ connId, data }) => {
-    if (state.role === 'host') {
-      // connId 格式: guestId_localConnId
-      const [guestId, localId] = connId.split('_');
-      sendHostFrame(guestId, { t: 'data', c: localId, d: data });
-    } else {
-      sendGuestFrame({ t: 'data', c: connId, d: data });
-    }
+  window.mclink.onEasytierLog((line) => {
+    if (state.debugMode) logLine('[EasyTier] ' + String(line).trim());
   });
-
-  // guest 侧：MC 客户端发起新 TCP 连接
-  window.mclink.onTunnelNewConn(({ connId }) => {
-    logLine('MC 客户端发起连接 ' + connId);
-    sendGuestFrame({ t: 'open', c: connId });
+  window.mclink.onEasytierStatus((status) => {
+    state.easytier = { ...state.easytier, ...status };
+    const text = status?.state || (status?.running ? 'running' : 'stopped');
+    if (!['starting', 'stopping', 'error'].includes(text)) return;
+    if (state.role === 'host' && $('host-status')) $('host-status').textContent = 'EasyTier 状态: ' + text;
+    if (state.role === 'guest' && $('j-status')) $('j-status').textContent = 'EasyTier 状态: ' + text;
   });
-
-  // TCP 连接关闭
-  window.mclink.onTunnelClosed(({ connId }) => {
-    if (state.role === 'host') {
-      const [guestId, localId] = connId.split('_');
-      sendHostFrame(guestId, { t: 'close', c: localId });
-    } else {
-      sendGuestFrame({ t: 'close', c: connId });
-    }
+  window.mclink.onEasytierError((err) => {
+    const message = typeof err === 'string' ? err : err?.message || '未知错误';
+    state.easytier = { ...state.easytier, state: 'error', running: false, error: message };
+    logLine('[EasyTier错误] ' + message);
+    toast('EasyTier: ' + message, 'error');
   });
-
-  // frpc 日志过滤（t12）：只显示关键状态行
   window.mclink.onFrpcLog((line) => {
     const KEY = ['start proxy', 'login to server', 'proxy added', 'proxy removed',
                  'reconnecting', 'disconnected', 'connected', 'error', 'failed'];
     const lower = line.toLowerCase();
     if (state.debugMode || KEY.some((k) => lower.includes(k))) logLine('[frpc] ' + line.trim());
   });
-  window.mclink.onFrpcError((err) => { logLine('[frpc错误] ' + err); toast('frp: ' + err, 'error'); });
+  window.mclink.onFrpcError((err) => {
+    const detail = err instanceof Error ? err.message : String(err);
+    logLine('[frpc错误] ' + detail);
+    if (state.role === 'host' && state.roomCode && state.frpEndpoint) {
+      const reason = 'frp 运行错误，房间已关闭：' + detail;
+      sendSignal({ type: 'close', room: state.roomCode });
+      void resetHostRoom(reason, true).catch((e) => debugLog('清理 frp 房间失败: ' + e.message));
+      return;
+    }
+    toast('frp: ' + detail, 'error');
+  });
 }
 
-/* ============ 其它 ============ */
+/* ============ 其他 ============ */
 function copyRoomCode() {
   navigator.clipboard.writeText(state.roomCode).then(() => toast('已复制房间号', 'success'));
 }
@@ -1131,6 +1109,50 @@ async function loadAppInfo() {
   $('app-version').textContent = state.appInfo.version;
   $('app-platform').textContent = `${state.appInfo.platform} / ${state.appInfo.arch}`;
 }
+function announcementStorageKey(announcement) {
+  return `blfp_announcement_${announcement.version || '1'}_${new Date().toISOString().slice(0, 10)}`;
+}
+
+async function loadAnnouncement() {
+  try {
+    const announcement = await api('/settings/announcement');
+    state.announcement = announcement;
+    if (!announcement.enabled || !announcement.content || localStorage.getItem(announcementStorageKey(announcement))) {
+      checkForUpdates(true);
+      return;
+    }
+    $('announcement-title').textContent = announcement.title || '公告';
+    $('announcement-content').textContent = announcement.content;
+    $('announcement-today').checked = false;
+    const button = $('announcement-close');
+    let remaining = Math.max(0, Number(announcement.forceSeconds) || 0);
+    button.disabled = remaining > 0;
+    button.textContent = remaining > 0 ? `请阅读（${remaining}s）` : '我知道了';
+    $('announcement-modal').classList.remove('hidden');
+    if (state.announcementTimer) clearInterval(state.announcementTimer);
+    if (remaining > 0) {
+      state.announcementTimer = setInterval(() => {
+        remaining -= 1;
+        button.disabled = remaining > 0;
+        button.textContent = remaining > 0 ? `请阅读（${remaining}s）` : '我知道了';
+        if (remaining <= 0) { clearInterval(state.announcementTimer); state.announcementTimer = null; }
+      }, 1000);
+    }
+  } catch (e) {
+    logLine('公告加载失败: ' + e.message);
+    checkForUpdates(true);
+  }
+}
+
+function closeAnnouncement() {
+  if ($('announcement-close').disabled) return;
+  if ($('announcement-today').checked && state.announcement) localStorage.setItem(announcementStorageKey(state.announcement), '1');
+  if (state.announcementTimer) clearInterval(state.announcementTimer);
+  state.announcementTimer = null;
+  $('announcement-modal').classList.add('hidden');
+  checkForUpdates(true);
+}
+
 async function checkForUpdates(silent = false) {
   try {
     if (!state.appInfo) await loadAppInfo();
@@ -1161,20 +1183,23 @@ function openSourceRepo() {
   window.mclink.openExternal(GITHUB_REPO_URL);
 }
 
-/* ============ 退出软件（t5） ============ */
+/* ============ 退出软件（t5）=========== */
 function doExitApp() {
   showConfirm('确认退出软件？', '将停止所有连接并关闭 BLFP。', async () => {
+    await stopEasyTier();
+    try { await window.mclink.frpcStop(); } catch {}
     try { await window.mclink.exitApp(); } catch { window.close(); }
   });
 }
 
-/* ============ 设置（t2） ============ */
+/* ============ 设置（t2）=========== */
 const SETTINGS_KEY = 'blfp_settings';
 
 function loadSettings() {
   let s = {};
   try { s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch { localStorage.removeItem(SETTINGS_KEY); }
-  const server = s.server || localStorage.getItem('mclink_server') || DEFAULT_SERVER;
+  const server = DEFAULT_SERVER;
+  localStorage.removeItem('mclink_server');
   const mcPort = Number(s.mcPort) || 25565;
   state.server = server;
   state.mcPort = mcPort;
@@ -1197,7 +1222,7 @@ function loadSettings() {
 }
 
 function saveSettings() {
-  const server = $('s-server').value.trim().replace(/\/$/, '') || DEFAULT_SERVER;
+  const server = DEFAULT_SERVER;
   const mcPort = parseInt($('s-mc-port').value) || 25565;
   const launchBehavior = $('s-launch-behavior').value;
   const sidebarMode = $('sidebar-mode').value;
@@ -1293,12 +1318,12 @@ function resetParticles() {
   const count = particleEnabled ? particleCount() : 0;
   particles = Array.from({ length: count }, () => ({
     x: Math.random() * innerWidth, y: Math.random() * innerHeight,
-    vx: (Math.random() - .5) * .28, vy: (Math.random() - .5) * .28,
+    vx: (Math.random() - 0.5) * 0.28, vy: (Math.random() - 0.5) * 0.28,
   }));
 }
 function drawParticles() {
   if (!particleEnabled) { particleFrame = null; return; }
-  if (document.hidden) { particleFrame = requestAnimationFrame(drawParticles); return; }
+  if (document.hidden) { particleFrame = null; return; }
   const canvas = $('particle-bg');
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1308,89 +1333,290 @@ function drawParticles() {
   const drawConnections = perf === 'high' || (perf === 'medium' && Math.floor(performance.now() / 16) % 2 === 0);
   for (let i = 0; i < particles.length; i++) {
     const p = particles[i];
-    if (mouseMoving) {
+    if (mouseMoving && repelParticles) {
       const dx = p.x - particleMouse.x, dy = p.y - particleMouse.y;
       const dist = Math.hypot(dx, dy);
-      if (dist < 190 && dist > 1) { const force = (1 - dist / 190) * .018; p.vx += dx / dist * force; p.vy += dy / dist * force; }
+      if (dist < 190 && dist > 1) { const force = (1 - dist / 190) * 0.018; p.vx += dx / dist * force; p.vy += dy / dist * force; }
     }
-    if (Math.hypot(p.vx, p.vy) < .055) { p.vx += (Math.random() - .5) * .006; p.vy += (Math.random() - .5) * .006; }
-    p.vx *= .9985; p.vy *= .9985;
+    if (Math.hypot(p.vx, p.vy) < 0.055) { p.vx += (Math.random() - 0.5) * 0.006; p.vy += (Math.random() - 0.5) * 0.006; }
+    p.vx *= 0.9985; p.vy *= 0.9985;
     const speed = Math.hypot(p.vx, p.vy);
-    if (speed > .65) { p.vx = p.vx / speed * .65; p.vy = p.vy / speed * .65; }
+    if (speed > 0.65) { p.vx = p.vx / speed * 0.65; p.vy = p.vy / speed * 0.65; }
     p.x += p.vx; p.y += p.vy;
     if (p.x < 0 || p.x > innerWidth) { p.x = Math.max(0, Math.min(innerWidth, p.x)); p.vx *= -1; }
     if (p.y < 0 || p.y > innerHeight) { p.y = Math.max(0, Math.min(innerHeight, p.y)); p.vy *= -1; }
-    ctx.fillStyle = 'rgba(116,143,252,.5)';
+    ctx.fillStyle = 'rgba(116,143,252,0.5)';
     ctx.beginPath(); ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2); ctx.fill();
     if (particleMouse.active) {
       const d = Math.hypot(particleMouse.x - p.x, particleMouse.y - p.y);
-      if (d < 150) { ctx.strokeStyle = `rgba(116,143,252,${(1 - d / 150) * .28})`; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(particleMouse.x, particleMouse.y); ctx.stroke(); }
+      if (d < 150) { ctx.strokeStyle = `rgba(116,143,252,${(1 - d / 150) * 0.28})`; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(particleMouse.x, particleMouse.y); ctx.stroke(); }
     }
-    for (let j = i + 1; j < particles.length; j++) {
-      const q = particles[j], dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
-      if (repelParticles && d < 24 && d > 1) { const force = (1 - d / 24) * .0008; p.vx -= dx / d * force; p.vy -= dy / d * force; q.vx += dx / d * force; q.vy += dy / d * force; }
-      if (drawConnections && d < 85) { ctx.strokeStyle = `rgba(116,143,252,${(1 - d / 85) * .1})`; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke(); }
+    if (drawConnections) {
+      for (let j = i + 1; j < particles.length; j++) {
+        const q = particles[j], dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
+        if (d < 85) {
+          ctx.strokeStyle = `rgba(116,143,252,${(1 - d / 85) * 0.15})`;
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+        }
+      }
     }
   }
   particleFrame = requestAnimationFrame(drawParticles);
 }
-function resizeParticleCanvas() {
+function resizeParticles() {
   const canvas = $('particle-bg');
-  const ratio = Math.min(devicePixelRatio || 1, 1.5);
-  canvas.width = Math.round(innerWidth * ratio); canvas.height = Math.round(innerHeight * ratio);
-  canvas.style.width = innerWidth + 'px'; canvas.style.height = innerHeight + 'px';
-  canvas.getContext('2d').setTransform(ratio, 0, 0, ratio, 0, 0);
-  resetParticles();
+  if (!canvas) return;
+  canvas.width = innerWidth;
+  canvas.height = innerHeight;
 }
 function enableCursorTrail() {
-  if (particleEnabled) return;
   particleEnabled = true;
-  resizeParticleCanvas();
-  document.addEventListener('mousemove', updateParticleMouse, { passive: true });
-  document.documentElement.addEventListener('mouseleave', clearParticleMouse);
-  window.addEventListener('resize', resizeParticleCanvas);
-  if (!particleFrame) drawParticles();
+  const bg = $('particle-bg');
+  if (!bg) return;
+  bg.classList.remove('hidden');
+  resizeParticles();
+  resetParticles();
+  drawParticles();
+  window.addEventListener('resize', resizeParticles);
+  bg.addEventListener('mousemove', (e) => {
+    particleMouse.x = e.clientX;
+    particleMouse.y = e.clientY;
+    particleMouse.active = true;
+    particleMouse.lastMove = performance.now();
+  });
+  bg.addEventListener('mouseleave', () => { particleMouse.active = false; });
 }
-function updateParticleMouse(e) { particleMouse.x = e.clientX; particleMouse.y = e.clientY; particleMouse.active = true; particleMouse.lastMove = performance.now(); }
-function clearParticleMouse() { particleMouse.active = false; }
 function disableCursorTrail() {
-  particleEnabled = false; particles = [];
-  document.removeEventListener('mousemove', updateParticleMouse);
-  document.documentElement.removeEventListener('mouseleave', clearParticleMouse);
-  window.removeEventListener('resize', resizeParticleCanvas);
+  particleEnabled = false;
+  const bg = $('particle-bg');
+  if (!bg) return;
+  bg.classList.add('hidden');
+  window.removeEventListener('resize', resizeParticles);
   if (particleFrame) cancelAnimationFrame(particleFrame);
-  particleFrame = null;
-  $('particle-bg').getContext('2d').clearRect(0, 0, $('particle-bg').width, $('particle-bg').height);
+}
+
+/* ============ 广场：公开房间 ============ */
+let publicRoomsInterval = null;
+function loadPublicRooms(initial = false) {
+  if (!state.token) return;
+  const fetchRooms = async () => {
+    try {
+      const rooms = await api('/rooms/public');
+      renderPublicRooms(rooms);
+      if (initial) logLine('已加载公开房间列表');
+    } catch (e) {
+      if (initial) logLine('加载公开房间失败: ' + e.message);
+    }
+  };
+  fetchRooms();
+  if (publicRoomsInterval) clearInterval(publicRoomsInterval);
+  publicRoomsInterval = setInterval(fetchRooms, 5000);
+}
+function renderPublicRooms(rooms) {
+  const list = $('public-rooms');
+  if (!list) return;
+  if (!rooms || !rooms.length) {
+    list.innerHTML = '<div class="empty-state">暂无公开房间</div>';
+    return;
+  }
+  list.innerHTML = rooms.map((room) => {
+    const rawCode = String(room.room_code ?? room.code ?? '');
+    const code = /^\d{6}$/.test(rawCode) ? rawCode : '';
+    const total = Number(room.total ?? room.members ?? 1);
+    const maxMembers = Number(room.max_members ?? room.maxMembers ?? 8);
+    return `
+    <div class="public-room" onclick="quickJoinRoom('${code}')">
+      <div class="pr-code">${escapeHtml(code)}</div>
+      <div class="pr-info">
+        <div class="pr-host">${escapeHtml(room.host || '未知用户')}</div>
+        <div class="pr-meta">
+          <span class="tag ${room.mode === 'frp' ? 'tag-frp' : 'tag-p2p'}">${room.mode === 'frp' ? 'frp 中转' : 'EasyTier 智能组网'}</span>
+          <span>${total}/${maxMembers} 人在线</span>
+        </div>
+      </div>
+      <div class="pr-join">加入</div>
+    </div>`;
+  }).join('');
+}
+async function quickJoinRoom(code) {
+  const roomCode = String(code ?? '').trim();
+  if (!/^\d{6}$/.test(roomCode)) return toast('房间号无效', 'error');
+  if (state.role) return toast('当前已在房间中，请先退出当前房间', 'warn');
+  navTo('join');
+  $('room-input').value = roomCode;
+  await joinRoom();
+}
+
+/* ============ 好友 ============ */
+async function searchFriends() {
+  const q = ($('friend-search').value || '').trim();
+  if (!q) return;
+  const el = $('friend-search-results');
+  try {
+    const users = await api('/friends/search?q=' + encodeURIComponent(q));
+    if (!users.length) { el.innerHTML = '<div class="empty-state">未找到用户</div>'; return; }
+    el.innerHTML = users.map(u => `
+      <div class="friend-item">
+        <div class="fi-avatar">${escapeHtml(u.username.charAt(0).toUpperCase())}</div>
+        <div class="fi-info">
+          <div class="fi-name">${escapeHtml(u.username)}${u.title ? ` <span class="user-title theme-${escapeHtml(u.theme||'dark')}">${escapeHtml(u.title)}</span>` : ''}</div>
+          <div class="fi-status ${u.online ? 'online' : ''}">${u.online ? '在线' : '离线'}</div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="sendFriendReq(${u.id})">添加好友</button>
+      </div>`).join('');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function sendFriendReq(id) {
+  try { const r = await api(`/friends/${id}`, { method: 'POST' }); toast(r.message || '申请已发送'); } catch (e) { toast(e.message, 'error'); }
+}
+
+function switchFriendTab(tab) {
+  ['list', 'requests', 'history'].forEach(t => {
+    $('ftab-' + t).classList.toggle('active', t === tab);
+    $('friends-panel-' + t).classList.toggle('hidden', t !== tab);
+  });
+  if (tab === 'requests') loadFriendRequests();
+  if (tab === 'history') loadFriendHistory();
+}
+
+function loadFriends(initial = false) {
+  if (!state.token) return;
+  api('/friends').then((friends) => {
+    renderFriends(friends);
+    if (initial) logLine('已加载好友列表');
+  }).catch((e) => {
+    if (initial) logLine('加载好友失败: ' + e.message);
+  });
+  api('/friends/requests').then((reqs) => {
+    const badge = $('ftab-requests-badge');
+    if (badge) {
+      if (reqs && reqs.length > 0) { badge.textContent = reqs.length; badge.classList.remove('hidden'); }
+      else badge.classList.add('hidden');
+    }
+  }).catch(() => {});
+}
+
+function renderFriends(friends) {
+  const list = $('friends-list');
+  if (!list) return;
+  if (!friends || !friends.length) { list.innerHTML = '<div class="empty-state">暂无好友</div>'; return; }
+  list.innerHTML = friends.map((f) => `
+    <div class="friend-item">
+      <div class="fi-avatar">${escapeHtml(f.username.charAt(0).toUpperCase())}</div>
+      <div class="fi-info">
+        <div class="fi-name">${escapeHtml(f.username)}${f.title ? ` <span class="user-title theme-${escapeHtml(f.theme||'dark')}">${escapeHtml(f.title)}</span>` : ''}</div>
+        <div class="fi-status ${f.online ? 'online' : ''}">${f.online ? '在线' : '离线'}${f.room ? ` · 房间 <span class="copy-link" onclick="copyText('${escapeHtml(f.room.code)}')">${escapeHtml(f.room.code)}</span>` : ''}</div>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="removeFriend(${f.id})">删除</button>
+    </div>`).join('');
+}
+
+function loadFriendRequests() {
+  if (!state.token) return;
+  api('/friends/requests').then((reqs) => {
+    const list = $('friends-requests-list');
+    const badge = $('ftab-requests-badge');
+    if (badge) { if (reqs.length) { badge.textContent = reqs.length; badge.classList.remove('hidden'); } else badge.classList.add('hidden'); }
+    if (!list) return;
+    if (!reqs.length) { list.innerHTML = '<div class="empty-state">暂无待处理申请</div>'; return; }
+    list.innerHTML = reqs.map(r => `
+      <div class="friend-item">
+        <div class="fi-avatar">${escapeHtml(r.username.charAt(0).toUpperCase())}</div>
+        <div class="fi-info">
+          <div class="fi-name">${escapeHtml(r.username)}${r.title ? ` <span class="user-title theme-${escapeHtml(r.theme||'dark')}">${escapeHtml(r.title)}</span>` : ''}</div>
+          <div class="fi-status" style="font-size:.75rem;color:var(--text2)">${new Date(r.requested_at*1000).toLocaleString()}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-primary btn-sm" onclick="acceptFriend(${r.id})">接受</button>
+          <button class="btn btn-danger btn-sm" onclick="rejectFriend(${r.id})">拒绝</button>
+        </div>
+      </div>`).join('');
+  }).catch(() => {});
+}
+
+function loadFriendHistory() {
+  if (!state.token) return;
+  api('/friends/history').then((rows) => {
+    const list = $('friends-history-list');
+    if (!list) return;
+    if (!rows.length) { list.innerHTML = '<div class="empty-state">暂无记录</div>'; return; }
+    const statusLabel = { pending: '等待确认', rejected: '已被拒绝' };
+    list.innerHTML = rows.map(r => `
+      <div class="friend-item">
+        <div class="fi-avatar">${escapeHtml(r.username.charAt(0).toUpperCase())}</div>
+        <div class="fi-info">
+          <div class="fi-name">${escapeHtml(r.username)}</div>
+          <div class="fi-status">${statusLabel[r.status] || r.status} · ${new Date(r.sent_at*1000).toLocaleDateString()}</div>
+        </div>
+      </div>`).join('');
+  }).catch(() => {});
+}
+
+async function acceptFriend(userId) {
+  try { await api(`/friends/${userId}/accept`, { method: 'POST' }); toast('已接受好友申请'); loadFriendRequests(); loadFriends(); } catch (e) { toast(e.message, 'error'); }
+}
+async function rejectFriend(userId) {
+  try { await api(`/friends/${userId}/reject`, { method: 'POST' }); toast('已拒绝'); loadFriendRequests(); } catch (e) { toast(e.message, 'error'); }
+}
+async function removeFriend(userId) {
+  if (!confirm('确认删除好友？')) return;
+  try { await api(`/friends/${userId}`, { method: 'DELETE' }); toast('已删除'); loadFriends(); } catch (e) { toast(e.message, 'error'); }
 }
 
 /* ============ 初始化 ============ */
-window.addEventListener('DOMContentLoaded', async () => {
-  setupTunnelBridge();
-  loadSettings();
-
-  // 尝试恢复登录
-  const savedToken = localStorage.getItem('mclink_token');
-  const savedServer = localStorage.getItem('mclink_server');
-  if (savedServer) {
-    $('a-server').value = savedServer;
-    state.server = savedServer;
-  }
-
-  loadAppInfo().catch(() => { $('app-version').textContent = '未知'; });
-  if (savedToken && savedServer) {
-    state.token = savedToken;
-    try {
-      setLoginLoading(true, '正在进入 BLFP…');
-      const me = await api('/auth/me');
-      state.user = me;
-      enterApp();
-      return;
-    } catch {
-      localStorage.removeItem('mclink_token');
-      state.token = null;
-    } finally {
-      setLoginLoading(false);
-    }
-  }
+document.addEventListener('DOMContentLoaded', async () => {
   $('auth-page').classList.remove('hidden');
+  $('main-app').classList.add('hidden');
+  setLoginLoading(false);
+
+  const showStartupError = (source, error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${source}启动失败:`, error);
+    showAuthErr(`启动错误：${source}失败：${message}`);
+  };
+
+  try {
+    loadSettings();
+  } catch (error) {
+    showStartupError('设置加载', error);
+  }
+
+  if (!window.mclink) {
+    showStartupError('客户端接口', new Error('预加载接口不可用，请重新启动客户端'));
+    return;
+  }
+
+  try {
+    setupTunnelBridge();
+  } catch (error) {
+    showStartupError('IPC 初始化', error);
+  }
+
+  Promise.resolve()
+    .then(() => loadAppInfo())
+    .catch((error) => showStartupError('应用信息加载', error));
+
+  const savedToken = localStorage.getItem('mclink_token');
+  if (!savedToken) return;
+
+  state.token = savedToken;
+  state.server = DEFAULT_SERVER;
+  setLoginLoading(true, '正在恢复登录…');
+  try {
+    state.user = await api('/auth/me');
+    enterApp();
+  } catch (error) {
+    state.token = null;
+    state.user = null;
+    state.signingKey = null;
+    state.signingKeyToken = null;
+    localStorage.removeItem('mclink_token');
+    $('main-app').classList.add('hidden');
+    $('auth-page').classList.remove('hidden');
+    showAuthErr('登录状态已失效，请重新登录：' + error.message);
+  } finally {
+    setLoginLoading(false);
+  }
 });
+

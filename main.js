@@ -4,8 +4,8 @@ const net = require('net');
 const os = require('os');
 const { scanJavaPorts } = require('./src/port-scanner');
 const FrpcManager = require('./src/frpc-manager');
-const TunnelManager = require('./src/tunnel');
 const MotdBroadcaster = require('./src/motd-broadcast');
+const EasyTierManager = require('./src/easytier-manager');
 
 app.commandLine.appendSwitch('high-dpi-support', '1');
 app.commandLine.appendSwitch('force-color-profile', 'srgb');
@@ -13,8 +13,8 @@ app.commandLine.appendSwitch('force-color-profile', 'srgb');
 const GITHUB_RELEASE_API = 'https://api.github.com/repos/EVFBV/BLFP-client/releases/latest';
 let mainWindow;
 let frpcMgr = new FrpcManager();
-let tunnelMgr = new TunnelManager();
 let motdBroadcaster = new MotdBroadcaster();
+let easyTierMgr = new EasyTierManager(app);
 
 // 获取本机局域网 IPv4 地址（供复制连接IP用）
 function getLanIp() {
@@ -51,16 +51,39 @@ function createWindow() {
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error('Renderer process exited:', details.reason);
   });
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    console.error('Renderer failed to load:', {
+      errorCode,
+      errorDescription,
+      validatedURL,
+      isMainFrame,
+    });
+  });
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (level === 3) {
+      console.error('Renderer console error:', { message, line, sourceId });
+    }
+  });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
 app.whenReady().then(createWindow);
-app.on('window-all-closed', () => {
+let quitting = false;
+
+// 退出前先释放代理端口并停止 EasyTier 子进程
+async function stopServices() {
   frpcMgr.stop();
-  tunnelMgr.stopAll();
   motdBroadcaster.stop();
-  app.quit();
+  await easyTierMgr.stop();
+}
+
+app.on('before-quit', (event) => {
+  if (quitting) return;
+  event.preventDefault();
+  quitting = true;
+  stopServices().finally(() => app.quit());
 });
+app.on('window-all-closed', () => app.quit());
 
 // ====== IPC: 应用信息与安全外链 ======
 ipcMain.handle('get-app-info', async () => ({
@@ -121,9 +144,8 @@ ipcMain.handle('get-lan-ip', async () => getLanIp());
 
 // ====== IPC: 退出软件（功能5）======
 ipcMain.handle('exit-app', async () => {
-  frpcMgr.stop();
-  tunnelMgr.stopAll();
-  motdBroadcaster.stop();
+  await stopServices();
+  quitting = true;
   app.quit();
   return { ok: true };
 });
@@ -203,48 +225,30 @@ frpcMgr.on('log', (line) => mainWindow?.webContents.send('frpc-log', line));
 frpcMgr.on('port', (port) => mainWindow?.webContents.send('frpc-port', port));
 frpcMgr.on('error', (err) => mainWindow?.webContents.send('frpc-error', err));
 
-// ====== IPC: P2P TCP 隧道 ======
-// host 模式：开始将 DataChannel 桥接到 MC 本地端口
-ipcMain.handle('tunnel-host-connect', async (_e, { connId, mcPort }) => {
+// ====== IPC: EasyTier 主进程与房主 TCP 代理 ======
+ipcMain.handle('easytier-start', async (_e, config) => {
   try {
-    await tunnelMgr.hostConnect(connId, mcPort, (data) => {
-      mainWindow?.webContents.send('tunnel-data', { connId, data: Array.from(data) });
-    }, () => {
-      mainWindow?.webContents.send('tunnel-closed', { connId });
-    });
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: e.message };
+    const status = await easyTierMgr.start(config);
+    return { ok: true, status };
+  } catch (error) {
+    return { ok: false, error: error.message, status: easyTierMgr.getStatus() };
   }
 });
 
-// guest 模式：启动本地 TCP 代理服务器，MC 客户端连到这里
-ipcMain.handle('tunnel-guest-listen', async (_e, { proxyPort }) => {
+ipcMain.handle('easytier-stop', async () => {
   try {
-    const port = await tunnelMgr.guestListen(proxyPort, (connId, data) => {
-      mainWindow?.webContents.send('tunnel-data', { connId, data: Array.from(data) });
-    }, (connId) => {
-      mainWindow?.webContents.send('tunnel-new-conn', { connId });
-    }, (connId) => {
-      mainWindow?.webContents.send('tunnel-closed', { connId });
-    });
-    return { ok: true, port };
-  } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: true, status: await easyTierMgr.stop() };
+  } catch (error) {
+    return { ok: false, error: error.message, status: easyTierMgr.getStatus() };
   }
 });
 
-// 渲染器将 DataChannel 接收到的数据转发给 TCP socket
-ipcMain.on('tunnel-send', (_e, { connId, data }) => {
-  tunnelMgr.send(connId, Buffer.from(data));
+ipcMain.handle('easytier-status', async () => easyTierMgr.getStatus());
+ipcMain.handle('easytier-test', async (_e, config) => {
+  const hostVirtualIp = typeof config === 'string' ? config : config?.hostVirtualIp;
+  return easyTierMgr.testConnectivity(hostVirtualIp, 25565, 1000);
 });
 
-ipcMain.handle('tunnel-close', async (_e, { connId }) => {
-  tunnelMgr.closeConn(connId);
-  return { ok: true };
-});
-
-ipcMain.handle('tunnel-stop-all', async () => {
-  tunnelMgr.stopAll();
-  return { ok: true };
-});
+easyTierMgr.on('log', (line) => mainWindow?.webContents.send('easytier-log', line));
+easyTierMgr.on('status', (status) => mainWindow?.webContents.send('easytier-status', status));
+easyTierMgr.on('manager-error', (error) => mainWindow?.webContents.send('easytier-error', error));

@@ -16,7 +16,7 @@
 </div>
 
 <!-- ====== 登录页 ====== -->
-<div id="auth-page" class="auth-wrap hidden">
+<div class="auth-wrap" id="auth-page">
   <div class="auth-box">
     <div class="logo-wrap">
       <div class="logo-icon">⛏</div>
@@ -24,11 +24,8 @@
     </div>
     <div class="subtitle">我的世界 Java 版联机助手</div>
 
-    <div id="server-cfg" class="server-cfg">
-      <div class="form-group">
-        <label>服务器地址</label>
-        <input id="a-server" type="text" value="https://p.blfp.cn" placeholder="https://your-server">
-      </div>
+    <div id="server-cfg" class="server-cfg hidden" aria-hidden="true">
+      <input id="a-server" type="hidden" value="https://p.blfp.cn">
     </div>
 
     <div class="auth-tabs">
@@ -58,6 +55,28 @@
       </div>
 
       <button id="btn-login" class="btn btn-primary btn-full" onclick="doLogin()">登录</button>
+    </div>
+
+    <!-- 2FA 验证面板 -->
+    <div id="form-2fa" class="hidden">
+      <p style="margin-bottom:14px;color:var(--text2,#aaa);font-size:.88rem;line-height:1.5">
+        该账号已开启两步验证，请选择验证方式完成身份确认。
+      </p>
+      <div style="display:flex;gap:8px;margin-bottom:16px" id="tfa-method-btns">
+        <button class="btn btn-outline btn-sm" id="tfa-btn-email" onclick="requestTfaCode('email')">发送邮箱验证码</button>
+        <button class="btn btn-outline btn-sm" id="tfa-btn-qq" onclick="showTfaQqTip()">使用 QQ 验证</button>
+      </div>
+      <div class="form-group">
+        <label>验证码</label>
+        <div style="display:flex;gap:8px">
+          <input id="tfa-code" type="text" placeholder="邮箱6位 / QQ机器人5位" style="flex:1" onkeydown="if(event.key==='Enter')submitTfa()">
+          <select id="tfa-method" style="width:76px"><option value="email">邮箱</option><option value="qq">QQ</option></select>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="submitTfa()">确认验证</button>
+      <div style="text-align:center;margin-top:10px">
+        <button class="btn btn-outline btn-sm" onclick="cancelTfa()">← 返回登录</button>
+      </div>
     </div>
 
     <div id="form-reg" class="hidden">
@@ -93,13 +112,21 @@
       <button class="nav-item" data-page="join" title="加入房间" onclick="navTo('join', this)">
         <span class="nav-icon">🔗</span><span class="nav-label">加入房间</span>
       </button>
-      <button class="nav-item" data-page="log" title="日志" onclick="navTo('log', this)">
-        <span class="nav-icon">📋</span><span class="nav-label">日志</span>
+      <button class="nav-item" data-page="square" title="广场" onclick="navTo('square', this)">
+        <span class="nav-icon">🌐</span><span class="nav-label">广场</span>
+      </button>
+      <button class="nav-item" data-page="friends" title="好友" onclick="navTo('friends', this)">
+        <span class="nav-icon">👥</span><span class="nav-label">好友</span>
       </button>
       <button class="nav-item" data-page="settings" title="设置" onclick="navTo('settings', this)">
         <span class="nav-icon">⚙️</span><span class="nav-label">设置</span>
       </button>
     </nav>
+    <div class="sidebar-bottom-nav">
+      <button class="nav-item" data-page="log" title="运行日志" onclick="navTo('log', this)">
+        <span class="nav-icon">📋</span><span class="nav-label">运行日志</span>
+      </button>
+    </div>
     <div class="sidebar-user">
       <div class="user-name" id="s-username"></div>
       <div class="user-role" id="s-role"></div>
@@ -118,10 +145,10 @@
       <h1 class="page-title">欢迎使用 BLFP</h1>
       <p id="home-welcome" class="home-welcome"></p>
       <div class="cards-row">
-        <div class="card quick-host-card" role="button" tabindex="0" aria-label="快捷创建 P2P 房间" onclick="openQuickHost('p2p')" onkeydown="quickHostKey(event, 'p2p')">
+        <div class="card quick-host-card" role="button" tabindex="0" aria-label="快捷创建 EasyTier 房间" onclick="openQuickHost('easytier')" onkeydown="quickHostKey(event, 'easytier')">
           <div class="card-icon">🟢</div>
-          <h3>P2P 端到端</h3>
-          <p>点对点直连，延迟最低，优先推荐</p>
+          <h3>EasyTier 智能组网</h3>
+          <p>自动优先直连，失败时经共享节点中继</p>
           <div class="mode-badge p2p">推荐</div>
         </div>
         <div class="card quick-host-card" role="button" tabindex="0" aria-label="快捷创建 frp 房间" onclick="openQuickHost('frp')" onkeydown="quickHostKey(event, 'frp')">
@@ -137,7 +164,7 @@
           <div class="step"><span class="step-n">1</span><span>打开 Minecraft Java 版，进入单人游戏，开启局域网</span></div>
           <div class="step"><span class="step-n">2</span><span>在「创建房间」页面选择连接模式，软件会自动检测端口</span></div>
           <div class="step"><span class="step-n">3</span><span>将 6 位房间号发给朋友，朋友在「加入房间」输入</span></div>
-          <div class="step"><span class="step-n">4</span><span>朋友连接本地出现的代理地址 (127.0.0.1:端口) 即可</span></div>
+          <div class="step"><span class="step-n">4</span><span>EasyTier 会自动组网，朋友使用显示的虚拟 IP 地址连接即可</span></div>
         </div>
       </div>
       <div class="community-link">官方交流群：<button onclick="copyQQGroup()">QQ群 229527551（点击复制）</button></div>
@@ -150,15 +177,15 @@
       <div class="card" id="host-setup">
         <h2>连接模式</h2>
         <div class="mode-select">
-          <div class="mode-card active" id="mode-p2p" onclick="selectMode('p2p')">
+          <div class="mode-card active" id="mode-easytier" onclick="selectMode('easytier')">
             <div class="mc-icon">⚡</div>
-            <div class="mc-title">P2P 端到端</div>
-            <div class="mc-desc">WebRTC 直连，延迟最低<br><strong style="color:var(--success)">优先推荐</strong></div>
+            <div class="mc-title">EasyTier 智能组网</div>
+            <div class="mc-desc">自动优先直连，失败经共享节点中继<br><strong style="color:var(--success)">优先推荐</strong></div>
           </div>
           <div class="mode-card" id="mode-frp" onclick="selectMode('frp')">
             <div class="mc-icon">🔄</div>
             <div class="mc-title">frp 中转</div>
-            <div class="mc-desc">通过中转服务器连接<br><strong style="color:var(--warn)">延迟不如P2P</strong></div>
+            <div class="mc-desc">通过固定中转服务器连接<br><strong style="color:var(--warn)">延迟通常更高</strong></div>
           </div>
         </div>
 
@@ -172,9 +199,13 @@
               <button class="btn btn-outline btn-sm" onclick="refreshFrpNodes()">刷新</button>
             </div>
           </div>
-          <div class="warn-box">中转模式延迟通常比 P2P 高 20-100ms 以上，建议先尝试 P2P 模式</div>
+          <div class="warn-box">frp 固定中转延迟通常更高，建议先尝试 EasyTier 自动组网</div>
         </div>
 
+        <div class="form-group public-toggle">
+          <label class="toggle-label"><span>公开房间</span><label class="switch"><input id="host-public" type="checkbox"><span class="slider"></span></label></label>
+          <small>公开房间容量由服务端决定，默认关闭。</small>
+        </div>
         <div id="port-section" style="margin-top:16px">
           <div class="form-group">
             <label>Minecraft 端口</label>
@@ -243,7 +274,7 @@
           <div class="ci-row"><span class="ci-label">模式</span><span id="j-mode"></span></div>
           <div class="ci-row">
             <span class="ci-label">连接地址</span>
-            <strong id="j-addr" style="color:var(--accent2)">127.0.0.1:25565</strong>
+            <strong id="j-addr" style="color:var(--accent2)">等待连接...</strong>
             <button class="btn btn-outline btn-sm" onclick="copyJoinAddr()">复制</button>
           </div>
           <div class="ci-row"><span class="ci-label">状态</span><span id="j-status"></span></div>
@@ -254,6 +285,43 @@
         <h3 class="members-title">房间成员</h3>
         <div id="guest-members" class="peers-list"></div>
         <button class="btn btn-danger btn-sm" style="margin-top:12px" onclick="leaveRoom()">断开连接</button>
+      </div>
+    </div>
+
+    <!-- 广场 -->
+    <div id="page-square" class="page">
+      <div class="page-head"><h1 class="page-title">公开房间广场</h1><button class="btn btn-outline btn-sm" onclick="loadPublicRooms(true)">刷新</button></div>
+      <div id="public-rooms" class="list-grid"><div class="empty-state">点击刷新获取公开房间</div></div>
+    </div>
+
+    <!-- 好友 -->
+    <div id="page-friends" class="page">
+      <h1 class="page-title">好友</h1>
+      <!-- 搜索添加 -->
+      <div class="card">
+        <div class="search-row">
+          <input id="friend-search" type="text" placeholder="输入用户名搜索" onkeydown="if(event.key==='Enter')searchFriends()">
+          <button class="btn btn-primary btn-sm" onclick="searchFriends()">搜索</button>
+        </div>
+        <div id="friend-search-results" class="list-grid"></div>
+      </div>
+      <!-- Tab 切换 -->
+      <div class="tabs" style="margin-bottom:12px">
+        <button id="ftab-list" class="tab-btn active" onclick="switchFriendTab('list')">好友列表</button>
+        <button id="ftab-requests" class="tab-btn" onclick="switchFriendTab('requests')">收到的申请 <span id="ftab-requests-badge" class="badge hidden"></span></button>
+        <button id="ftab-history" class="tab-btn" onclick="switchFriendTab('history')">发送历史</button>
+      </div>
+      <div id="friends-panel-list">
+        <div class="page-head"><h2>好友列表</h2><button class="btn btn-outline btn-sm" onclick="loadFriends(true)">刷新</button></div>
+        <div id="friends-list" class="list-grid"><div class="empty-state">暂无好友</div></div>
+      </div>
+      <div id="friends-panel-requests" class="hidden">
+        <div class="page-head"><h2>收到的好友申请</h2><button class="btn btn-outline btn-sm" onclick="loadFriendRequests()">刷新</button></div>
+        <div id="friends-requests-list" class="list-grid"><div class="empty-state">暂无待处理申请</div></div>
+      </div>
+      <div id="friends-panel-history" class="hidden">
+        <div class="page-head"><h2>发送历史</h2><button class="btn btn-outline btn-sm" onclick="loadFriendHistory()">刷新</button></div>
+        <div id="friends-history-list" class="list-grid"><div class="empty-state">暂无记录</div></div>
       </div>
     </div>
 
@@ -322,10 +390,10 @@
 
       <div class="card">
         <h2>连接</h2>
-        <div class="form-group">
-          <label>默认服务器地址</label>
-          <input id="s-server" type="text" placeholder="https://your-server">
-        </div>
+        <div class="form-group hidden" aria-hidden="true">
+        <label>默认服务器地址</label>
+        <input id="s-server" type="hidden" value="https://p.blfp.cn">
+      </div>
         <div class="form-group">
           <label>默认 MC 端口</label>
           <input id="s-mc-port" type="number" value="25565" min="1" max="65535">
@@ -362,13 +430,17 @@
 <div class="modal-backdrop hidden" id="quick-host-modal">
   <div class="modal">
     <h3>快捷创建房间</h3>
-    <div class="app-info-row"><span>连接模式</span><strong id="quick-host-mode">P2P 端到端</strong></div>
+    <div class="app-info-row"><span>连接模式</span><strong id="quick-host-mode">EasyTier 智能组网</strong></div>
     <div class="form-group">
       <label for="quick-mc-port">Minecraft 端口</label>
       <div class="port-row">
         <input id="quick-mc-port" type="number" value="25565" min="1" max="65535">
         <button class="btn btn-outline btn-sm" onclick="detectPort('quick-mc-port')">自动检测</button>
       </div>
+    </div>
+    <div class="form-group public-toggle">
+      <label class="toggle-label"><span>公开房间</span><label class="switch"><input id="quick-public" type="checkbox"><span class="slider"></span></label></label>
+      <small>公开房间容量由服务端决定，默认关闭。</small>
     </div>
     <div id="quick-frp-section" class="form-group hidden">
       <label for="quick-frp-node-select">frp 节点</label>
@@ -405,6 +477,17 @@
     <div class="modal-actions">
       <button class="btn btn-outline btn-sm" onclick="confirmCancel()">取消</button>
       <button class="btn btn-primary btn-sm" id="confirm-ok" onclick="confirmOk()">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop hidden" id="announcement-modal">
+  <div class="modal announcement-modal">
+    <h3 id="announcement-title">公告</h3>
+    <p id="announcement-content" class="announcement-content"></p>
+    <label class="announcement-dismiss"><input id="announcement-today" type="checkbox"> 今日不再显示</label>
+    <div class="modal-actions">
+      <button class="btn btn-primary btn-sm" id="announcement-close" onclick="closeAnnouncement()">我知道了</button>
     </div>
   </div>
 </div>

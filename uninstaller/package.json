@@ -1,6 +1,6 @@
 {
   "name": "blfp-uninstaller",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "BLFP 卸载程序",
   "main": "main.js",
   "scripts": {
@@ -16,7 +16,7 @@
     "appId": "com.blfp.uninstaller",
     "productName": "BLFP-Uninstall",
     "directories": {
-      "output": "out"
+      "output": "out_v2.0.0"
     },
     "files": [
       "main.js",
@@ -25,7 +25,8 @@
     ],
     "win": {
       "target": "portable",
-      "artifactName": "BLFP-Uninstall.exe"
+      "artifactName": "BLFP-Uninstall.exe",
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "asar": false
   }

@@ -7,10 +7,13 @@ const AdmZip = require('adm-zip');
 
 // payload.zip 内含主程序全部文件（win-unpacked 内容）
 function payloadPath() {
-  // 打包后位于 resources/payload/payload.zip；开发时位于 ./payload/payload.zip
-  const packed = path.join(process.resourcesPath, 'payload', 'payload.zip');
-  if (fs.existsSync(packed)) return packed;
-  return path.join(__dirname, 'payload', 'payload.zip');
+  const candidates = [
+    path.join(process.resourcesPath, 'payload', 'payload.zip'),
+    path.join(process.resourcesPath, 'app.asar.unpacked', 'payload', 'payload.zip'),
+    path.join(app.getAppPath(), 'payload', 'payload.zip'),
+    path.join(__dirname, 'payload', 'payload.zip'),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).size > 0);
 }
 
 const APP_NAME = 'BLFP';
@@ -19,6 +22,28 @@ const EXE_NAME = 'BLFP.exe';
 function defaultInstallDir() {
   const base = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
   return path.join(base, 'Programs', APP_NAME);
+}
+
+function entryOutputPath(targetDir, entryName) {
+  const segments = entryName.split(/[\\/]+/);
+  if (path.isAbsolute(entryName) || path.win32.isAbsolute(entryName) || path.posix.isAbsolute(entryName) || segments.includes('..')) {
+    throw new Error(`安装包包含不安全路径：${entryName}`);
+  }
+
+  const root = path.resolve(targetDir);
+  const output = path.resolve(root, entryName);
+  if (output !== root && !output.startsWith(root + path.sep)) {
+    throw new Error(`安装包路径超出安装目录：${entryName}`);
+  }
+  return output;
+}
+
+function taskkill(imageName) {
+  return new Promise((resolve) => {
+    const child = spawn('taskkill.exe', ['/F', '/IM', imageName], { windowsHide: true, stdio: 'ignore' });
+    child.on('error', resolve);
+    child.on('close', resolve);
+  });
 }
 
 let win;
@@ -66,10 +91,18 @@ ipcMain.handle('install', async (evt, opts) => {
   const send = (percent, text) => win.webContents.send('install-progress', { percent, text });
   try {
     const zipFile = payloadPath();
-    if (!fs.existsSync(zipFile)) throw new Error('安装包数据缺失（payload.zip 未找到）');
+    if (!zipFile) throw new Error('安装包数据缺失（payload.zip 未找到）');
 
     send(2, '准备安装目录...');
     fs.mkdirSync(targetDir, { recursive: true });
+
+    if (fs.existsSync(path.join(targetDir, EXE_NAME))) {
+      send(5, '正在关闭已运行的客户端...');
+      await Promise.all([
+        taskkill(EXE_NAME),
+        taskkill('easytier-core.exe'),
+      ]);
+    }
 
     // 关闭 Electron 的 asar 拦截：主程序内含 resources/app.asar，
     // 若不关闭，写入该文件时 Electron 会把它当 asar 归档拒绝写入，导致解压失败
@@ -78,12 +111,14 @@ ipcMain.handle('install', async (evt, opts) => {
     send(8, '正在读取安装包...');
     const zip = new AdmZip(zipFile);
     const entries = zip.getEntries();
+    const outputPaths = entries.map((entry) => entryOutputPath(targetDir, entry.entryName));
     const total = entries.length || 1;
 
     // 逐条解压，反馈进度
     let done = 0;
-    for (const entry of entries) {
-      const outPath = path.join(targetDir, entry.entryName);
+    for (let index = 0; index < entries.length; index++) {
+      const entry = entries[index];
+      const outPath = outputPaths[index];
       if (entry.isDirectory) {
         fs.mkdirSync(outPath, { recursive: true });
       } else {
@@ -126,9 +161,21 @@ ipcMain.handle('install', async (evt, opts) => {
 
     // 写入卸载信息（简单记录安装目录）
     try {
-      fs.writeFileSync(path.join(targetDir, 'install-info.json'),
-        JSON.stringify({ installedAt: Date.now(), dir: targetDir, version: '1.0.0' }, null, 2));
+      const metadata = { installDir: targetDir, installedAt: new Date().toISOString() };
+      fs.writeFileSync(path.join(targetDir, 'install-info.json'), JSON.stringify(metadata, null, 2), 'utf8');
     } catch (e) {}
+
+    const uninstallerPath = path.join(targetDir, '卸载 BLFP.exe');
+    if (fs.existsSync(uninstallerPath)) {
+      try {
+        const startMenu = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs');
+        shell.writeShortcutLink(path.join(startMenu, '卸载 BLFP.lnk'), 'create', {
+          target: uninstallerPath,
+          cwd: targetDir,
+          description: '卸载 BLFP',
+        });
+      } catch (e) {}
+    }
 
     send(100, '安装完成');
     return { ok: true, exePath };

@@ -14,6 +14,21 @@ BLFP 是面向 Minecraft Java 版的联机客户端，提供 WebRTC P2P 直连�
 - GitHub Releases 客户端更新检测
 - HTTPS/WSS、JWT 鉴权与 HMAC 请求签名
 
+## 工作原理
+
+### EasyTier 模式（默认）
+
+- 房主创建房间，服务端分配 6 位房间号和该房间独立的临时网络凭据
+- 房主与加入者通过 EasyTier 连接共享节点，并自动尝试建立 P2P 直连
+- 直连受限时，游戏流量自动经共享节点中继
+- 加入者在 Minecraft 中连接房主的 EasyTier 虚拟地址即可
+
+### frp 中转模式
+
+- 房主选择 frp 固定中转节点
+- 客户端自动启动 frpc，将本机 Minecraft 端口映射到公网
+- 加入者输入房间号后直接获得公网地址并连接
+
 ## 下载与安装
 
 请前往 [Releases](https://github.com/EVFBV/BLFP-client/releases) 下载最新的 `BLFP-Setup-v*.exe`，运行安装程序并按界面提示完成安装。

@@ -30,15 +30,14 @@ contextBridge.exposeInMainWorld('mclink', {
   onFrpcPort: (cb) => ipcRenderer.on('frpc-port', (_e, port) => cb(port)),
   onFrpcError: (cb) => ipcRenderer.on('frpc-error', (_e, err) => cb(err)),
 
-  // P2P 隧道
-  tunnelHostConnect: (cfg) => ipcRenderer.invoke('tunnel-host-connect', cfg),
-  tunnelGuestListen: (cfg) => ipcRenderer.invoke('tunnel-guest-listen', cfg),
-  tunnelSend: (connId, data) => ipcRenderer.send('tunnel-send', { connId, data }),
-  tunnelClose: (connId) => ipcRenderer.invoke('tunnel-close', { connId }),
-  tunnelStopAll: () => ipcRenderer.invoke('tunnel-stop-all'),
-  onTunnelData: (cb) => ipcRenderer.on('tunnel-data', (_e, d) => cb(d)),
-  onTunnelNewConn: (cb) => ipcRenderer.on('tunnel-new-conn', (_e, d) => cb(d)),
-  onTunnelClosed: (cb) => ipcRenderer.on('tunnel-closed', (_e, d) => cb(d)),
+  // EasyTier 主进程
+  easytierStart: (config) => ipcRenderer.invoke('easytier-start', config),
+  easytierStop: () => ipcRenderer.invoke('easytier-stop'),
+  easytierStatus: () => ipcRenderer.invoke('easytier-status'),
+  easytierTest: (hostVirtualIp) => ipcRenderer.invoke('easytier-test', { hostVirtualIp }),
+  onEasytierLog: (cb) => ipcRenderer.on('easytier-log', (_e, line) => cb(line)),
+  onEasytierStatus: (cb) => ipcRenderer.on('easytier-status', (_e, status) => cb(status)),
+  onEasytierError: (cb) => ipcRenderer.on('easytier-error', (_e, error) => cb(error)),
 
   // 移除监听器
   removeAllListeners: (ch) => ipcRenderer.removeAllListeners(ch),

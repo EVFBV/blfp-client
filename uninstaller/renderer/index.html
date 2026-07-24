@@ -8,18 +8,33 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main class="panel">
-    <div class="brand"><span class="icon">⛏</span><strong>卸载 BLFP</strong></div>
-    <p id="message">确定要从此电脑中移除 BLFP 吗？程序文件与快捷方式将被删除。</p>
-    <div id="progress" class="progress hidden"><div class="bar"></div></div>
-    <div id="actions" class="actions">
-      <button id="cancel" class="btn ghost">取消</button>
-      <button id="uninstall" class="btn danger">确认卸载</button>
-    </div>
-    <div id="done-actions" class="actions hidden">
-      <button id="finish" class="btn primary">完成</button>
-    </div>
-  </main>
+  <div class="shell">
+    <aside class="brand-panel">
+      <div class="logo">BLFP</div>
+      <h1>卸载 BLFP</h1>
+      <p>安全移除客户端、快捷方式与安装目录。</p>
+      <div class="dots"><span></span><span></span><span></span></div>
+    </aside>
+    <main class="content-panel">
+      <section class="step active">
+        <div class="step-icon danger-icon">!</div>
+        <h2>确认卸载</h2>
+        <p id="message" class="desc">这将移除 BLFP 主程序和快捷方式。确认继续吗？</p>
+        <div id="install-dir" class="path-card">正在定位安装目录...</div>
+        <div id="progress" class="progress-wrap hidden">
+          <div class="spinner"></div>
+          <span>正在关闭 BLFP 并准备删除文件...</span>
+        </div>
+        <div id="actions" class="actions">
+          <button id="cancel" class="btn secondary">取消</button>
+          <button id="uninstall" class="btn danger">确认卸载</button>
+        </div>
+        <div id="done-actions" class="actions hidden">
+          <button id="finish" class="btn primary">完成并删除残留</button>
+        </div>
+      </section>
+    </main>
+  </div>
   <script src="app.js"></script>
 </body>
 </html>

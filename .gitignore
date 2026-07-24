@@ -13,14 +13,21 @@ latest*.yml
 # 自制安装器中间产物
 installer/node_modules/
 installer/out/
+installer/out_*/
 installer/release_*/
 installer/payload/*.zip
 installer/sfx/*.7z
 uninstaller/node_modules/
 uninstaller/out/
+uninstaller/out_*/
 
 # Release 文件通过 GitHub Release 发布，不进入源码仓库
 BLFP-Setup*.exe
+
+# 二进制运行文件（通过 Release 或单独分发，不进入源码仓库）
+bin/*.exe
+bin/*.dll
+bin/*.sys
 
 # 本地配置与日志
 .env
