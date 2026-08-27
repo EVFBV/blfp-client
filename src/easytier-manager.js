@@ -338,10 +338,32 @@ class EasyTierManager extends EventEmitter {
         return;
       } catch (error) {
         if (!['EADDRNOTAVAIL', 'EADDRINUSE'].includes(error.code)) throw error;
+        if (error.code === 'EADDRINUSE') {
+          // 虚拟地址端口被本机物理栈占用：若游戏恰好以同一端口（默认 25565）对局域网开放，
+          // 访客经虚拟网卡即可直达游戏监听，无需代理 —— 直通模式
+          this._lastProxyConflict = true;
+          if (mcPort === HOST_PORT && await this._probeTcp('127.0.0.1', HOST_PORT)) {
+            this._log(`端口 ${HOST_PORT} 已被本机占用且与 mcPort 相同：启用直通模式（访客直连虚拟地址，不经代理）`);
+            return;
+          }
+        }
         await this._delay(500);
       }
     }
+    if (this._lastProxyConflict && mcPort !== HOST_PORT) {
+      throw new Error(`虚拟地址端口 ${HOST_PORT} 被本机其他程序占用：请先释放该端口（检查是否有别的程序或另一局游戏正以 25565 对局域网开放），或将「对局域网开放」的端口改为其他值后重试`);
+    }
     throw new Error(`等待虚拟 IP ${virtualIp} 可绑定超时`);
+  }
+
+  _probeTcp(host, port, timeout = 800) {
+    return new Promise((resolve) => {
+      const socket = net.createConnection({ host, port });
+      const done = (result) => { socket.destroy(); resolve(result); };
+      socket.setTimeout(timeout, () => done(false));
+      socket.once('connect', () => done(true));
+      socket.once('error', () => done(false));
+    });
   }
 
   _listenProxy(virtualIp, mcPort) {
