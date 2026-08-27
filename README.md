@@ -1,37 +1,53 @@
 # BLFP Client
 
-BLFP 是面向 Minecraft Java 版的联机客户端，提供 WebRTC P2P 直连和 frp 中转两种房间连接方式。
+BLFP 是面向 Minecraft Java 版的联机客户端。无需公网 IP：房主一键开房，好友输入 6 位房间号即可加入，游戏流量走 EasyTier 虚拟网络（自动尝试 P2P 直连，受限时经共享节点中继），frp 固定中转作为备用通道。
+
+**当前版本：v2.2.0**（Windows + Linux 双平台，[前往下载](https://github.com/EVFBV/BLFP-client/releases/tag/v2.2.0)）
 
 ## 主要功能
 
-- WebRTC P2P 端到端联机
-- frp 公网节点中转联机
-- 首页快捷创建 P2P / frp 房间
-- Minecraft 局域网 MOTD 广播
-- 房间成员、延迟与在线人数显示
-- 普通用户最多 8 人、赞助用户最多 12 人
-- 三种侧边栏模式：正常、折叠、悬浮伸缩
-- GitHub Releases 客户端更新检测
-- HTTPS/WSS、JWT 鉴权与 HMAC 请求签名
+- **EasyTier 智能组网**（默认）：每房间独立临时凭据，自动 P2P 直连，失败自动中继
+- **节点选择与测速**：可指定 EasyTier 节点；auto 模式自动选延迟最低的节点
+- **frp 中转模式**（备用）：固定公网节点转发，随机隧道名，连接信息上报管理台
+- **6 位房间号**：房主创建即得，好友输入房间号一键加入
+- **Minecraft 局域网发现**：自动扫描开放端口并广播 MOTD
+- **成员与状态显示**：成员列表、延迟、在线人数
+- **更新检测**：从 GitHub Releases 检查新版本
+
+## 下载与安装
+
+| 平台 | 文件 | 说明 |
+|---|---|---|
+| Windows | `BLFP-Setup-v2.2.0.exe` | 图形安装器，需管理员权限 |
+| Linux | `BLFP-v2.2.0-linux-x86_64.AppImage` | 免安装，`chmod +x` 后直接运行 |
+| Linux | `BLFP-v2.2.0-linux-amd64.deb` | 安装到 /opt/BLFP 并注册桌面入口 |
+
+SHA256 校验值与完整变更列表见 [Release v2.2.0](https://github.com/EVFBV/BLFP-client/releases/tag/v2.2.0)。
+
+> Linux 下 EasyTier 需要 `CAP_NET_ADMIN` 权限：以 root 运行，或执行
+> `sudo setcap cap_net_admin,cap_net_raw+ep /opt/BLFP/resources/bin/easytier-core`
 
 ## 工作原理
 
 ### EasyTier 模式（默认）
 
 - 房主创建房间，服务端分配 6 位房间号和该房间独立的临时网络凭据
-- 房主与加入者通过 EasyTier 连接共享节点，并自动尝试建立 P2P 直连
+- 房主与加入者通过共享节点互连，并自动尝试建立 P2P 直连
 - 直连受限时，游戏流量自动经共享节点中继
-- 加入者在 Minecraft 中连接房主的 EasyTier 虚拟地址即可
+- 加入者在 Minecraft 中直接连接房主的虚拟地址（`10.200.X.1:25565`）即可
 
-### frp 中转模式
+### frp 中转模式（备用）
 
 - 房主选择 frp 固定中转节点
-- 客户端自动启动 frpc，将本机 Minecraft 端口映射到公网
+- 客户端自动启动 frpc，将本机 Minecraft 端口映射到公网（每次使用随机隧道名）
 - 加入者输入房间号后直接获得公网地址并连接
 
-## 下载与安装
+## 文档
 
-请前往 [Releases](https://github.com/EVFBV/BLFP-client/releases) 下载最新的 `BLFP-Setup-v*.exe`，运行安装程序并按界面提示完成安装。
+完整的下载安装、联机教程、节点测速、管理台说明与 FAQ 见文档站（VitePress 构建）：
+
+- 文档源码与构建产物位于服务端工作区的 `docs/` 与 `docs/build/`
+- [更新日志](https://github.com/EVFBV/BLFP-client/releases) ｜ 服务端可配置三平台下载链接聚合页 `/download`
 
 ## 本地开发
 
@@ -44,30 +60,15 @@ npm start
 
 ## 构建
 
-构建 Windows 安装包：
+构建 Windows 安装包：推送 `v*` 标签后由 GitHub Actions 自动执行五步打包链并发布 Release。
 
-```powershell
-npm run dist
+本地构建 Linux 版（AppImage + deb）：
+
+```bash
+npm install --include=dev
+npx electron-builder --linux --publish never
 ```
 
-推送 `v*` 标签后，[GitHub Actions](https://github.com/EVFBV/BLFP-client/actions) 会自动构建并创建 Release。
-
-## 使用说明
-
-1. 登录 BLFP 客户端。
-2. 在首页选择 P2P 或 frp 模式。
-3. 输入 Minecraft 局域网开放端口并创建房间。
-4. 将六位房间号发送给好友。
-5. 好友输入房间号加入后，在 Minecraft 多人游戏中连接显示的本地地址。
-
-## 社区
-
-QQ 交流群：`229527551`
-
-## 安全说明
-
-请勿将 GitHub Token、服务端密钥或本地环境变量提交到仓库。GitHub 自动发布使用 Actions 提供的仓库级 `GITHUB_TOKEN`。
-
-## License
+## 许可证
 
 MIT
