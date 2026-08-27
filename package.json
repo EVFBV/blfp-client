@@ -1,6 +1,6 @@
 {
   "name": "blfp-client",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "BLFP - Minecraft Java 联机软件 - 客户端 (Electron + EasyTier + frpc)",
   "main": "main.js",
   "scripts": {
@@ -8,7 +8,7 @@
     "test": "node --test src/*.test.js",
     "dist": "electron-builder"
   },
-  "author": "",
+  "author": "xingyub <160427359@qq.com>",
   "license": "MIT",
   "dependencies": {
     "ws": "^8.18.0"
@@ -21,7 +21,7 @@
     "appId": "com.blfp.client",
     "productName": "BLFP",
     "directories": {
-      "output": "build_v2.0.0"
+      "output": "build_v2.1.0"
     },
     "files": [
       "main.js",
@@ -37,6 +37,30 @@
     "asar": false,
     "extraResources": [
       "bin/**"
-    ]
+    ],
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "category": "Game",
+      "artifactName": "BLFP-v${version}-linux-${arch}.${ext}"
+    },
+    "deb": {
+      "priority": "optional",
+      "synopsis": "BLFP Minecraft Java 联机客户端",
+      "description": "BLFP - Minecraft Java 联机软件 Linux 客户端，基于 EasyTier 虚拟组网与 6 位房间号。"
+    }
   }
 }
