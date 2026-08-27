@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld('mclink', {
   // 本机局域网 IP
   getLanIp: () => ipcRenderer.invoke('get-lan-ip'),
 
+  // 窗口三按钮跟随主题
+  setTitlebarOverlay: (theme) => ipcRenderer.invoke('set-titlebar-overlay', theme),
+
   // 退出软件
   exitApp: () => ipcRenderer.invoke('exit-app'),
 

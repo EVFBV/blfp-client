@@ -42,6 +42,7 @@ class FrpcManager extends EventEmitter {
   async _start(cfg) {
     if (this._state !== 'stopped' || this._proc || this._configPath) await this._stop();
     const generation = ++this._generation;
+    this._tunnelName = this._genTunnelName();
     const frpcPath = this._getFrpcPath();
     if (!fs.existsSync(frpcPath)) {
       throw new Error(`未找到 frpc 可执行文件: ${frpcPath}\n请将 frpc.exe 放入 client/bin/ 目录`);
@@ -128,8 +129,8 @@ class FrpcManager extends EventEmitter {
         if (success) {
           const port = parseInt((portMatch && (portMatch[1] || portMatch[2] || portMatch[3])) || cfg.remotePort);
           if (port) {
-            this.emit('port', port);
-            finish(resolve, { remotePort: port });
+            this.emit('port', { port, tunnelName: this._tunnelName });
+            finish(resolve, { remotePort: port, tunnelName: this._tunnelName });
             return;
           }
         }
@@ -200,6 +201,13 @@ class FrpcManager extends EventEmitter {
     return Boolean(child && child.exitCode === null && child.signalCode === null);
   }
 
+  _genTunnelName() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let name = '';
+    for (let i = 0; i < 6; i++) name += chars[Math.floor(Math.random() * chars.length)];
+    return name;
+  }
+
   _setState(state) {
     this._state = state;
     this.emit('status', this.getStatus());
@@ -229,7 +237,7 @@ class FrpcManager extends EventEmitter {
     lines.push(
       '',
       '[[proxies]]',
-      'name = "blfp_tcp"',
+      `name = ${quote(this._tunnelName || 'blfp_tcp')}`,
       'type = "tcp"',
       'localIP = "127.0.0.1"',
       `localPort = ${Number(cfg.localPort) || 25565}`,

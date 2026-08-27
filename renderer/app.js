@@ -15,6 +15,9 @@ const state = {
   frpNodeId: null,
   frpNode: null,
   frpEndpoint: null,
+  frpTunnelName: '',
+  etNodes: [],
+  etNodeMode: 'auto',
   hostResetPromise: null,
   members: [],
   maxMembers: 12,
@@ -329,15 +332,22 @@ function syncPresence(online = true) {
 }
 
 function safeUserTheme(theme) {
-  return (theme === 'light' || theme === 'dark') ? theme : null;
+  return ['light', 'dark', 'gold', 'violet', 'ice', 'emerald', 'blue', 'green', 'role'].includes(theme) ? theme : null;
+}
+
+function resolveUserThemeClass(theme, role) {
+  const t = safeUserTheme(theme) || (role === 'admin' ? 'gold' : role === 'sponsor' ? 'blue' : 'dark');
+  if (t === 'role') return `theme-role role-${role || 'user'}`;
+  const map = { violet: 'violet', emerald: 'emerald' };
+  return `theme-${map[t] || t}`;
 }
 
 function applyUserAppearance(user) {
   const title = user.title || ({ admin: '管理员', sponsor: '赞助用户', user: '普通用户' }[user.role] || '普通用户');
-  const theme = safeUserTheme(user.theme);
+  const cls = resolveUserThemeClass(user.theme, user.role);
   $('s-role').textContent = title;
-  $('s-role').className = `user-role ${user.role === 'admin' ? 'admin' : user.role === 'sponsor' ? 'sponsor' : ''} ${theme ? 'theme-' + theme : ''}`.trim();
-  $('s-role').dataset.userTheme = theme;
+  $('s-role').className = `user-role ${cls}`.trim();
+  $('s-role').dataset.userTheme = safeUserTheme(user.theme) || 'role';
 }
 
 function enterApp() {
@@ -352,6 +362,7 @@ function enterApp() {
   home.classList.add('enter-from-right');
   setTimeout(() => home.classList.remove('enter-from-right'), 230);
   loadFrpNodes();
+  loadEtNodes();
   loadPublicRooms(true);
   loadFriends(true);
   if (state.user.role === 'sponsor' && !sessionStorage.getItem('blfp_sponsor_welcome')) { sessionStorage.setItem('blfp_sponsor_welcome', '1'); toast(`感谢赞助，${state.user.username}，欢迎回来！`, 'success'); }
@@ -365,36 +376,38 @@ function enterApp() {
 const NAV_ORDER = ['home', 'host', 'join', 'square', 'friends', 'log', 'settings'];
 let currentPage = 'home';
 let navTimer = null;
+let navLock = false;
 function navTo(page, btn) {
   if (page === currentPage) {
     document.querySelectorAll('.nav-item').forEach((n) => n.classList.toggle('active', n === (btn || document.querySelector(`.nav-item[data-page="${page}"]`))));
     return;
   }
+  if (navLock) return;
   const oldPage = $('page-' + currentPage);
   const nextPage = $('page-' + page);
+  if (!oldPage || !nextPage) return;
   const noAnimation = page === 'log' || currentPage === 'log' || document.body.classList.contains('perf-off');
   clearTimeout(navTimer);
   document.querySelectorAll('.page').forEach((p) => p.classList.remove('page-entering', 'page-leaving', 'enter-from-left', 'enter-from-right', 'leave-to-left', 'leave-to-right'));
+  document.querySelector('.content').scrollTop = 0;
   if (noAnimation) {
     oldPage.classList.remove('active');
     nextPage.classList.add('active');
+    currentPage = page;
   } else {
+    navLock = true;
     const forward = NAV_ORDER.indexOf(page) > NAV_ORDER.indexOf(currentPage);
     oldPage.classList.add('page-leaving', forward ? 'leave-to-left' : 'leave-to-right');
     nextPage.classList.add('active', 'page-entering', forward ? 'enter-from-right' : 'enter-from-left');
+    currentPage = page;
     navTimer = setTimeout(() => {
       oldPage.classList.remove('active', 'page-leaving', 'leave-to-left', 'leave-to-right');
       nextPage.classList.remove('page-entering', 'enter-from-left', 'enter-from-right');
+      navLock = false;
     }, 225);
   }
-  currentPage = page;
   document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'));
   (btn || document.querySelector(`.nav-item[data-page="${page}"]`))?.classList.add('active');
-  if (document.body.classList.contains('sidebar-floating')) {
-    btn?.blur();
-    $('app-sidebar')?.classList.add('sidebar-retract');
-    requestAnimationFrame(() => $('app-sidebar')?.classList.remove('sidebar-retract'));
-  }
   if (page === 'host' && state.token) loadFrpNodes({ silent: true, preserveSelection: true });
   if (page === 'square' && state.token) loadPublicRooms(true);
   if (page === 'friends' && state.token) loadFriends(true);
@@ -451,6 +464,103 @@ async function loadFrpNodes(options = {}) {
 
 function refreshFrpNodes() {
   return loadFrpNodes({ force: true, preserveSelection: true });
+}
+
+/* ============ EasyTier 节点选择（任务2/3）============ */
+let etLoadPromise = null;
+function parsePeerTarget(peer) {
+  try {
+    const u = new URL(String(peer));
+    if (!u.hostname) return null;
+    let port = Number(u.port);
+    if (!port) port = (u.protocol === 'wss:' || u.protocol === 'https:') ? 443 : 11010;
+    return { host: u.hostname, port };
+  } catch { return null; }
+}
+
+async function pingPeerUrl(peer) {
+  const target = parsePeerTarget(peer);
+  if (!target || !window.mclink || !window.mclink.pingNode) return null;
+  try {
+    const res = await window.mclink.pingNode({ host: target.host, port: target.port });
+    return res && res.ok ? Number(res.latency) : null;
+  } catch { return null; }
+}
+
+async function loadEtNodes(options = {}) {
+  if (etLoadPromise && !options.force) return etLoadPromise;
+  const sel = $('s-et-node');
+  etLoadPromise = (async () => {
+    try {
+      const nodes = await api('/easytier-nodes/client');
+      state.etNodes = Array.isArray(nodes) ? nodes : [];
+      if (sel) {
+        const opts = ['<option value="auto">自动（选择延迟最低的节点）</option>'];
+        state.etNodes.forEach((n) => {
+          const kind = n.kind === 'signaling' ? '信令' : '中继';
+          opts.push(`<option value="${n.id}">${escapeHtml(n.name)}（${kind}）</option>`);
+        });
+        sel.innerHTML = opts.join('');
+        const saved = String(state.etNodeMode || 'auto');
+        sel.value = saved !== 'auto' && state.etNodes.some((n) => String(n.id) === saved) ? saved : 'auto';
+      }
+      return state.etNodes;
+    } catch (e) {
+      debugLog('加载 EasyTier 节点失败: ' + e.message);
+      return [];
+    } finally {
+      etLoadPromise = null;
+    }
+  })();
+  return etLoadPromise;
+}
+
+async function testEtNodes() {
+  const results = $('s-et-results');
+  const badge = $('s-et-latency');
+  let nodes = state.etNodes;
+  if (!nodes.length) nodes = await loadEtNodes({ force: true });
+  if (!nodes.length) return toast('没有可用的 EasyTier 节点', 'warn');
+  if (results) { results.classList.remove('hidden'); results.textContent = '正在测速…'; }
+  if (badge) { badge.classList.remove('hidden'); badge.textContent = '测速中...'; }
+  const rows = await Promise.all(nodes.map(async (n) => ({ node: n, latency: await pingPeerUrl(n.peer) })));
+  rows.sort((a, b) => (a.latency ?? Infinity) - (b.latency ?? Infinity));
+  if (results) {
+    results.innerHTML = rows.map((r) => {
+      const text = r.latency === null ? '不可达' : `${r.latency} ms`;
+      const cls = r.latency === null ? 'et-node-bad' : 'et-node-good';
+      return `<div class="et-result-row"><span>${escapeHtml(r.node.name)}</span><span class="${cls}">${text}</span></div>`;
+    }).join('');
+  }
+  const best = rows.find((r) => r.latency !== null);
+  if (badge) badge.textContent = best ? `最低延迟：${best.node.name} ${best.latency} ms` : '无可用节点';
+  if (best) logLine(`EasyTier 测速完成，最低延迟节点: ${best.node.name} (${best.latency} ms)`);
+}
+
+async function pickBestEtPeer(peers) {
+  if (!Array.isArray(peers) || peers.length <= 1) return peers;
+  const results = await Promise.all(peers.map(async (peer) => ({ peer, latency: await pingPeerUrl(peer) })));
+  results.sort((a, b) => (a.latency ?? Infinity) - (b.latency ?? Infinity));
+  if (results[0].latency === null) return peers;
+  logLine(`自动选择最低延迟 EasyTier 节点: ${results[0].peer} (${results[0].latency} ms)`);
+  return [results[0].peer];
+}
+
+async function resolveEtPeers(peers) {
+  if (!Array.isArray(peers) || !peers.length) return peers;
+  const mode = state.etNodeMode;
+  if (mode && String(mode) !== 'auto') {
+    const node = state.etNodes.find((n) => String(n.id) === String(mode));
+    if (node) {
+      const matched = peers.find((p) => p === node.peer);
+      if (matched) {
+        logLine(`使用指定 EasyTier 节点: ${node.name}`);
+        return [matched];
+      }
+      logLine(`指定 EasyTier 节点 ${node.name} 当前不可用，改为自动选择`);
+    }
+  }
+  return pickBestEtPeer(peers);
 }
 
 function selectFrpNode(value) {
@@ -656,12 +766,15 @@ async function onRoomCreated(msg) {
     $('host-lan-addr').textContent = host + ':' + port;
     logLine('frp 房间已创建: ' + code + '，访客连接地址: ' + host + ':' + port);
     state.frpEndpoint = { host, port };
+    reportFrpSession(code, port).catch((e) => logLine('frp 端口上报失败: ' + e.message));
     return;
   }
 
   if (!msg.easytier) throw new Error('服务端未返回 EasyTier 配置');
   $('host-status').textContent = '正在启动 EasyTier...';
-  const result = await window.mclink.easytierStart({ ...msg.easytier, mode: 'host', mcPort: state.mcPort });
+  const etConfig = { ...msg.easytier, mode: 'host', mcPort: state.mcPort };
+  etConfig.peers = await resolveEtPeers(etConfig.peers);
+  const result = await window.mclink.easytierStart(etConfig);
   if (!result?.ok) throw new Error(result?.error || 'EasyTier 启动失败');
   state.easytier = result.status;
   const hostVirtualIp = msg.easytier.hostVirtualIp || state.easytier.virtualIp;
@@ -738,6 +851,7 @@ async function resetHostRoom(reason = '房间已关闭', notify = false) {
     state.isPublic = false;
     state.frpEndpoint = null;
     state.frpNode = null;
+    state.frpTunnelName = '';
     const ws = state.ws;
     state.ws = null;
     if (ws) {
@@ -788,6 +902,18 @@ function randomFrpPort() {
   return min + Math.floor(Math.random() * range);
 }
 
+async function reportFrpSession(roomCode, remotePort) {
+  if (!state.frpTunnelName || !roomCode) return;
+  const body = {
+    tunnelName: state.frpTunnelName,
+    remotePort: Number(remotePort) || 0,
+    roomCode: String(roomCode),
+    nodeId: state.frpNode ? state.frpNode.id : null,
+  };
+  await api('/frp/report', { method: 'POST', body: JSON.stringify(body) });
+  logLine('已向服务端上报 frp 端口: ' + remotePort + '（隧道 ' + state.frpTunnelName + '）');
+}
+
 async function createFrpRoom(button = $('btn-create')) {
   if (!state.frpNodes.length) await loadFrpNodes({ force: true });
   const node = state.frpNodes.find((n) => n.id === state.frpNodeId);
@@ -826,7 +952,8 @@ async function createFrpRoom(button = $('btn-create')) {
       logLine('frp 端口 ' + remotePort + ' 不可用，正在重新随机...');
     }
     if (!res || !res.ok) throw new Error((res && res.error) || '未找到可用的随机公网端口');
-    logLine('frpc 已启动，随机公网端口: ' + remotePort);
+    state.frpTunnelName = res.tunnelName || '';
+    logLine('frpc 已启动，随机公网端口: ' + remotePort + (state.frpTunnelName ? '，隧道名: ' + state.frpTunnelName : ''));
 
     // 2. 通过 ws 信令创建房间（附带 frp 端点信息）
     await connectSignaling();
@@ -942,7 +1069,9 @@ async function onRoomJoined(msg) {
   if (!msg.easytier?.hostVirtualIp) throw new Error('服务端未返回 EasyTier 房主地址');
   const address = msg.easytier.hostVirtualIp + ':25565';
   $('join-status').textContent = '正在启动 EasyTier...';
-  const result = await window.mclink.easytierStart({ ...msg.easytier, mode: 'guest' });
+  const etConfig = { ...msg.easytier, mode: 'guest' };
+  etConfig.peers = await resolveEtPeers(etConfig.peers);
+  const result = await window.mclink.easytierStart(etConfig);
   if (!result?.ok) throw new Error(result?.error || 'EasyTier 启动失败');
   state.easytier = result.status;
 
@@ -1204,6 +1333,7 @@ function loadSettings() {
   state.server = server;
   state.mcPort = mcPort;
   state.debugMode = !!s.debugMode;
+  state.etNodeMode = s.etNodeMode || 'auto';
   applyTheme(s.theme || 'dark', false);
   applySidebarMode(s.sidebarMode || 'normal', false);
   applyPerfLevel(s.perf || 'medium', false);
@@ -1230,13 +1360,15 @@ function saveSettings() {
   const cursorTrail = $('cursor-trail-toggle').checked;
   const debugMode = $('debug-mode-toggle').checked;
   const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+  const etNodeMode = $('s-et-node') ? $('s-et-node').value : 'auto';
 
-  const s = { server, mcPort, launchBehavior, sidebarMode, perf, cursorTrail, debugMode, theme };
+  const s = { server, mcPort, launchBehavior, sidebarMode, perf, cursorTrail, debugMode, theme, etNodeMode };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   localStorage.setItem('mclink_server', server);
   state.server = server;
   state.mcPort = mcPort;
   state.debugMode = debugMode;
+  state.etNodeMode = etNodeMode;
   $('a-server').value = server;
   $('mc-port').value = mcPort;
   $('quick-mc-port').value = mcPort;
@@ -1256,8 +1388,8 @@ function setDebugMode(on) {
 
 function setSidebarMode(mode) { applySidebarMode(mode, true); }
 function applySidebarMode(mode, save) {
-  const value = ['normal', 'collapsed', 'floating'].includes(mode) ? mode : 'normal';
-  document.body.classList.remove('sidebar-normal', 'sidebar-collapsed', 'sidebar-floating');
+  const value = ['normal', 'collapsed'].includes(mode) ? mode : 'normal';
+  document.body.classList.remove('sidebar-normal', 'sidebar-collapsed');
   document.body.classList.add('sidebar-' + value);
   if ($('sidebar-mode')) $('sidebar-mode').value = value;
   if (save) {
@@ -1276,6 +1408,9 @@ function applyTheme(t, save) {
   document.documentElement.setAttribute('data-theme', theme);
   $('theme-dark') && $('theme-dark').classList.toggle('active', t !== 'light');
   $('theme-light') && $('theme-light').classList.toggle('active', t === 'light');
+  if (window.mclink && window.mclink.setTitlebarOverlay) {
+    window.mclink.setTitlebarOverlay(theme).catch(() => {});
+  }
   if (save) {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
     s.theme = t; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));

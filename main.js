@@ -142,6 +142,23 @@ ipcMain.handle('check-github-update', async () => {
 // ====== IPC: 本机局域网 IP ======
 ipcMain.handle('get-lan-ip', async () => getLanIp());
 
+// ====== IPC: 窗口三按钮跟随主题（任务1）======
+// titleBarOverlay 颜色只能在主进程实时改，渲染进程切换主题时通过这里同步
+ipcMain.handle('set-titlebar-overlay', async (_e, theme) => {
+  if (!mainWindow) return { ok: false };
+  const light = theme === 'light';
+  try {
+    mainWindow.setTitleBarOverlay({
+      color: light ? '#f3f4f6' : '#000000',
+      symbolColor: light ? '#17181c' : '#ffffff',
+      height: 36,
+    });
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+});
+
 // ====== IPC: 退出软件（功能5）======
 ipcMain.handle('exit-app', async () => {
   await stopServices();
@@ -222,7 +239,7 @@ ipcMain.on('frpc-log', (_e, line) => {
 });
 
 frpcMgr.on('log', (line) => mainWindow?.webContents.send('frpc-log', line));
-frpcMgr.on('port', (port) => mainWindow?.webContents.send('frpc-port', port));
+frpcMgr.on('port', (payload) => mainWindow?.webContents.send('frpc-port', payload));
 frpcMgr.on('error', (err) => mainWindow?.webContents.send('frpc-error', err));
 
 // ====== IPC: EasyTier 主进程与房主 TCP 代理 ======

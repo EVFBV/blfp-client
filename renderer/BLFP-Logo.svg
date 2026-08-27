@@ -1,0 +1,10 @@
+<svg width="72" height="72" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="72" height="72" rx="18" fill="url(#grad)"/>
+<text x="36" y="37" text-anchor="middle" dominant-baseline="central" font-family="'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="800" fill="#FFFFFF" letter-spacing="0.5">BLFP</text>
+<defs>
+<linearGradient id="grad" x1="6" y1="4" x2="66" y2="70" gradientUnits="userSpaceOnUse">
+<stop stop-color="#5F7EF0"/>
+<stop offset="1" stop-color="#8B7BF0"/>
+</linearGradient>
+</defs>
+</svg>

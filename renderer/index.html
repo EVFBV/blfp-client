@@ -19,11 +19,10 @@
 <div class="auth-wrap" id="auth-page">
   <div class="auth-box">
     <div class="logo-wrap">
-      <div class="logo-icon">⛏</div>
-      <div class="logo-text">BLFP</div>
+      <img class="logo-img" src="BLFP-Logo.svg" alt="BLFP" draggable="false">
+      <h1>BLFP</h1>
+      <div class="logo-sub">我的世界 Java 版联机助手</div>
     </div>
-    <div class="subtitle">我的世界 Java 版联机助手</div>
-
     <div id="server-cfg" class="server-cfg hidden" aria-hidden="true">
       <input id="a-server" type="hidden" value="https://p.blfp.cn">
     </div>
@@ -101,38 +100,41 @@
 <div id="main-app" class="hidden">
   <!-- 侧边栏 -->
   <aside class="sidebar" id="app-sidebar">
-    <div class="sidebar-logo">⛏ <span class="logo-label">BLFP</span></div>
+    <div class="sidebar-logo">
+      <img class="logo-img" src="BLFP-Logo.svg" alt="BLFP" draggable="false">
+      <span class="logo-label">BLFP</span>
+    </div>
     <nav class="sidebar-nav">
       <button class="nav-item active" data-page="home" title="主页" onclick="navTo('home', this)">
-        <span class="nav-icon">🏠</span><span class="nav-label">主页</span>
+        <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 8.8V21h5v-6h4v6h5V8.8"/></svg></span><span class="nav-label">主页</span>
       </button>
       <button class="nav-item" data-page="host" title="创建房间" onclick="navTo('host', this)">
-        <span class="nav-icon">🟢</span><span class="nav-label">创建房间</span>
+        <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M12 8.5v7M8.5 12h7"/></svg></span><span class="nav-label">创建房间</span>
       </button>
       <button class="nav-item" data-page="join" title="加入房间" onclick="navTo('join', this)">
-        <span class="nav-icon">🔗</span><span class="nav-label">加入房间</span>
+        <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span><span class="nav-label">加入房间</span>
       </button>
       <button class="nav-item" data-page="square" title="广场" onclick="navTo('square', this)">
-        <span class="nav-icon">🌐</span><span class="nav-label">广场</span>
+        <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 4 9 15 15 0 0 1-4 9 15 15 0 0 1-4-9 15 15 0 0 1 4-9"/></svg></span><span class="nav-label">广场</span>
       </button>
       <button class="nav-item" data-page="friends" title="好友" onclick="navTo('friends', this)">
-        <span class="nav-icon">👥</span><span class="nav-label">好友</span>
+        <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M15.5 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="nav-label">好友</span>
       </button>
       <button class="nav-item" data-page="settings" title="设置" onclick="navTo('settings', this)">
-        <span class="nav-icon">⚙️</span><span class="nav-label">设置</span>
+        <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1"/></svg></span><span class="nav-label">设置</span>
       </button>
     </nav>
     <div class="sidebar-bottom-nav">
       <button class="nav-item" data-page="log" title="运行日志" onclick="navTo('log', this)">
-        <span class="nav-icon">📋</span><span class="nav-label">运行日志</span>
+        <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 17 6-5-6-5"/><path d="M12 19h8"/></svg></span><span class="nav-label">运行日志</span>
       </button>
     </div>
     <div class="sidebar-user">
       <div class="user-name" id="s-username"></div>
       <div class="user-role" id="s-role"></div>
       <div class="sidebar-user-btns">
-        <button class="btn btn-sm btn-outline" title="退出登录" onclick="doLogout()"><span class="user-btn-icon">↩</span><span class="user-btn-label">退出登录</span></button>
-        <button class="btn btn-sm btn-danger-outline" title="退出软件" onclick="doExitApp()"><span class="user-btn-icon">⏻</span><span class="user-btn-label">退出软件</span></button>
+        <button class="btn btn-sm btn-outline" title="退出登录" onclick="doLogout()"><span class="user-btn-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg></span><span class="user-btn-label">退出登录</span></button>
+        <button class="btn btn-sm btn-danger-outline" title="退出软件" onclick="doExitApp()"><span class="user-btn-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg></span><span class="user-btn-label">退出软件</span></button>
       </div>
     </div>
   </aside>
@@ -146,13 +148,13 @@
       <p id="home-welcome" class="home-welcome"></p>
       <div class="cards-row">
         <div class="card quick-host-card" role="button" tabindex="0" aria-label="快捷创建 EasyTier 房间" onclick="openQuickHost('easytier')" onkeydown="quickHostKey(event, 'easytier')">
-          <div class="card-icon">🟢</div>
+          <div class="card-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="2"/><path d="M16 8a6 6 0 0 1 0 8"/><path d="M8 16a6 6 0 0 1 0-8"/><path d="M19 5a10 10 0 0 1 0 14"/><path d="M5 19A10 10 0 0 1 5 5"/></svg></div>
           <h3>EasyTier 智能组网</h3>
           <p>自动优先直连，失败时经共享节点中继</p>
           <div class="mode-badge p2p">推荐</div>
         </div>
         <div class="card quick-host-card" role="button" tabindex="0" aria-label="快捷创建 frp 房间" onclick="openQuickHost('frp')" onkeydown="quickHostKey(event, 'frp')">
-          <div class="card-icon">🔄</div>
+          <div class="card-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></div>
           <h3>frp 中转</h3>
           <p>通过中转服务器连接，适合打洞失败时</p>
           <div class="mode-badge frp warn">延迟较高</div>
@@ -178,12 +180,12 @@
         <h2>连接模式</h2>
         <div class="mode-select">
           <div class="mode-card active" id="mode-easytier" onclick="selectMode('easytier')">
-            <div class="mc-icon">⚡</div>
+            <div class="mc-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
             <div class="mc-title">EasyTier 智能组网</div>
             <div class="mc-desc">自动优先直连，失败经共享节点中继<br><strong style="color:var(--success)">优先推荐</strong></div>
           </div>
           <div class="mode-card" id="mode-frp" onclick="selectMode('frp')">
-            <div class="mc-icon">🔄</div>
+            <div class="mc-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></div>
             <div class="mc-title">frp 中转</div>
             <div class="mc-desc">通过固定中转服务器连接<br><strong style="color:var(--warn)">延迟通常更高</strong></div>
           </div>
@@ -350,9 +352,8 @@
         <div class="form-group">
           <label>侧边栏模式</label>
           <select id="sidebar-mode" onchange="setSidebarMode(this.value)">
-            <option value="normal">正常（200px）</option>
+            <option value="normal">正常（展开）</option>
             <option value="collapsed">收起（仅图标）</option>
-            <option value="floating">悬浮伸缩</option>
           </select>
         </div>
         <div class="form-group">
@@ -405,6 +406,17 @@
             <option value="home">打开主页</option>
             <option value="host">直接创建房间</option>
           </select>
+        </div>
+        <div class="form-group">
+          <label>EasyTier 节点选择</label>
+          <select id="s-et-node">
+            <option value="auto">自动（选择延迟最低的节点）</option>
+          </select>
+          <div class="et-node-actions">
+            <button type="button" class="btn btn-outline btn-sm" onclick="testEtNodes()">测速</button>
+            <span id="s-et-latency" class="latency-badge hidden"></span>
+          </div>
+          <div id="s-et-results" class="et-results hidden"></div>
         </div>
         <button class="btn btn-primary" onclick="saveSettings()">保存设置</button>
       </div>
@@ -493,7 +505,7 @@
 </div>
 
 <div class="modal-backdrop hidden" id="update-modal">
-  <div class="modal">
+  <div class="modal update-modal">
     <h3 id="update-title">发现新版本</h3>
     <p id="update-notes" class="update-notes"></p>
     <div class="modal-actions">
