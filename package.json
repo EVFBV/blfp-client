@@ -21,7 +21,7 @@
     "appId": "com.blfp.client",
     "productName": "BLFP",
     "directories": {
-      "output": "build_v2.2.0"
+      "output": "build_v2.2.1"
     },
     "files": [
       "main.js",
