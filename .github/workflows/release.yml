@@ -82,8 +82,8 @@ jobs:
           UNINSTALLER_DIR: ${{ steps.paths.outputs.uninstaller_dir }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $clientOutput = Join-Path $env:CLIENT_DIR 'build_v$env:VERSION/win-unpacked'
-          $uninstaller = Join-Path $env:UNINSTALLER_DIR 'out_v$env:VERSION/BLFP-Uninstall.exe'
+          $clientOutput = Join-Path $env:CLIENT_DIR "build_v$env:VERSION/win-unpacked"
+          $uninstaller = Join-Path $env:UNINSTALLER_DIR "out_v$env:VERSION/BLFP-Uninstall.exe"
           $uninstallerTarget = Join-Path $clientOutput '卸载 BLFP.exe'
           $payloadDir = Join-Path $env:CLIENT_DIR 'installer/payload'
           $payload = Join-Path $payloadDir 'payload.zip'
@@ -124,11 +124,11 @@ jobs:
           CLIENT_DIR: ${{ steps.paths.outputs.client_dir }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $installerPath = Join-Path $env:CLIENT_DIR 'installer/out_v$env:VERSION-final/BLFP-Setup-$env:VERSION.exe'
+          $installerPath = Join-Path $env:CLIENT_DIR "installer/out_v$env:VERSION-final/BLFP-Setup-$env:VERSION.exe"
           $payloadPath = Join-Path $env:CLIENT_DIR 'installer/payload/payload.zip'
           if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) { throw "真实安装器不存在: $installerPath" }
           if (-not (Test-Path -LiteralPath $payloadPath -PathType Leaf)) { throw "payload.zip 不存在: $payloadPath" }
-          $embeddedPayload = Join-Path $env:CLIENT_DIR 'installer/out_v$env:VERSION-final/win-unpacked/resources/payload/payload.zip'
+          $embeddedPayload = Join-Path $env:CLIENT_DIR "installer/out_v$env:VERSION-final/win-unpacked/resources/payload/payload.zip"
           if (-not (Test-Path -LiteralPath $embeddedPayload -PathType Leaf)) { throw "安装器内缺少 payload.zip: $embeddedPayload" }
           $payloadHash = (Get-FileHash -LiteralPath $payloadPath -Algorithm SHA256).Hash
           $embeddedHash = (Get-FileHash -LiteralPath $embeddedPayload -Algorithm SHA256).Hash
