@@ -41,5 +41,5 @@ jobs:
       - name: Upload release
         uses: softprops/action-gh-release@v2
         with:
-          files: installer/out_v${{ steps.ver.outputs.v }}-final/BLFP-Setup-${{ steps.ver.outputs.v }}.exe
+          files: installer/out_v${{ steps.ver.outputs.v }}-final/BLFP-Setup-v${{ steps.ver.outputs.v }}.exe
           generate_release_notes: true
