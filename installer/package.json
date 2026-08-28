@@ -30,7 +30,7 @@
     ],
     "win": {
       "target": "portable",
-      "artifactName": "BLFP-Setup-v2.2.4.exe",
+      "artifactName": "BLFP-Setup-v${version}.exe",
       "requestedExecutionLevel": "requireAdministrator",
       "icon": "icon.png"
     },
