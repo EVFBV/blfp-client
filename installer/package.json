@@ -1,6 +1,6 @@
 {
   "name": "blfp-installer",
-  "version": "2.2.9",
+  "version": "2.2.4",
   "description": "BLFP 客户端安装程序",
   "main": "main.js",
   "scripts": {
@@ -20,7 +20,7 @@
     "appId": "com.blfp.installer",
     "productName": "BLFP-Installer",
     "directories": {
-      "output": "out_v2.2.9-final"
+      "output": "out_v2.2.4-final"
     },
     "files": [
       "main.js",
@@ -30,7 +30,7 @@
     ],
     "win": {
       "target": "portable",
-      "artifactName": "BLFP-Setup-v2.2.9.exe",
+      "artifactName": "BLFP-Setup-v2.2.4.exe",
       "requestedExecutionLevel": "requireAdministrator",
       "icon": "icon.png"
     },
