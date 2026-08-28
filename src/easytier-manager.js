@@ -1,8 +1,8 @@
 const { execFile, spawn } = require('child_process');
 const { EventEmitter } = require('events');
-const fs = require('fs');
 const net = require('net');
 const path = require('path');
+const platform = require('./platform');
 
 const HOST_PORT = 25565;
 
@@ -29,25 +29,18 @@ class EasyTierManager extends EventEmitter {
   }
 
   getBinaryPath() {
-    if (this._packed) return path.join(this._resourcesPath, 'bin', 'easytier-core.exe');
-    return path.join(__dirname, '..', 'bin', 'easytier-core.exe');
+    const binDirectory = platform.binDir(this._packed, this._resourcesPath);
+    return platform.binaryPath(binDirectory, 'easytierCore');
   }
 
   getCliPath() {
-    return path.join(path.dirname(this.getBinaryPath()), 'easytier-cli.exe');
+    const binDirectory = platform.binDir(this._packed, this._resourcesPath);
+    return platform.binaryPath(binDirectory, 'easytierCli');
   }
 
   ensureBinary() {
-    const binaryDir = path.dirname(this.getBinaryPath());
-    const requiredFiles = [
-      this.getBinaryPath(),
-      this.getCliPath(),
-      path.join(binaryDir, 'wintun.dll'),
-      path.join(binaryDir, 'Packet.dll'),
-    ];
-    const missingFile = requiredFiles.find((file) => !fs.existsSync(file));
-    if (missingFile) throw new Error(`未找到 EasyTier 运行文件: ${missingFile}`);
-    return true;
+    const binDirectory = path.dirname(this.getBinaryPath());
+    return platform.ensureBinaries(binDirectory, ['easytierCore', 'easytierCli']);
   }
 
   getStatus() {
@@ -56,6 +49,7 @@ class EasyTierManager extends EventEmitter {
       running: this._state === 'running' && this._isProcessAlive(),
       mode: this._mode,
       virtualIp: this._virtualIp,
+      proxyPort: this._proxyPort ?? HOST_PORT,
       proxyListening: Boolean(this._proxyServer?.listening),
       error: this._lastError,
     };
@@ -135,7 +129,6 @@ class EasyTierManager extends EventEmitter {
     try {
       const child = spawn(binaryPath, args, {
         cwd: path.dirname(binaryPath),
-        windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       this._proc = child;
@@ -168,15 +161,11 @@ class EasyTierManager extends EventEmitter {
     const child = this._proc;
     if (child && child.exitCode === null && child.signalCode === null) {
       this._log('正在停止 EasyTier');
-      try { child.kill(); } catch {}
-      let exited = await this._waitForExit(child, 3000);
-      if (!exited && process.platform === 'win32' && child.pid) {
-        this._log('常规停止超时，使用 taskkill 清理进程树');
-        await this._taskkill(child.pid);
-        exited = await this._waitForExit(child, 3000);
-      }
+      try { child.kill('SIGTERM'); } catch {}
+      const exited = await this._waitForExit(child, 3000);
       if (!exited) {
         try { child.kill('SIGKILL'); } catch {}
+        await this._waitForExit(child, 1000);
       }
     }
 
@@ -222,15 +211,12 @@ class EasyTierManager extends EventEmitter {
   }
 
   _attachProcess(child, generation, networkSecret) {
-    const WINTUN_FATAL_RE = /Failed to create (private namespace|adapter)|Failed to take device installation mutex|rust tun error|os error 5/i;
-    const WINTUN_MSG = 'WinTun 虚拟网卡创建失败（权限不足或被安全软件拦截），请确认以管理员身份运行，并在安全软件中允许 easytier-core.exe 安装驱动';
-
     const emitLines = (prefix, buffer) => {
       buffer.toString().split(/\r?\n/).filter(Boolean).forEach((line) => {
         const safeLine = networkSecret ? line.split(networkSecret).join('[REDACTED]') : line;
         this._log(`${prefix}${safeLine}`);
-        if (WINTUN_FATAL_RE.test(safeLine) && this._generation === generation && this._proc === child) {
-          this._lastError = WINTUN_MSG;
+        if (platform.TUN_FATAL_RE.test(safeLine) && this._generation === generation && this._proc === child) {
+          this._lastError = platform.TUN_FATAL_MSG;
         }
       });
     };
@@ -305,7 +291,6 @@ class EasyTierManager extends EventEmitter {
       child.once('close', onClose);
       execFile(cliPath, ['-p', rpcPortal, '-o', 'json', 'peer'], {
         cwd: path.dirname(cliPath),
-        windowsHide: true,
         timeout: 900,
       }, (error, stdout) => {
         if (error) {
@@ -323,35 +308,31 @@ class EasyTierManager extends EventEmitter {
 
   async _startHostProxy(child, generation, virtualIp, mcPort, timeout = 30000) {
     const deadline = Date.now() + timeout;
+    let proxyPort = HOST_PORT;
     while (Date.now() < deadline) {
       if (this._generation !== generation || this._proc !== child || !this._isChildAlive(child)) {
         throw new Error('EasyTier 进程在等待虚拟 IP 时退出');
       }
       try {
-        const server = await this._listenProxy(virtualIp, mcPort);
+        const server = await this._listenProxy(virtualIp, mcPort, proxyPort);
         if (this._generation !== generation || this._proc !== child) {
           await new Promise((resolve) => server.close(() => resolve()));
           throw new Error('EasyTier 启动已取消');
         }
         this._proxyServer = server;
-        this._log(`TCP 代理已监听 ${virtualIp}:${HOST_PORT} -> 127.0.0.1:${mcPort}`);
+        this._proxyPort = proxyPort;
+        this._log(`TCP 代理已监听 ${virtualIp}:${proxyPort} -> 127.0.0.1:${mcPort}`);
         return;
       } catch (error) {
         if (!['EADDRNOTAVAIL', 'EADDRINUSE'].includes(error.code)) throw error;
-        if (error.code === 'EADDRINUSE') {
-          // 虚拟地址端口被本机物理栈占用：若游戏恰好以同一端口（默认 25565）对局域网开放，
-          // 访客经虚拟网卡即可直达游戏监听，无需代理 —— 直通模式
-          this._lastProxyConflict = true;
-          if (mcPort === HOST_PORT && await this._probeTcp('127.0.0.1', HOST_PORT)) {
-            this._log(`端口 ${HOST_PORT} 已被本机占用且与 mcPort 相同：启用直通模式（访客直连虚拟地址，不经代理）`);
-            return;
-          }
+        if (error.code === 'EADDRINUSE' && proxyPort === HOST_PORT) {
+          // 端口冲突：切换到随机空闲端口
+          proxyPort = await this._findFreeTcpPort();
+          this._log(`端口 ${HOST_PORT} 被占用，切换到代理端口 ${proxyPort}`);
+          continue;
         }
         await this._delay(500);
       }
-    }
-    if (this._lastProxyConflict && mcPort !== HOST_PORT) {
-      throw new Error(`虚拟地址端口 ${HOST_PORT} 被本机其他程序占用：请先释放该端口（检查是否有别的程序或另一局游戏正以 25565 对局域网开放），或将「对局域网开放」的端口改为其他值后重试`);
     }
     throw new Error(`等待虚拟 IP ${virtualIp} 可绑定超时`);
   }
@@ -366,7 +347,7 @@ class EasyTierManager extends EventEmitter {
     });
   }
 
-  _listenProxy(virtualIp, mcPort) {
+  _listenProxy(virtualIp, mcPort, port) {
     return new Promise((resolve, reject) => {
       const server = net.createServer((client) => {
         const upstream = net.createConnection({ host: '127.0.0.1', port: mcPort });
@@ -381,7 +362,8 @@ class EasyTierManager extends EventEmitter {
         upstream.on('error', () => client.destroy());
       });
       server.once('error', reject);
-      server.listen(HOST_PORT, virtualIp, () => {
+      const bindPort = port ?? HOST_PORT;
+      server.listen(bindPort, virtualIp, () => {
         server.removeListener('error', reject);
         server.on('error', (error) => this._emitError(`EasyTier 代理错误: ${error.message}`));
         resolve(server);
@@ -434,17 +416,6 @@ class EasyTierManager extends EventEmitter {
         resolve(true);
       };
       child.once('close', onClose);
-    });
-  }
-
-  _taskkill(pid) {
-    return new Promise((resolve) => {
-      const killer = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {
-        windowsHide: true,
-        stdio: 'ignore',
-      });
-      killer.once('error', () => resolve());
-      killer.once('close', () => resolve());
     });
   }
 

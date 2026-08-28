@@ -263,7 +263,8 @@ ipcMain.handle('easytier-stop', async () => {
 ipcMain.handle('easytier-status', async () => easyTierMgr.getStatus());
 ipcMain.handle('easytier-test', async (_e, config) => {
   const hostVirtualIp = typeof config === 'string' ? config : config?.hostVirtualIp;
-  return easyTierMgr.testConnectivity(hostVirtualIp, 25565, 1000);
+  const port = config?.port || 25565;
+  return easyTierMgr.testConnectivity(hostVirtualIp, port, 1000);
 });
 
 easyTierMgr.on('log', (line) => mainWindow?.webContents.send('easytier-log', line));

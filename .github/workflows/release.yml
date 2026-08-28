@@ -45,7 +45,7 @@ jobs:
           "client_dir=$clientDir" >> $env:GITHUB_OUTPUT
           "uninstaller_dir=$clientDir/uninstaller" >> $env:GITHUB_OUTPUT
           "installer_dir=$clientDir/installer" >> $env:GITHUB_OUTPUT
-          "release_file=$clientRelative/installer/out_v2.2.1-final/BLFP-Setup-v2.2.1.exe" >> $env:GITHUB_OUTPUT
+          "release_file=$clientRelative/installer/out_v2.2.2-final/BLFP-Setup-v2.2.2.exe" >> $env:GITHUB_OUTPUT
 
       - name: Install client dependencies
         working-directory: ${{ steps.paths.outputs.client_dir }}
@@ -73,8 +73,8 @@ jobs:
           CLIENT_DIR: ${{ steps.paths.outputs.client_dir }}
           UNINSTALLER_DIR: ${{ steps.paths.outputs.uninstaller_dir }}
         run: |
-          $clientOutput = Join-Path $env:CLIENT_DIR 'build_v2.2.1/win-unpacked'
-          $uninstaller = Join-Path $env:UNINSTALLER_DIR 'out_v2.2.1/BLFP-Uninstall.exe'
+          $clientOutput = Join-Path $env:CLIENT_DIR 'build_v2.2.2/win-unpacked'
+          $uninstaller = Join-Path $env:UNINSTALLER_DIR 'out_v2.2.2/BLFP-Uninstall.exe'
           $uninstallerTarget = Join-Path $clientOutput '卸载 BLFP.exe'
           $payloadDir = Join-Path $env:CLIENT_DIR 'installer/payload'
           $payload = Join-Path $payloadDir 'payload.zip'
@@ -114,11 +114,11 @@ jobs:
         env:
           CLIENT_DIR: ${{ steps.paths.outputs.client_dir }}
         run: |
-          $installerPath = Join-Path $env:CLIENT_DIR 'installer/out_v2.2.1-final/BLFP-Setup-v2.2.1.exe'
+          $installerPath = Join-Path $env:CLIENT_DIR 'installer/out_v2.2.2-final/BLFP-Setup-v2.2.2.exe'
           $payloadPath = Join-Path $env:CLIENT_DIR 'installer/payload/payload.zip'
           if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) { throw "真实安装器不存在: $installerPath" }
           if (-not (Test-Path -LiteralPath $payloadPath -PathType Leaf)) { throw "payload.zip 不存在: $payloadPath" }
-          $embeddedPayload = Join-Path $env:CLIENT_DIR 'installer/out_v2.2.1-final/win-unpacked/resources/payload/payload.zip'
+          $embeddedPayload = Join-Path $env:CLIENT_DIR 'installer/out_v2.2.2-final/win-unpacked/resources/payload/payload.zip'
           if (-not (Test-Path -LiteralPath $embeddedPayload -PathType Leaf)) { throw "安装器内缺少 payload.zip: $embeddedPayload" }
           $payloadHash = (Get-FileHash -LiteralPath $payloadPath -Algorithm SHA256).Hash
           $embeddedHash = (Get-FileHash -LiteralPath $embeddedPayload -Algorithm SHA256).Hash

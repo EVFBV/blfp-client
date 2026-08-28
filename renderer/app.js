@@ -704,6 +704,16 @@ function handleSignal(msg) {
     case 'peer-left': onPeerLeft(msg); break;
     case 'members': onMembers(msg); break;
     case 'closed': onRoomClosed(msg); break;
+    case 'et-port':
+      if (msg.port) {
+        const newAddr = (state.easytier?.hostVirtualIp || '') + ':' + msg.port;
+        if ($('host-lan-addr')) $('host-lan-addr').textContent = newAddr;
+        if ($('join-status')?.classList?.contains('hidden')) {
+          // 访客侧：更新已显示的地址
+        }
+        logLine('房主代理端口已更新为: ' + msg.port);
+      }
+      break;
     case 'error':
       toast(msg.error, 'error');
       logLine('信令错误: ' + msg.error);
@@ -781,8 +791,10 @@ async function onRoomCreated(msg) {
   if (!hostVirtualIp) throw new Error('未获取到房主虚拟 IP');
   state.easytier.hostVirtualIp = hostVirtualIp;
   $('host-status').textContent = 'EasyTier 已启动，等待好友加入...';
-  $('host-lan-addr').textContent = hostVirtualIp + ':25565';
-  logLine('EasyTier 房间已创建: ' + code + '，连接地址: ' + hostVirtualIp + ':25565');
+  const etPort = result.status?.proxyPort || 25565;
+  $('host-lan-addr').textContent = hostVirtualIp + ':' + etPort;
+  logLine('EasyTier 房间已创建: ' + code + '，连接地址: ' + hostVirtualIp + ':' + etPort);
+  if (etPort !== 25565) sendSignal({ type: 'et-port-update', port: etPort });
 
   try {
     const r = await window.mclink.motdStart({ port: state.mcPort, roomCode: code, hostName: state.user.username });
@@ -1067,7 +1079,7 @@ async function onRoomJoined(msg) {
   }
 
   if (!msg.easytier?.hostVirtualIp) throw new Error('服务端未返回 EasyTier 房主地址');
-  const address = msg.easytier.hostVirtualIp + ':25565';
+  const address = msg.easytier.hostVirtualIp + ':' + (msg.easytier.port || 25565);
   $('join-status').textContent = '正在启动 EasyTier...';
   const etConfig = { ...msg.easytier, mode: 'guest' };
   etConfig.peers = await resolveEtPeers(etConfig.peers);
@@ -1081,7 +1093,7 @@ async function onRoomJoined(msg) {
     const attemptStarted = Date.now();
     const remaining = deadline - attemptStarted;
     test = await Promise.race([
-      window.mclink.easytierTest(msg.easytier.hostVirtualIp),
+      window.mclink.easytierTest({ hostVirtualIp: msg.easytier.hostVirtualIp, port: msg.easytier.port }),
       new Promise((resolve) => setTimeout(() => resolve({ ok: false, error: test?.error || '连接超时' }), remaining)),
     ]);
     if (test?.ok) break;
