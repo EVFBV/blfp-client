@@ -26,13 +26,11 @@ jobs:
         id: ver
         run: echo "v=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Install & build client
-        working-directory: client
-        run: npm ci && npm run dist -- --publish never
-
-      - name: Install & build installer
-        working-directory: installer
-        run: npm ci && npm run dist -- --publish never
+      - name: Install & build
+        run: |
+          npm ci
+          npm run dist -- --publish never
+          cd installer && npm ci && npm run dist -- --publish never
         env:
           VERSION: ${{ steps.ver.outputs.v }}
 
