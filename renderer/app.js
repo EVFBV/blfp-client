@@ -292,7 +292,7 @@ async function doRegister() {
 }
 
 function doLogout() {
-  // 二次确认弹窗（任务7）
+  // 二次确认弹窗
   showConfirm('确认退出登录？', '退出后需重新登录才能使用联机功能。', async () => {
     if (state.role === 'guest') await leaveRoom();
     else if (state.role === 'host') await closeRoom();
@@ -354,9 +354,13 @@ function enterApp() {
   $('auth-page').classList.add('hidden');
   $('main-app').classList.remove('hidden');
   $('s-username').textContent = state.user.username;
+  // Also update sidebar user area
+  if ($('s-username')) $('s-username').textContent = state.user.username;
+  if ($('s-avatar-initials')) $('s-avatar-initials').textContent = state.user.username.charAt(0).toUpperCase();
   applyUserAppearance(state.user);
   const welcome = state.user.role === 'sponsor' ? `感谢赞助，${state.user.username}！欢迎回到 BLFP。` : `欢迎回来，${state.user.username}。`;
-  $('home-welcome').textContent = welcome;
+  if ($('home-welcome')) $('home-welcome').textContent = welcome;
+  if ($('us-logged-in-as')) $('us-logged-in-as').textContent = '登录为: ' + state.user.username;
   logLine(welcome);
   const home = $('page-home');
   home.classList.add('enter-from-right');
@@ -365,6 +369,8 @@ function enterApp() {
   loadEtNodes();
   loadPublicRooms(true);
   loadFriends(true);
+  loadAnnouncements();
+  initGlassControls();
   if (state.user.role === 'sponsor' && !sessionStorage.getItem('blfp_sponsor_welcome')) { sessionStorage.setItem('blfp_sponsor_welcome', '1'); toast(`感谢赞助，${state.user.username}，欢迎回来！`, 'success'); }
   syncPresence(true).catch((e) => logLine('在线状态同步失败: ' + e.message));
   if (state.presenceTimer) clearInterval(state.presenceTimer);
@@ -373,11 +379,16 @@ function enterApp() {
 }
 
 /* ============ 导航 ============ */
-const NAV_ORDER = ['home', 'host', 'join', 'square', 'friends', 'log', 'settings'];
+const NAV_ORDER = ['home', 'host', 'rooms', 'friends', 'chat'];
 let currentPage = 'home';
 let navTimer = null;
 let navLock = false;
 function navTo(page, btn) {
+  // When navigating to any page other than settings, remove .active from gear-btn
+  if (page !== 'settings' && page !== 'user-settings') {
+    const gearBtn = $('sidebar-gear-btn');
+    if (gearBtn) gearBtn.classList.remove('active');
+  }
   if (page === currentPage) {
     document.querySelectorAll('.nav-item').forEach((n) => n.classList.toggle('active', n === (btn || document.querySelector(`.nav-item[data-page="${page}"]`))));
     return;
@@ -386,6 +397,7 @@ function navTo(page, btn) {
   const oldPage = $('page-' + currentPage);
   const nextPage = $('page-' + page);
   if (!oldPage || !nextPage) return;
+  // 'log' is no longer a page, but keep the perf check for compatibility
   const noAnimation = page === 'log' || currentPage === 'log' || document.body.classList.contains('perf-off');
   clearTimeout(navTimer);
   document.querySelectorAll('.page').forEach((p) => p.classList.remove('page-entering', 'page-leaving', 'enter-from-left', 'enter-from-right', 'leave-to-left', 'leave-to-right'));
@@ -396,7 +408,10 @@ function navTo(page, btn) {
     currentPage = page;
   } else {
     navLock = true;
-    const forward = NAV_ORDER.indexOf(page) > NAV_ORDER.indexOf(currentPage);
+    // Handle pages not in NAV_ORDER for animation direction
+    const idx = NAV_ORDER.indexOf(page);
+    const currentIdx = NAV_ORDER.indexOf(currentPage);
+    const forward = (idx !== -1 && currentIdx !== -1) ? idx > currentIdx : true;
     oldPage.classList.add('page-leaving', forward ? 'leave-to-left' : 'leave-to-right');
     nextPage.classList.add('active', 'page-entering', forward ? 'enter-from-right' : 'enter-from-left');
     currentPage = page;
@@ -409,8 +424,26 @@ function navTo(page, btn) {
   document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'));
   (btn || document.querySelector(`.nav-item[data-page="${page}"]`))?.classList.add('active');
   if (page === 'host' && state.token) loadFrpNodes({ silent: true, preserveSelection: true });
-  if (page === 'square' && state.token) loadPublicRooms(true);
+  if (page === 'rooms' && state.token) loadPublicRooms(true);
   if (page === 'friends' && state.token) loadFriends(true);
+  if (page === 'chat') initChat();
+}
+
+/* ============ 设置齿轮动画 ============ */
+function toggleSettingsGear() {
+  const gearBtn = $('sidebar-gear-btn');
+  if (!gearBtn) return;
+  // Toggle .active class: rotate 60° when active, 0° when not
+  const wasActive = gearBtn.classList.contains('active');
+  if (!wasActive && (currentPage === 'settings' || currentPage === 'user-settings')) {
+    gearBtn.classList.add('active');
+  } else if (wasActive) {
+    gearBtn.classList.remove('active');
+  } else {
+    // Navigate to settings
+    navTo('settings');
+    gearBtn.classList.add('active');
+  }
 }
 
 /* ============ 模式选择 ============ */
@@ -466,7 +499,7 @@ function refreshFrpNodes() {
   return loadFrpNodes({ force: true, preserveSelection: true });
 }
 
-/* ============ EasyTier 节点选择（任务2/3）============ */
+/* ============ EasyTier 节点选择 ============ */
 let etLoadPromise = null;
 function parsePeerTarget(peer) {
   try {
@@ -708,10 +741,13 @@ function handleSignal(msg) {
       if (msg.port) {
         const newAddr = (state.easytier?.hostVirtualIp || '') + ':' + msg.port;
         if ($('host-lan-addr')) $('host-lan-addr').textContent = newAddr;
-        if ($('join-status')?.classList?.contains('hidden')) {
-          // 访客侧：更新已显示的地址
-        }
         logLine('房主代理端口已更新为: ' + msg.port);
+      }
+      break;
+    case 'chat':
+      // Handle chat messages from signaling
+      if (msg.text && msg.username) {
+        renderChatMessage(msg);
       }
       break;
     case 'error':
@@ -725,6 +761,11 @@ function handleSignal(msg) {
       quickHostPending = false;
       break;
   }
+}
+
+// Alias for backward compatibility with onSignal references
+function onSignal(msg) {
+  return handleSignal(msg);
 }
 
 /* ============ Host 侧：创建房间 ============ */
@@ -823,7 +864,7 @@ function memberRow(member, showIp) {
   const hostBadge = member.isHost || member.role === 'host' ? '<span class="host-badge">房主</span>' : '';
   const ip = showIp ? escapeHtml(member.ip || '--') : '';
   const ping = Number.isFinite(Number(member.ping)) ? `${Number(member.ping)} ms` : '--';
-  return `<div class="peer-item"><span class="peer-name">${name}${hostBadge}</span>${showIp ? `<span class="peer-ip">${ip}</span>` : '<span></span>'}<span class="peer-ping">${ping}</span></div>`;
+  return `<div class="peer-item"><span class="peer-name">${name}${hostBadge}</span>${showIp ? '<span class="peer-ip">${ip}</span>' : '<span></span>'}<span class="peer-ping">${ping}</span></div>`;
 }
 
 function onMembers(msg) {
@@ -1015,11 +1056,84 @@ async function confirmQuickHost() {
   quickHostPending = true;
   $('mc-port').value = $('quick-mc-port').value;
   if (quickHostMode === 'frp') selectFrpNode($('quick-frp-node-select').value);
-  await createRoom({ inputId: 'quick-mc-port', mode: quickHostMode, buttonId: 'quick-host-confirm', isPublic: !!$('quick-public')?.checked });
+  await createRoom({ inputId: 'quick-mc-port', mode: quickHostMode, buttonId: 'quick-host-confirm', isPublic: !!($('quick-public')?.checked) });
   if (state.role !== 'host') {
     quickHostPending = false;
     button.disabled = false;
   }
+}
+
+/* ============ 开始联机对话框（新） ============ */
+let startHostDialogMode = 'easytier';
+let startHostDialogPortMode = 'auto';
+
+function openStartHostDialog() {
+  $('start-host-modal').classList.remove('hidden');
+  startHostDialogMode = 'easytier';
+  startHostDialogPortMode = 'auto';
+  selectStartMode('easytier');
+  selectHostPortOption('auto');
+}
+
+function selectHostPortOption(mode) {
+  startHostDialogPortMode = mode;
+  const autoCard = $('host-port-auto');
+  const manualCard = $('host-port-manual');
+  const portInput = $('start-custom-port');
+  if (autoCard) autoCard.classList.toggle('selected', mode === 'auto');
+  if (manualCard) manualCard.classList.toggle('selected', mode === 'manual');
+  if (portInput) {
+    portInput.disabled = mode !== 'manual';
+    if (mode === 'manual') portInput.value = state.mcPort || 25565;
+  }
+}
+
+function selectStartMode(mode) {
+  startHostDialogMode = mode;
+  const et = $('start-mode-easytier');
+  const frp = $('start-mode-frp');
+  if (et) et.classList.toggle('active', mode === 'easytier');
+  if (frp) frp.classList.toggle('active', mode === 'frp');
+}
+
+function confirmStartHost() {
+  const portEl = $('start-custom-port');
+  let port;
+  if (startHostDialogPortMode === 'auto') {
+    port = state.mcPort || 25565;
+    if ($('mc-port')) $('mc-port').value = port;
+  } else {
+    port = parseInt(portEl ? portEl.value : state.mcPort, 10);
+    if (!port || port < 1 || port > 65535) {
+      toast('请输入有效的端口号 (1-65535)', 'error');
+      return;
+    }
+    if ($('mc-port')) $('mc-port').value = port;
+  }
+  state.mcPort = port;
+  closeModal('start-host-modal');
+  // Navigate to host page after closing modal
+  navTo('host');
+  // Trigger quick host
+  openQuickHost(startHostDialogMode);
+}
+
+/* ============ 加入房间对话框（从房间列表弹出） ============ */
+function confirmJoinRoom() {
+  const input = $('join-room-input');
+  if (!input) return;
+  const code = input.value.trim();
+  if (!/^\d{6}$/.test(code)) {
+    toast('请输入 6 位纯数字房间号', 'error');
+    return;
+  }
+  closeModal('join-room-modal');
+  // Navigate to the original join functionality
+  navTo('host');
+  // Use the quick join approach
+  const originalInput = $('room-input');
+  if (originalInput) originalInput.value = code;
+  joinRoom();
 }
 
 /* ============ Guest 侧：加入房间 ============ */
@@ -1210,13 +1324,13 @@ function copyRoomCode() {
   navigator.clipboard.writeText(state.roomCode).then(() => toast('已复制房间号', 'success'));
 }
 
-// 房主：复制局域网连接地址（功能3）
+// 房主：复制局域网连接地址
 function copyHostAddr() {
   const addr = $('host-lan-addr').textContent;
   navigator.clipboard.writeText(addr).then(() => toast('已复制连接地址: ' + addr, 'success'));
 }
 
-// 访客：复制连接地址（功能4）
+// 访客：复制连接地址
 function copyJoinAddr() {
   const addr = $('j-addr').textContent;
   navigator.clipboard.writeText(addr).then(() => toast('已复制连接地址: ' + addr, 'success'));
@@ -1324,7 +1438,7 @@ function openSourceRepo() {
   window.mclink.openExternal(GITHUB_REPO_URL);
 }
 
-/* ============ 退出软件（t5）=========== */
+/* ============ 退出软件 ============ */
 function doExitApp() {
   showConfirm('确认退出软件？', '将停止所有连接并关闭 BLFP。', async () => {
     await stopEasyTier();
@@ -1333,7 +1447,7 @@ function doExitApp() {
   });
 }
 
-/* ============ 设置（t2）=========== */
+/* ============ 设置 ============ */
 const SETTINGS_KEY = 'blfp_settings';
 
 function loadSettings() {
@@ -1711,6 +1825,145 @@ async function removeFriend(userId) {
   try { await api(`/friends/${userId}`, { method: 'DELETE' }); toast('已删除'); loadFriends(); } catch (e) { toast(e.message, 'error'); }
 }
 
+/* ============ 玻璃质感设置 ============ */
+const GLASS_PREFS_KEY = 'blfp_glass_prefs';
+const DEFAULT_GLASS_PREFS = {
+  blur: 32,
+  saturate: 160,
+  brightness: 110,
+  opacity: 72,
+  scatter: 60,
+  refraction: 30,
+  glow: 50,
+  accentHue: 222,
+};
+
+function loadGlassPrefs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(GLASS_PREFS_KEY) || '{}');
+    return { ...DEFAULT_GLASS_PREFS, ...saved };
+  } catch {
+    return { ...DEFAULT_GLASS_PREFS };
+  }
+}
+
+function saveGlassPrefs(prefs) {
+  localStorage.setItem(GLASS_PREFS_KEY, JSON.stringify(prefs));
+}
+
+function applyGlassPrefs(prefs) {
+  const p = prefs || loadGlassPrefs();
+  document.documentElement.style.setProperty('--glass-blur', p.blur + 'px');
+  document.documentElement.style.setProperty('--glass-saturate', p.saturate + '%');
+  document.documentElement.style.setProperty('--glass-brightness', p.brightness + '%');
+  document.documentElement.style.setProperty('--glass-opacity', (p.opacity / 100).toString());
+  document.documentElement.style.setProperty('--glass-scatter', p.scatter + '%');
+  document.documentElement.style.setProperty('--glass-refraction', p.refraction + '%');
+  document.documentElement.style.setProperty('--glass-glow-size', p.glow + 'px');
+  document.documentElement.style.setProperty('--glass-glow-spread', (p.glow * 0.6) + 'px');
+  document.documentElement.style.setProperty('--lg-accent-h', p.accentHue.toString());
+}
+
+function initGlassControls() {
+  applyGlassPrefs();
+  // Bind sliders if they exist
+  const sliders = ['glass-blur', 'glass-saturate', 'glass-brightness', 'glass-opacity', 'glass-scatter', 'glass-refraction', 'glass-glow', 'glass-accent'];
+  sliders.forEach((id) => {
+    const slider = $(id);
+    const display = $(id + '-val');
+    if (slider && display) {
+      slider.addEventListener('input', () => {
+        display.textContent = slider.value;
+        const prefs = loadGlassPrefs();
+        const key = id.replace('glass-', '');
+        if (id === 'glass-accent') prefs.accentHue = Number(slider.value);
+        else if (id === 'glass-blur') prefs.blur = Number(slider.value);
+        else if (id === 'glass-saturate') prefs.saturate = Number(slider.value);
+        else if (id === 'glass-brightness') prefs.brightness = Number(slider.value);
+        else if (id === 'glass-opacity') prefs.opacity = Number(slider.value);
+        else if (id === 'glass-scatter') prefs.scatter = Number(slider.value);
+        else if (id === 'glass-refraction') prefs.refraction = Number(slider.value);
+        else if (id === 'glass-glow') prefs.glow = Number(slider.value);
+        saveGlassPrefs(prefs);
+        applyGlassPrefs(prefs);
+      });
+    }
+  });
+}
+
+/* ============ 首页公告（新）============ */
+async function loadAnnouncements() {
+  if (!state.token) return;
+  try {
+    const data = await api('/settings/announcement');
+    const container = $('home-announcements');
+    if (!container) return;
+    if (Array.isArray(data) && data.length > 0) {
+      container.innerHTML = data.map((a) =>
+        `<div class="announcement-item">${escapeHtml(a.content || a.title || '')}</div>`
+      ).join('');
+    } else if (data && data.content) {
+      container.innerHTML = '<div class="announcement-item">' + escapeHtml(data.content) + '</div>';
+    } else {
+      container.innerHTML = '';
+    }
+  } catch (e) {
+    debugLog('首页公告加载失败: ' + e.message);
+  }
+}
+
+/* ============ 聊天 ============ */
+function initChat() {
+  // Chat is initialized when the chat page becomes active
+  // Clear existing messages
+  const messages = $('chat-messages');
+  if (messages) messages.innerHTML = '';
+  // Scroll to bottom
+  if (messages) messages.scrollTop = messages.scrollHeight;
+}
+
+function sendChatMessage() {
+  const input = $('chat-input');
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    toast('未连接到信令服务器，无法发送聊天消息', 'warn');
+    return;
+  }
+  // Send chat message via signaling WebSocket
+  sendSignal({
+    type: 'chat',
+    text: text,
+    username: state.user ? state.user.username : 'Unknown',
+    userId: state.user ? state.user.id : 0,
+  });
+  // Render own message immediately
+  renderChatMessage({
+    text: text,
+    username: state.user ? state.user.username : 'Unknown',
+    userId: state.user ? state.user.id : 0,
+    local: true,
+  });
+  input.value = '';
+}
+
+function renderChatMessage(msg) {
+  const container = $('chat-messages');
+  if (!container) return;
+  const isOwn = msg.local || (state.user && msg.userId === state.user.id);
+  const el = document.createElement('div');
+  el.className = 'chat-msg' + (isOwn ? ' self' : '') + (msg.system ? ' system' : '');
+  const time = new Date().toLocaleTimeString().slice(0, 5);
+  if (msg.system) {
+    el.innerHTML = '<div class="chat-msg-text">' + escapeHtml(msg.text) + '</div>';
+  } else {
+    el.innerHTML = '<div class="chat-msg-header"><span class="chat-msg-author">' + escapeHtml(msg.username || '用户') + '</span><span class="chat-msg-time">' + time + '</span></div><div class="chat-msg-text">' + escapeHtml(msg.text) + '</div>';
+  }
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+}
+
 /* ============ 初始化 ============ */
 document.addEventListener('DOMContentLoaded', async () => {
   $('auth-page').classList.remove('hidden');
@@ -1719,8 +1972,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const showStartupError = (source, error) => {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`${source}启动失败:`, error);
-    showAuthErr(`启动错误：${source}失败：${message}`);
+    console.error(source + '启动失败:', error);
+    showAuthErr('启动错误：' + source + '失败：' + message);
   };
 
   try {
@@ -1767,3 +2020,105 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
+
+// ====== 鼠标光晕跟随 ======
+(function initMouseGlow() {
+  const body = document.body;
+  
+  // body::before 光晕跟随
+  document.addEventListener('mousemove', (e) => {
+    const x = e.clientX;
+    const y = e.clientY;
+    document.body.style.setProperty('--mouse-x', x + 'px');
+    document.body.style.setProperty('--mouse-y', y + 'px');
+  });
+  
+  // 为所有 .btn-glow 按钮添加鼠标位置追踪
+  document.addEventListener('mousemove', (e) => {
+    const btns = document.querySelectorAll('.btn-glow, .btn-primary, .btn-success, .btn-danger, .btn-outline');
+    for (const btn of btns) {
+      const rect = btn.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * 100;
+      const y = ((e.clientY - rect.top) / rect.height) * 100;
+      btn.style.setProperty('--mouse-x', x + '%');
+      btn.style.setProperty('--mouse-y', y + '%');
+    }
+  });
+})();
+
+// ====== 登录页 ======
+function initAuth() {
+  const authWrap = document.getElementById('auth-wrap');
+  if (!authWrap) return;
+  
+  const tabs = authWrap.querySelectorAll('.auth-tab');
+  const forms = authWrap.querySelectorAll('.auth-form');
+  
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      forms.forEach(f => f.classList.add('hidden'));
+      const target = document.getElementById(tab.dataset.form);
+      if (target) target.classList.remove('hidden');
+    });
+  });
+  
+  // 登录/注册按钮事件
+  const loginBtn = authWrap.querySelector('.btn-login');
+  const registerBtn = authWrap.querySelector('.btn-register');
+  
+  if (loginBtn) {
+    loginBtn.addEventListener('click', async () => {
+      const username = authWrap.querySelector('#login-username')?.value;
+      const password = authWrap.querySelector('#login-password')?.value;
+      if (!username || !password) return showToast('请输入用户名和密码');
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast('登录成功');
+          // 隐藏登录页，显示主界面
+          // ...
+        } else {
+          showToast(data.message || '登录失败');
+        }
+      } catch(e) {
+        showToast('网络错误');
+      }
+    });
+  }
+  
+  if (registerBtn) {
+    registerBtn.addEventListener('click', async () => {
+      const username = authWrap.querySelector('#reg-username')?.value;
+      const password = authWrap.querySelector('#reg-password')?.value;
+      const email = authWrap.querySelector('#reg-email')?.value;
+      if (!username || !password) return showToast('请输入用户名和密码');
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, email })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast('注册成功');
+        } else {
+          showToast(data.message || '注册失败');
+        }
+      } catch(e) {
+        showToast('网络错误');
+      }
+    });
+  }
+}
+
+// 页面加载后初始化
+document.addEventListener('DOMContentLoaded', () => {
+  initAuth();
+});

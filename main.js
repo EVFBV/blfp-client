@@ -29,10 +29,10 @@ function getLanIp() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 900,
-    height: 680,
-    minWidth: 780,
-    minHeight: 560,
+    width: 1100,
+    height: 740,
+    minWidth: 860,
+    minHeight: 600,
     title: 'BLFP 联机助手',
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#050505', symbolColor: '#ffffff', height: 36 },
