@@ -39,7 +39,7 @@ jobs:
       - name: Build client directory
         run: npm run dist -- --publish never
 
-      - name: Verify client build (关键文件校验)
+      - name: Verify client build
         shell: powershell
         run: |
           $ver = "${{ steps.ver.outputs.v }}"
@@ -52,18 +52,22 @@ jobs:
             (Join-Path $root "resources\bin\wintun.dll"),
             (Join-Path $root "resources\app\renderer\index.html"),
             (Join-Path $root "resources\app\renderer\app.js"),
-            (Join-Path $root "resources\app\main.js")
+            (Join-Path $root "resources\app\renderer\style.css"),
+            (Join-Path $root "resources\app\main.js"),
+            (Join-Path $root "resources\app\src\easytier-manager.js")
           )
           $missing = @()
-          foreach ($f in $required) { if (-not (Test-Path $f)) { $missing += $f } }
-          if ($missing.Count -gt 0) {
-            Write-Host "客户端构建缺少以下文件："
-            $missing | ForEach-Object { Write-Host "   $_" }
-            throw "客户端构建不完整，已中止（避免产出装不起来的安装包）"
+          foreach ($f in $required) {
+            if (-not (Test-Path $f)) { $missing += $f }
           }
-          Write-Host "客户端构建校验通过（主程序 + 运行文件 + 渲染层）"
-          $binSize = (Get-ChildItem (Join-Path $root "resources\bin") | Measure-Object -Property Length -Sum).Sum
-          Write-Host "   bin 目录总大小: $([math]::Round($binSize/1MB,1)) MB"
+          if ($missing.Count -gt 0) {
+            Write-Host "FAILED - client build is missing:"
+            $missing | ForEach-Object { Write-Host "   $_" }
+            throw "client build incomplete"
+          }
+          Write-Host "OK - client build verified (exe + bin runtime + renderer + src)"
+          $binSum = (Get-ChildItem (Join-Path $root "resources\bin") | Measure-Object -Property Length -Sum).Sum
+          Write-Host ("   bin total: " + [math]::Round($binSum/1MB,1) + " MB")
 
       - name: Assemble payload
         shell: powershell
@@ -75,30 +79,28 @@ jobs:
           New-Item -ItemType Directory -Path $payloadDir -Force | Out-Null
           Compress-Archive -Path "$clientOutput/*" -DestinationPath (Join-Path $payloadDir "payload.zip") -Force
           $uninstallerExe = Join-Path (Join-Path "uninstaller" "out_v$ver") "BLFP-Uninstall.exe"
-          if (-not (Test-Path $uninstallerExe)) { throw "卸载程序未生成: $uninstallerExe" }
+          if (-not (Test-Path $uninstallerExe)) { throw "uninstaller exe not found: $uninstallerExe" }
           Copy-Item -Path $uninstallerExe -Destination (Join-Path $payloadDir "BLFP-Uninstaller.exe") -Force
-          $uninstallerExe2 = $uninstallerExe
-          # 显式校验 payload.zip（此前只打印一个坏掉的计数，缺失不会失败）
           $zip = Join-Path $payloadDir "payload.zip"
-          if (-not (Test-Path $zip)) { throw "payload.zip 未生成！" }
+          if (-not (Test-Path $zip)) { throw "payload.zip was not created" }
           $zipMB = [math]::Round((Get-Item $zip).Length / 1MB, 1)
-          if ($zipMB -lt 80) { throw "payload.zip 体积异常（$zipMB MB），客户端构建可能不完整" }
-          Write-Host "payload 组装完成：payload.zip = $zipMB MB"
+          if ($zipMB -lt 80) { throw "payload.zip too small: $zipMB MB" }
+          Write-Host ("OK - payload assembled: payload.zip = " + $zipMB + " MB")
           Get-ChildItem $payloadDir | ForEach-Object { Write-Host ("   " + $_.Name + "  " + [math]::Round($_.Length/1MB,2) + " MB") }
 
       - name: Build installer
         run: cd installer && npm run dist -- --publish never
 
-      - name: Verify installer (安装包完整性校验)
+      - name: Verify installer
         shell: powershell
         run: |
           $ver = "${{ steps.ver.outputs.v }}"
           $exe = "installer\out_v$ver-final\BLFP-Setup-v$ver.exe"
-          if (-not (Test-Path $exe)) { throw "安装包未生成: $exe" }
+          if (-not (Test-Path $exe)) { throw "installer not found: $exe" }
           $mb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
-          Write-Host "安装包大小: $mb MB"
-          if ($mb -lt 150) { throw "安装包体积异常（$mb MB）——很可能没打进 payload.zip" }
-          Write-Host "安装包校验通过（含内置客户端数据）"
+          Write-Host ("installer size: " + $mb + " MB")
+          if ($mb -lt 150) { throw "installer too small ($mb MB) - payload probably missing" }
+          Write-Host "OK - installer verified"
 
       - name: Upload release
         uses: softprops/action-gh-release@v2
