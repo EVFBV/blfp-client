@@ -1,13 +1,19 @@
 /* ============ 全局状态 ============ */
-const DEFAULT_SERVER = 'http://154.40.43.136:4000';
-/* 多候选服务器：启动时自动探测，哪个能通用哪个（避免单一地址被代理/防火墙挡住就完全用不了） */
+const DEFAULT_SERVER = 'http://154.40.43.136:4000';   /* 主服务器：登录/房间/好友/设置 */
+const DEFAULT_CHAT_SERVER = 'http://154.40.43.136:4001'; /* 聊天公告专用服务器 */
+/* 主服务器候选：启动时自动探测，哪个能通用哪个 */
 const SERVER_CANDIDATES = [
-  'http://154.40.43.136:4000',   /* 直连 IP（自建服务器） */
-  'https://p.blfp.cn',           /* 域名（Cloudflare 中转，HTTPS） */
+  'http://154.40.43.136:4000',
+  'https://p.blfp.cn',
+];
+/* 聊天/公告服务器候选：探测失败时回退到主服务器（主服务器同样带聊天+公告能力） */
+const CHAT_SERVER_CANDIDATES = [
+  'http://154.40.43.136:4001',
 ];
 const GITHUB_REPO_URL = 'https://github.com/EVFBV/BLFP-client';
 const state = {
   server: DEFAULT_SERVER,
+  chatServer: DEFAULT_CHAT_SERVER,   // 聊天/公告专用服务器
   token: null,
   user: null,
   mode: 'easytier',
@@ -84,6 +90,35 @@ async function probeServer(url, timeoutMs) {
   } catch (e) { return false; }
 }
 
+/* 聊天/公告专用请求：走 chatServer，失败自动回退主服务器 */
+async function apiChat(path, opts) {
+  try {
+    return await api(path, opts || {}, state.chatServer);
+  } catch (e) {
+    if (state.chatServer !== state.server && /数据库尚未就绪|请求失败|无法连接|超时/.test(e.message || '')) {
+      logLine('聊天/公告服务器请求失败（' + e.message + '），已回退主服务器');
+      state.chatServer = state.server;
+      return api(path, opts || {}, state.server);
+    }
+    throw e;
+  }
+}
+
+/* 探测聊天/公告服务器；不可用则回退到主服务器 */
+async function resolveChatServer() {
+  for (const url of CHAT_SERVER_CANDIDATES) {
+    if (await probeServer(url)) {
+      state.chatServer = url;
+      logLine('聊天/公告服务器: ' + url);
+      return url;
+    }
+    logLine('聊天/公告服务器不可用，回退主服务器: ' + url);
+  }
+  state.chatServer = state.server;
+  logLine('聊天/公告使用主服务器: ' + state.server);
+  return state.chatServer;
+}
+
 async function resolveServer() {
   for (const url of SERVER_CANDIDATES) {
     if (await probeServer(url)) {
@@ -127,8 +162,9 @@ async function getSigningKey() {
   return data.key;
 }
 
-async function api(path, opts = {}) {
-  assertSecureServer(state.server);
+async function api(path, opts = {}, baseServer) {
+  const base = baseServer || state.server;
+  assertSecureServer(base);
   const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
   if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
   const method = (opts.method || 'GET').toUpperCase();
@@ -148,7 +184,7 @@ async function api(path, opts = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const res = await fetch(state.server + '/api' + path, { ...opts, method, headers, signal: controller.signal });
+    const res = await fetch(base + '/api' + path, { ...opts, method, headers, signal: controller.signal });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || '请求失败 (' + res.status + ')');
     return data;
@@ -160,7 +196,7 @@ async function api(path, opts = {}) {
       throw new Error('请求超时，请检查网络后重试');
     }
     /* 网络层失败（Failed to fetch 等）：多半是当前地址被代理/防火墙挡住，换候选重试 */
-    if (e instanceof TypeError) {
+    if (e instanceof TypeError && base === state.server) {
       const next = await switchServerCandidate();
       if (next) {
         logLine('当前服务器不可达，已切换到 ' + next + ' 并重试');
@@ -1538,7 +1574,7 @@ function announcementStorageKey(announcement) {
 
 async function loadAnnouncement() {
   try {
-    const announcement = await api('/settings/announcement');
+    const announcement = await apiChat('/settings/announcement');
     state.announcement = announcement;
     if (!announcement.enabled || !announcement.content || localStorage.getItem(announcementStorageKey(announcement))) {
       checkForUpdates(true);
@@ -2208,7 +2244,7 @@ function initLGControls() {
 async function loadAnnouncements() {
   if (!state.token) return;
   try {
-    const data = await api('/settings/announcement');
+    const data = await apiChat('/settings/announcement');
     const container = $('home-announcements');
     if (!container) return;
     if (Array.isArray(data) && data.length > 0) {
@@ -2236,11 +2272,35 @@ function initChat() {
 }
 
 let chatReconnectTimer = null;
+/* 聊天室独立连接「聊天服务器」的 /ws（与房间信令分离） */
+function connectChatSocket() {
+  return new Promise((resolve, reject) => {
+    const base = state.chatServer || state.server;
+    const serverUrl = assertSecureServer(base);
+    const wsProtocol = serverUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = wsProtocol + '//' + serverUrl.host + '/ws?token=' + encodeURIComponent(state.token);
+    try { if (state.chatWs) { state.chatWs.onclose = null; state.chatWs.close(); } } catch (e) {}
+    state.chatWs = new WebSocket(wsUrl);
+    state.chatWs.onopen = () => resolve();
+    state.chatWs.onerror = () => reject(new Error('无法连接聊天服务器'));
+    state.chatWs.onclose = () => {
+      state.chatWs = null;
+      if (currentPage === 'chat') {
+        if (chatReconnectTimer) clearTimeout(chatReconnectTimer);
+        chatReconnectTimer = setTimeout(() => { if (currentPage === 'chat') ensureChatConnection(); }, 3000);
+      }
+    };
+    state.chatWs.onmessage = (ev) => {
+      let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg && msg.type === 'chat') renderChatMessage(msg);
+    };
+  });
+}
+
 function ensureChatConnection() {
   if (!state.token) return;
-  if (state.ws && state.ws.readyState === WebSocket.OPEN) return;
-  // 房间连接复用；无房间时聊天室独立连接信令服务器
-  connectSignaling().then(() => {
+  if (state.chatWs && state.chatWs.readyState === WebSocket.OPEN) return;
+  connectChatSocket().then(() => {
     const messages = $('chat-messages');
     if (messages) {
       messages.innerHTML = '';
@@ -2249,7 +2309,13 @@ function ensureChatConnection() {
       sys.innerHTML = '<div class="chat-msg-text">已连接到聊天室</div>';
       messages.appendChild(sys);
     }
-  }).catch(() => {
+  }).catch((e) => {
+    /* 聊天服务器不可用 → 回退主服务器（两者都带聊天能力） */
+    if (state.chatServer !== state.server) {
+      logLine('聊天服务器连接失败，回退主服务器：' + e.message);
+      state.chatServer = state.server;
+      return ensureChatConnection();
+    }
     const messages = $('chat-messages');
     if (messages) {
       messages.innerHTML = '';
@@ -2268,17 +2334,21 @@ function sendChatMessage() {
   if (!input) return;
   const text = input.value.trim();
   if (!text) return;
-  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-    toast('未连接到信令服务器，无法发送聊天消息', 'warn');
+  const sock = state.chatWs && state.chatWs.readyState === WebSocket.OPEN
+    ? state.chatWs
+    : (state.ws && state.ws.readyState === WebSocket.OPEN ? state.ws : null);
+  if (!sock) {
+    toast('未连接到聊天服务器，正在重连…', 'warn');
+    ensureChatConnection();
     return;
   }
-  // Send chat message via signaling WebSocket
-  sendSignal({
+  const chatPayload = {
     type: 'chat',
     text: text,
     username: state.user ? state.user.username : 'Unknown',
     userId: state.user ? state.user.id : 0,
-  });
+  };
+  try { sock.send(JSON.stringify(chatPayload)); } catch (e) { toast('发送失败：' + e.message, 'error'); return; }
   // Render own message immediately
   renderChatMessage({
     text: text,
@@ -2326,6 +2396,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   /* 自动探测可用服务器（有代理/防火墙时域名与 IP 哪个通用哪个） */
   try {
     await resolveServer();
+    await resolveChatServer();
   } catch (error) {
     logLine('服务器探测失败: ' + error.message);
   }
@@ -2873,7 +2944,7 @@ async function publishAnnouncement() {
   const content = $('admin-ann-content')?.value?.trim();
   if (!title || !content) return toast('请填写公告标题和内容', 'warn');
   try {
-    await api('/settings/announcement', { method: 'POST', body: JSON.stringify({ title, content }) });
+    await apiChat('/settings/announcement', { method: 'POST', body: JSON.stringify({ title, content }) });
     toast('公告发布成功', 'success');
     loadAnnouncements();
   } catch (e) {
