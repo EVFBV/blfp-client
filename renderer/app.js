@@ -360,6 +360,7 @@ function enterApp() {
   if ($('s-username')) $('s-username').textContent = state.user.username;
   if ($('s-avatar-initials')) $('s-avatar-initials').textContent = state.user.username.charAt(0).toUpperCase();
   applyUserAppearance(state.user);
+  fillUserPanel();
   const welcome = state.user.role === 'sponsor' ? `感谢赞助，${state.user.username}！欢迎回到 BLFP。` : `欢迎回来，${state.user.username}。`;
   if ($('home-welcome')) $('home-welcome').textContent = welcome;
   if ($('us-logged-in-as')) $('us-logged-in-as').textContent = '登录为: ' + state.user.username;
@@ -372,6 +373,7 @@ function enterApp() {
   loadPublicRooms(true);
   loadFriends(true);
   loadAnnouncements();
+  initGlassControls();
   initGlassControls();
   if (state.user.role === 'sponsor' && !sessionStorage.getItem('blfp_sponsor_welcome')) { sessionStorage.setItem('blfp_sponsor_welcome', '1'); toast(`感谢赞助，${state.user.username}，欢迎回来！`, 'success'); }
   syncPresence(true).catch((e) => logLine('在线状态同步失败: ' + e.message));
@@ -387,7 +389,7 @@ let navTimer = null;
 let navLock = false;
 function navTo(page, btn) {
   if (page === 'settings' && window.LGComponents) setTimeout(window.LGComponents.enhance, 80);
-  if (page === 'user-settings') setTimeout(applyPrivilegeUI, 50);
+  if (page === 'user-settings') { setTimeout(applyPrivilegeUI, 50); setTimeout(fillUserPanel, 30); }
   // When navigating to any page other than settings, remove .active from gear-btn
   if (page !== 'settings' && page !== 'user-settings') {
     const gearBtn = $('sidebar-gear-btn');
@@ -435,7 +437,7 @@ function navTo(page, btn) {
   if (page === 'host' && state.token) loadFrpNodes({ silent: true, preserveSelection: true });
   if (page === 'rooms' && state.token) loadPublicRooms(true);
   if (page === 'friends' && state.token) loadFriends(true);
-  if (page === 'chat') initChat();
+  if (page === 'chat') { initChat(); ensureChatConnection(); }
 }
 
 /* ============ 设置齿轮动画 ============ */
@@ -706,6 +708,10 @@ function connectSignaling() {
       state.ws = null;
       logLine('信令连接已关闭');
       if (state.closingSignaling) { state.closingSignaling = false; return; }
+      if (currentPage === 'chat') {
+        if (chatReconnectTimer) clearTimeout(chatReconnectTimer);
+        chatReconnectTimer = setTimeout(() => { if (currentPage === 'chat') ensureChatConnection(); }, 3000);
+      }
       if (state.role === 'guest') await failGuestConnection('服务端连接中断/房间已关闭');
       else if (state.role === 'host') await resetHostRoom('服务端连接中断/房间已关闭', true);
     };
@@ -1823,7 +1829,7 @@ async function searchFriends() {
     const users = await api('/friends/search?q=' + encodeURIComponent(q));
     if (!users.length) { el.innerHTML = '<div class="empty-state">未找到用户</div>'; return; }
     el.innerHTML = users.map(u => `
-      <div class="friend-item">
+      <div class="friend-item" data-friend-id="${f.id}">
         <div class="fi-avatar">${escapeHtml(u.username.charAt(0).toUpperCase())}</div>
         <div class="fi-info">
           <div class="fi-name">${escapeHtml(u.username)}${u.title ? ` <span class="user-title theme-${escapeHtml(u.theme||'dark')}">${escapeHtml(u.title)}</span>` : ''}</div>
@@ -1926,9 +1932,53 @@ async function acceptFriend(userId) {
 async function rejectFriend(userId) {
   try { await api(`/friends/${userId}/reject`, { method: 'POST' }); toast('已拒绝'); loadFriendRequests(); } catch (e) { toast(e.message, 'error'); }
 }
+/* 应用内确认弹窗（替代原生 confirm） */
+function appConfirm(message, onOk, opts) {
+  let dlg = $('app-confirm-modal');
+  if (!dlg) {
+    dlg = document.createElement('div');
+    dlg.id = 'app-confirm-modal';
+    dlg.className = 'modal-backdrop';
+    dlg.innerHTML = '<div class="modal glass-card app-confirm-card" style="max-width:340px;padding:20px">' +
+      '<div class="app-confirm-icon">⚠️</div>' +
+      '<div class="app-confirm-text"></div>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">' +
+      '<button class="btn btn-outline btn-sm app-confirm-cancel">取消</button>' +
+      '<button class="btn btn-danger btn-sm app-confirm-ok">确定</button>' +
+      '</div></div>';
+    document.body.appendChild(dlg);
+  }
+  const textEl = dlg.querySelector('.app-confirm-text');
+  if (textEl) textEl.textContent = message;
+  const okBtn = dlg.querySelector('.app-confirm-ok');
+  const cancelBtn = dlg.querySelector('.app-confirm-cancel');
+  if (okBtn && opts && opts.okText) okBtn.textContent = opts.okText;
+  dlg.classList.remove('hidden');
+  const close = () => { dlg.classList.add('hidden'); };
+  const okHandler = () => { close(); onOk && onOk(); };
+  okBtn.onclick = okHandler;
+  cancelBtn.onclick = close;
+  dlg.onclick = (e) => { if (e.target === dlg) close(); };
+}
+
 async function removeFriend(userId) {
-  if (!confirm('确认删除好友？')) return;
-  try { await api(`/friends/${userId}`, { method: 'DELETE' }); toast('已删除'); loadFriends(); } catch (e) { toast(e.message, 'error'); }
+  appConfirm('确认删除该好友？', async () => {
+    /* 乐观删除：先从界面移除，失败再恢复 */
+    const list = $('friends-list');
+    const prevHtml = list ? list.innerHTML : '';
+    if (list) {
+      const item = list.querySelector('[data-friend-id="' + userId + '"]');
+      if (item) item.remove();
+      if (!list.children.length) list.innerHTML = '<div class="empty-state">暂无好友</div>';
+    }
+    try {
+      await api(`/friends/${userId}`, { method: 'DELETE' });
+      toast('已删除');
+    } catch (e) {
+      toast('删除失败：' + e.message + '，已恢复', 'error');
+      if (list && prevHtml) list.innerHTML = prevHtml;
+    }
+  });
 }
 
 /* ============ 玻璃质感设置 ============ */
@@ -1959,35 +2009,31 @@ function saveGlassPrefs(prefs) {
 
 function applyGlassPrefs(prefs) {
   const p = prefs || loadGlassPrefs();
-  // 注意：CSS 中这些变量用于 calc(var(--x) * 1px / * 100%) 等计算，必须是无单位数值
-  document.documentElement.style.setProperty('--glass-blur', String(p.blur));                    // 8-60 → calc(*1px)
-  document.documentElement.style.setProperty('--glass-saturate', String(p.saturate / 100));      // 160% → 1.6
-  document.documentElement.style.setProperty('--glass-brightness', String(p.brightness / 100));  // 110% → 1.1
-  document.documentElement.style.setProperty('--glass-opacity', String(p.opacity / 100));        // 72% → 0.72
-  document.documentElement.style.setProperty('--glass-scatter', String(p.scatter / 100));        // 60 → 0.6
-  document.documentElement.style.setProperty('--glass-refraction', String(p.refraction / 100));  // 30 → 0.3
-  document.documentElement.style.setProperty('--glass-glow-size', (p.glow * 0.08).toFixed(2)); // 50 → 4px
-  document.documentElement.style.setProperty('--glass-glow-spread', (p.glow * 0.05).toFixed(2));
-  document.documentElement.style.setProperty('--lg-accent-h', String(p.accentHue));
+  const root = document.documentElement.style;
+  /* 全部写无单位数值——CSS 用 calc(var * 1px / 100%) 自行换算，带单位会令 calc 非法导致整个玻璃效果失效 */
+  root.setProperty('--glass-blur', String(p.blur));
+  root.setProperty('--glass-saturate', String(p.saturate / 100));
+  root.setProperty('--glass-brightness', String(p.brightness / 100));
+  root.setProperty('--glass-opacity', String(p.opacity / 100));
+  root.setProperty('--glass-scatter', String(p.scatter / 100));
+  root.setProperty('--glass-refraction', String(p.refraction / 100));
+  root.setProperty('--glass-glow-size', String(p.glow));
+  root.setProperty('--glass-glow-spread', String(p.glow * 0.6));
+  root.setProperty('--lg-accent-h', String(p.accentHue));
 }
 
 function initGlassControls() {
   applyGlassPrefs();
-  // 滑块 → 显示单位后缀映射
-  const unitMap = {
-    'glass-blur': 'px', 'glass-saturate': '%', 'glass-brightness': '%', 'glass-opacity': '%',
-    'glass-scatter': '%', 'glass-refraction': '%', 'glass-glow': '', 'glass-accent-h': '°'
-  };
-  const sliders = Object.keys(unitMap);
+  // Bind sliders if they exist
+  const sliders = ['glass-blur', 'glass-saturate', 'glass-brightness', 'glass-opacity', 'glass-scatter', 'glass-refraction', 'glass-glow', 'glass-accent-h'];
   sliders.forEach((id) => {
     const slider = $(id);
     const display = $(id + '-val');
     if (slider && display) {
-      // 初始化显示值（带单位）
-      display.textContent = slider.value + unitMap[id];
       slider.addEventListener('input', () => {
-        display.textContent = slider.value + unitMap[id];
+        display.textContent = slider.value;
         const prefs = loadGlassPrefs();
+        const key = id.replace('glass-', '');
         if (id === 'glass-accent-h') prefs.accentHue = Number(slider.value);
         else if (id === 'glass-blur') prefs.blur = Number(slider.value);
         else if (id === 'glass-saturate') prefs.saturate = Number(slider.value);
@@ -2032,6 +2078,34 @@ function initChat() {
   if (messages) messages.innerHTML = '';
   // Scroll to bottom
   if (messages) messages.scrollTop = messages.scrollHeight;
+}
+
+let chatReconnectTimer = null;
+function ensureChatConnection() {
+  if (!state.token) return;
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) return;
+  // 房间连接复用；无房间时聊天室独立连接信令服务器
+  connectSignaling().then(() => {
+    const messages = $('chat-messages');
+    if (messages) {
+      messages.innerHTML = '';
+      const sys = document.createElement('div');
+      sys.className = 'chat-msg system';
+      sys.innerHTML = '<div class="chat-msg-text">已连接到聊天室</div>';
+      messages.appendChild(sys);
+    }
+  }).catch(() => {
+    const messages = $('chat-messages');
+    if (messages) {
+      messages.innerHTML = '';
+      const sys = document.createElement('div');
+      sys.className = 'chat-msg system';
+      sys.innerHTML = '<div class="chat-msg-text">连接失败，3 秒后重试...</div>';
+      messages.appendChild(sys);
+    }
+    if (chatReconnectTimer) clearTimeout(chatReconnectTimer);
+    chatReconnectTimer = setTimeout(() => { if (currentPage === 'chat') ensureChatConnection(); }, 3000);
+  });
 }
 
 function sendChatMessage() {
@@ -2558,6 +2632,35 @@ function applyPrivilegeUI() {
   const annAdmin = document.querySelector('.announcement-admin-section');
   if (annAdmin) annAdmin.classList.toggle('hidden', !isAdmin);
 }
+
+/* ====== 用户面板数据填充 ====== */
+function fillUserPanel() {
+  const u = state.user;
+  if (!u) return;
+  const title = u.title || ({ admin: '管理员', dev: '开发者', sponsor: '赞助用户', user: '普通用户' }[u.role] || '普通用户');
+  const initial = (u.username || 'U').charAt(0).toUpperCase();
+  const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+  set('us-avatar-initials', initial);
+  set('us-username', u.username || '用户');
+  const roleEl = $('us-role');
+  if (roleEl) {
+    roleEl.textContent = title;
+    const cls = resolveUserThemeClass(u.theme, u.role);
+    roleEl.className = 'user-role ' + cls;
+    roleEl.dataset.userTheme = safeUserTheme(u.theme) || 'role';
+    roleEl.style.cssText = 'font-size:.82rem;margin-bottom:2px';
+  }
+  set('us-uid', String(u.id !== undefined && u.id !== null ? u.id : '-'));
+  set('us-info-name', u.username || '-');
+  set('us-info-role', title);
+  set('us-info-id', String(u.id !== undefined && u.id !== null ? u.id : '-'));
+  set('us-info-server', state.server || DEFAULT_SERVER);
+  /* 好友数（异步拉取） */
+  api('/friends').then((friends) => {
+    set('us-info-friends', Array.isArray(friends) ? friends.length : 0);
+  }).catch(() => set('us-info-friends', '-'));
+}
+
 
 async function publishAnnouncement() {
   const title = $('admin-ann-title')?.value?.trim();

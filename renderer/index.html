@@ -297,11 +297,33 @@
     <div id="page-user-settings" class="page">
       <div class="user-settings-header">
         <div class="user-settings-avatar" id="us-avatar-initials">U</div>
-        <div>
+        <div style="flex:1;min-width:0">
           <h1 class="page-title" style="margin-bottom:4px" id="us-username">用户</h1>
-          <div id="us-role" style="font-size:.82rem;color:var(--text2)"></div>
-        <button class="btn btn-outline btn-sm" style="margin-left:auto" onclick="navToSettingsFromUser()">前往设置</button>
+          <div id="us-role" style="font-size:.82rem;color:var(--text2);margin-bottom:2px"></div>
+          <div style="font-size:.78rem;color:var(--text2)">ID: <span id="us-uid" class="copy-link" onclick="copyText(this.textContent)">-</span></div>
         </div>
+        <button class="btn btn-outline btn-sm" style="margin-left:auto;flex-shrink:0" onclick="navToSettingsFromUser()">前往设置</button>
+      </div>
+
+      <div class="card glass-card">
+        <h2>账户信息</h2>
+        <div class="app-info-row"><span>用户名</span><strong id="us-info-name">-</strong></div>
+        <div class="app-info-row"><span>头衔</span><strong id="us-info-role">-</strong></div>
+        <div class="app-info-row"><span>用户 ID</span><strong id="us-info-id" class="copy-link" onclick="copyText(this.textContent)">-</strong></div>
+        <div class="app-info-row"><span>好友数量</span><strong id="us-info-friends">-</strong></div>
+        <div class="app-info-row"><span>服务器</span><strong id="us-info-server">-</strong></div>
+      </div>
+
+      <div class="card glass-card announcement-admin-section hidden">
+        <h2>公告管理</h2>
+        <div class="form-group"><label>公告标题</label><input id="admin-ann-title" type="text" class="ann-input" placeholder="公告标题"></div>
+        <div class="form-group"><label>公告内容</label><textarea id="admin-ann-content" class="ann-input" rows="3" placeholder="公告内容"></textarea></div>
+        <button class="btn btn-primary btn-glow" onclick="publishAnnouncement()">发布公告</button>
+      </div>
+
+      <div class="card glass-card">
+        <h2>外观</h2>
+        <div class="form-group"><label>主题</label><div class="theme-toggle-row"><button id="theme-dark" class="theme-btn active" onclick="setTheme('dark')">深色</button><button id="theme-light" class="theme-btn" onclick="setTheme('light')">浅色</button></div></div>
       </div>
 
       <div class="card glass-card">
@@ -311,26 +333,6 @@
           <button class="btn btn-danger-outline btn-sm" onclick="doLogout()">退出登录</button>
         </div>
       </div>
-
-      <div class="card glass-card announcement-admin-section hidden">
-        <h2>公告管理</h2>
-        <div class="form-group"><label>公告标题</label><input id="admin-ann-title" type="text" placeholder="公告标题"></div>
-        <div class="form-group"><label>公告内容</label><textarea id="admin-ann-content" rows="3" placeholder="公告内容" style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:var(--text);font-family:inherit;resize:vertical"></textarea></div>
-        <button class="btn btn-primary btn-glow" onclick="publishAnnouncement()">发布公告</button>
-      </div>
-
-      <div class="card glass-card">
-        <h2>外观</h2>
-        <div class="form-group"><label>主题</label><div class="theme-toggle-row"><button id="theme-dark" class="theme-btn active" onclick="setTheme('dark')">深色</button><button id="theme-light" class="theme-btn" onclick="setTheme('light')">浅色</button></div></div>
-      </div>
-
-
-
-      </div>
-
-
-
-
     </div>
 
     <!-- 设置 (主设置 - 齿轮页) -->
@@ -351,6 +353,10 @@
           <div class="glass-config-item"><label>强调光颜色</label><input type="range" id="glass-accent-h" min="0" max="360" value="222"><span class="value-display" id="glass-accent-h-val">222°</span></div>
         </div>
       </div>
+
+
+
+
 
       <div class="card glass-card">
         <h2>外观</h2>

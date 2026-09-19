@@ -311,19 +311,8 @@
     var onChange = opts.onChange || function () {};
     var pressed = false, hovered = false, dragging = false;
 
-    var filterId = 'lg-sl-' + (++uid);
+    /* SVG 位移滤镜在多滑块页面（设置页）会触发 Chromium 黑块渲染 bug，滑块拇指改用纯 CSS 玻璃 */
     var useFilter = false;
-    if (!perfOff() && typeof ImageData === 'function') {
-      try {
-        ensureFilter(filterId, {
-          w: tw2, h: th2, radius: r2,
-          bezelWidth: bezel, glassThickness: thick, refractiveIndex: 1.45,
-          bezelType: 'convex_squircle', blur: 0, specularOpacity: 0.4, specularSaturation: 7,
-          scaleRatio: 0.4
-        });
-        useFilter = true;
-      } catch (e) { useFilter = false; }
-    }
 
     var root = document.createElement('div');
     root.className = 'lg-slider';
@@ -346,8 +335,9 @@
     root.appendChild(track);
     root.appendChild(thumb);
 
-    var leftMin = 0, leftMax = W - tw2;
-    function clampX(x) { return Math.max(leftMin - 4, Math.min(leftMax + 4, x)); }
+    /* 边界按进度条轨道：拇指中心在轨道两端之间移动（left edge ∈ [-tw2/2, W-tw2/2]） */
+    var leftMin = -tw2 / 2, leftMax = W - tw2 / 2;
+    function clampX(x) { return Math.max(leftMin, Math.min(leftMax, x)); }
     function xToPct(x) { return Math.max(0, Math.min(100, (x - leftMin) / ((leftMax - leftMin) || 1) * 100)); }
     function pctToX(p) { return leftMin + (leftMax - leftMin) * (p / 100); }
 
