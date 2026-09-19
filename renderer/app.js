@@ -352,6 +352,7 @@ function applyUserAppearance(user) {
 }
 
 function enterApp() {
+  setTimeout(applyPrivilegeUI, 100);
   $('auth-page').classList.add('hidden');
   $('main-app').classList.remove('hidden');
   $('s-username').textContent = state.user.username;
@@ -386,6 +387,7 @@ let navTimer = null;
 let navLock = false;
 function navTo(page, btn) {
   if (page === 'settings' && window.LGComponents) setTimeout(window.LGComponents.enhance, 80);
+  if (page === 'user-settings') setTimeout(applyPrivilegeUI, 50);
   // When navigating to any page other than settings, remove .active from gear-btn
   if (page !== 'settings' && page !== 'user-settings') {
     const gearBtn = $('sidebar-gear-btn');
@@ -2537,9 +2539,17 @@ const PRIVILEGES = {
   dev: ['publish_announcement', 'manage_rooms', 'view_logs', 'server_stats', 'edit_motd'],
   sponsor: ['custom_title', 'priority_nodes']
 };
+function getUserRole() {
+  const u = state.user || {};
+  if (u.role && PRIVILEGES[u.role]) return u.role;
+  const t = String(u.title || '');
+  if (t.includes('管理') || t === 'admin') return 'admin';
+  if (t.includes('开发') || t === 'dev') return 'dev';
+  if (t.includes('赞助') || t === 'sponsor') return 'sponsor';
+  return 'user';
+}
 function hasPrivilege(priv) {
-  const role = state.user?.role || state.user?.title;
-  if (!role) return false;
+  const role = getUserRole();
   return (PRIVILEGES[role] || []).includes(priv);
 }
 function applyPrivilegeUI() {
@@ -2547,24 +2557,8 @@ function applyPrivilegeUI() {
   const isAdmin = hasPrivilege('publish_announcement');
   const annAdmin = document.querySelector('.announcement-admin-section');
   if (annAdmin) annAdmin.classList.toggle('hidden', !isAdmin);
-  // 主页公告发布按钮（仅 admin/dev 可见）
-  let pubBtn = $('publish-announcement-btn');
-  if (isAdmin && !pubBtn) {
-    const home = $('page-home');
-    if (home) {
-      const div = document.createElement('div');
-      div.className = 'card glass-card announcement-admin-section';
-      div.style.marginTop = '12px';
-      div.innerHTML = '<h2>发布公告</h2><div class="form-group"><label>公告标题</label><input id="admin-ann-title" type="text" placeholder="公告标题"></div><div class="form-group"><label>公告内容</label><textarea id="admin-ann-content" rows="3" placeholder="公告内容" style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:var(--text);font-family:inherit;resize:vertical"></textarea></div><button class="btn btn-primary btn-glow" onclick="publishAnnouncement()">发布公告</button>';
-      const annContainer = $('home-announcements');
-      if (annContainer && annContainer.parentNode) {
-        annContainer.parentNode.insertBefore(div, annContainer.nextSibling);
-      }
-    }
-  } else if (!isAdmin && pubBtn) {
-    pubBtn.closest('.announcement-admin-section')?.remove();
-  }
 }
+
 async function publishAnnouncement() {
   const title = $('admin-ann-title')?.value?.trim();
   const content = $('admin-ann-content')?.value?.trim();
