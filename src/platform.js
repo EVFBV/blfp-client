@@ -3,15 +3,18 @@ const path = require('path');
 
 const PLATFORM = process.platform;
 const IS_LINUX = PLATFORM === 'linux';
+const IS_WINDOWS = PLATFORM === 'win32';
+/* Windows 下二进制带 .exe 后缀——缺了这个后缀会导致 existsSync 永远失败（"未找到运行文件"） */
+const EXE = IS_WINDOWS ? '.exe' : '';
 
 const BINARIES = {
-  easytierCore: 'easytier-core',
-  easytierCli: 'easytier-cli',
-  frpc: 'frpc',
+  easytierCore: 'easytier-core' + EXE,
+  easytierCli: 'easytier-cli' + EXE,
+  frpc: 'frpc' + EXE,
 };
 
-// Linux 版 EasyTier 直接走内核 TUN，无需 wintun.dll / Packet.dll 等驱动文件
-const EXTRA_RUNTIME_FILES = [];
+// Windows 需要虚拟网卡驱动；Linux 版 EasyTier 直接走内核 TUN，无需 wintun.dll / Packet.dll 等
+const EXTRA_RUNTIME_FILES = IS_WINDOWS ? ['wintun.dll', 'Packet.dll', 'WinDivert64.sys'] : [];
 
 // Linux 下 TUN 设备创建失败的典型日志特征（权限不足 / 缺少 CAP_NET_ADMIN）
 const TUN_FATAL_RE = /failed to create tun|create tun device|tun device error|permission denied|operation not permitted|capabilities?|os error 1\b|os error 13\b/i;
@@ -47,6 +50,7 @@ function ensureBinaries(binDirectory, keys) {
 module.exports = {
   PLATFORM,
   IS_LINUX,
+  IS_WINDOWS,
   BINARIES,
   EXTRA_RUNTIME_FILES,
   TUN_FATAL_RE,
