@@ -20,7 +20,7 @@
     "appId": "com.blfp.installer",
     "productName": "BLFP-Installer",
     "directories": {
-      "output": "out_v2.2.4-final"
+      "output": "out_v2.3.0-pre-final"
     },
     "files": [
       "main.js",
