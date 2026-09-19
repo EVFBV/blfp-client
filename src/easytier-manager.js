@@ -312,6 +312,7 @@ class EasyTierManager extends EventEmitter {
   async _startHostProxy(child, generation, virtualIp, mcPort, timeout = 60000) {
     const deadline = Date.now() + timeout;
     let proxyPort = HOST_PORT;
+    let eaccesAttempts = 0;
     while (Date.now() < deadline) {
       if (this._generation !== generation || this._proc !== child || !this._isChildAlive(child)) {
         throw new Error('EasyTier 进程在等待虚拟 IP 时退出');
@@ -335,10 +336,16 @@ class EasyTierManager extends EventEmitter {
           continue;
         }
         if (error.code === 'EACCES') {
-          /* Windows：虚拟网卡刚创建时绑定虚拟 IP 会报 EACCES（对应 Linux 的 EADDRNOTAVAIL），等待重试 */
-          this._log('虚拟网卡尚未就绪（EACCES），等待就绪后重试...');
-          await this._delay(800);
-          continue;
+          /* Windows 上绑定虚拟 IP 可能持续报 EACCES（接口未就绪/安全软件拦截）。
+             先短暂重试，仍失败则走 0.0.0.0 回退（只放行虚拟网段来源）。 */
+          eaccesAttempts += 1;
+          if (eaccesAttempts <= 6) {
+            this._log('虚拟网卡绑定被拒（EACCES），重试 ' + eaccesAttempts + '/6 ...');
+            await this._delay(800);
+            continue;
+          }
+          this._log('虚拟 IP 绑定持续被拒（EACCES），改用 0.0.0.0 回退方案');
+          break;
         }
         await this._delay(500);
       }
@@ -346,10 +353,10 @@ class EasyTierManager extends EventEmitter {
     /* 虚拟 IP 绑定持续失败（非管理员/杀软拦截等）：回退绑定 0.0.0.0。
        Windows 上监听 0.0.0.0 同样能收到发往虚拟 IP 的隧道流量（EasyTier 会把包投递到本机）。 */
     try {
-      const server = await this._listenProxy('0.0.0.0', mcPort, proxyPort);
+      const server = await this._listenProxy('0.0.0.0', mcPort, proxyPort, virtualIp);
       this._proxyServer = server;
       this._proxyPort = proxyPort;
-      this._log('警告：虚拟 IP ' + virtualIp + ' 绑定失败，已回退监听 0.0.0.0:' + proxyPort + '（建议以管理员身份运行以获得完整的虚拟网卡监听）');
+      this._log('已回退监听 0.0.0.0:' + proxyPort + '（虚拟 IP ' + virtualIp + ' 绑定被系统拒绝；仅放行 ' + virtualIp.split('.').slice(0, 2).join('.') + '.x.x 来源，隧道连接不受影响）');
       return;
     } catch (fallbackError) {
       throw new Error('等待虚拟 IP ' + virtualIp + ' 可绑定超时。请依次检查：1) 是否以管理员身份运行（虚拟网卡需要权限） 2) Windows 防火墙/杀软是否拦截 3) 端口 25565 是否被系统保留（管理员运行: netsh int ipv4 show excludedportrange protocol=tcp）');
@@ -400,9 +407,24 @@ class EasyTierManager extends EventEmitter {
     });
   }
 
-  _listenProxy(virtualIp, mcPort, port) {
+  /* 判断来源是否在虚拟网段（用于 0.0.0.0 回退时过滤非隧道流量） */
+  _isVirtualSource(remoteAddress, virtualIp) {
+    if (!remoteAddress) return false;
+    const addr = String(remoteAddress).replace(/^::ffff:/, '');
+    if (addr === virtualIp) return true;
+    const parts = String(virtualIp).split('.');
+    if (parts.length === 4) return addr.startsWith(parts[0] + '.' + parts[1] + '.');
+    return addr.startsWith('10.200.');
+  }
+
+  _listenProxy(virtualIp, mcPort, port, restrictToVirtual) {
     return new Promise((resolve, reject) => {
       const server = net.createServer((client) => {
+        /* 回退监听 0.0.0.0 时，只放行来自虚拟网段的连接，避免把 MC 端口暴露到局域网/公网 */
+        if (restrictToVirtual && !this._isVirtualSource(client.remoteAddress, virtualIp)) {
+          client.destroy();
+          return;
+        }
         const upstream = net.createConnection({ host: '127.0.0.1', port: mcPort });
         this._proxySockets.add(client);
         this._proxySockets.add(upstream);
