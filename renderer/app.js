@@ -482,7 +482,6 @@ function enterApp() {
   loadPublicRooms(true);
   loadFriends(true);
   loadAnnouncements();
-  initLGControls();
   if (state.user.role === 'sponsor' && !sessionStorage.getItem('blfp_sponsor_welcome')) { sessionStorage.setItem('blfp_sponsor_welcome', '1'); toast(`感谢赞助，${state.user.username}，欢迎回来！`, 'success'); }
   syncPresence(true).catch((e) => logLine('在线状态同步失败: ' + e.message));
   if (state.presenceTimer) clearInterval(state.presenceTimer);
@@ -496,7 +495,6 @@ let currentPage = 'home';
 let navTimer = null;
 let navLock = false;
 function navTo(page, btn) {
-  if (page === 'settings' && window.LGComponents) setTimeout(window.LGComponents.enhance, 80);
   if (page === 'user-settings') { setTimeout(applyPrivilegeUI, 50); setTimeout(fillUserPanel, 30); }
   // When navigating to any page other than settings, remove .active from gear-btn
   if (page !== 'settings' && page !== 'user-settings') {
@@ -2045,7 +2043,7 @@ function appConfirm(message, onOk, opts) {
     dlg = document.createElement('div');
     dlg.id = 'app-confirm-modal';
     dlg.className = 'modal-backdrop';
-    dlg.innerHTML = '<div class="modal glass-card app-confirm-card" style="max-width:340px;padding:20px">' +
+    dlg.innerHTML = '<div class="modal-card app-confirm-card" style="max-width:340px;padding:20px">' +
       '<div class="app-confirm-icon">⚠️</div>' +
       '<div class="app-confirm-text"></div>' +
       '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">' +
@@ -2085,140 +2083,6 @@ async function removeFriend(userId) {
       if (list && prevHtml) list.innerHTML = prevHtml;
     }
   });
-}
-
-/* ============ Liquid Glass 参数（对应 liquid-glass.pro）============ */
-const LG_PREFS_KEY = 'blfp_lg_prefs';
-const DEFAULT_LG_PREFS = {
-  radius: 28,          /* borderRadius */
-  frost: 0,            /* frostBlurRadius */
-  tintColor: '#ffffff',/* glassTintColor */
-  tintOpacity: 0,      /* glassTintOpacity 0-100 */
-  innerColor: '#ffffff', /* innerShadowColor */
-  innerBlur: 20,       /* innerShadowBlur */
-  innerSpread: -5,     /* innerShadowSpread */
-  accentHue: 222,      /* 强调光颜色（本应用附加） */
-};
-
-function loadLGPrefs() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(LG_PREFS_KEY) || '{}');
-    return Object.assign({}, DEFAULT_LG_PREFS, saved);
-  } catch (e) { return Object.assign({}, DEFAULT_LG_PREFS); }
-}
-function saveLGPrefs(p) {
-  try { localStorage.setItem(LG_PREFS_KEY, JSON.stringify(p)); } catch (e) {}
-}
-function hexToRgbTriplet(hex) {
-  const h = String(hex || '#ffffff').replace('#', '');
-  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
-  const n = parseInt(full, 16);
-  if (!Number.isFinite(n)) return '255, 255, 255';
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255].join(', ');
-}
-function hexToRgba(hex, alpha) {
-  return 'rgba(' + hexToRgbTriplet(hex) + ', ' + Number(alpha).toFixed(3) + ')';
-}
-
-function applyLGParams(prefs) {
-  const p = prefs || loadLGPrefs();
-  const r = document.documentElement.style;
-  r.setProperty('--lg-radius', p.radius + 'px');
-  r.setProperty('--lg-frost', String(p.frost));
-  r.setProperty('--lg-tint-rgb', hexToRgbTriplet(p.tintColor));
-  r.setProperty('--lg-tint-alpha', String(p.tintOpacity / 100));
-  /* 噪点参数已移除（折射滤镜已删除） */
-  r.setProperty('--lg-inner-color-rgb', hexToRgbTriplet(p.innerColor));
-  r.setProperty('--lg-inner-blur', p.innerBlur + 'px');
-  r.setProperty('--lg-inner-spread', p.innerSpread + 'px');
-  r.setProperty('--lg-accent-h', String(p.accentHue));
-}
-
-function resetLGParams() {
-  saveLGPrefs(Object.assign({}, DEFAULT_LG_PREFS));
-  applyLGParams();
-  bindLGControls(true);
-  toast('已恢复默认参数');
-}
-
-function bindLGControls(silent) {
-  const p = loadLGPrefs();
-  const map = [
-    ['lg-radius', 'radius', (v, el) => {
-      const label = $(el.id + '-val'); if (label) label.textContent = v + 'px';
-      return Number(v);
-    }],
-    ['lg-frost', 'frost', (v, el) => {
-      const label = $(el.id + '-val'); if (label) label.textContent = v + 'px';
-      return Number(v);
-    }],
-    ['lg-tint-color', 'tintColor', (v, el) => {
-      const label = $(el.id + '-val'); if (label) label.textContent = v;
-      return v;
-    }],
-    ['lg-tint-opacity', 'tintOpacity', (v, el) => {
-      const label = $(el.id + '-val'); if (label) label.textContent = v + '%';
-      return Number(v);
-    }],
-    ['lg-inner-color', 'innerColor', (v, el) => {
-      const label = $(el.id + '-val'); if (label) label.textContent = v;
-      return v;
-    }],
-    ['lg-inner-blur', 'innerBlur', (v, el) => {
-      const label = $(el.id + '-val'); if (label) label.textContent = v + 'px';
-      return Number(v);
-    }],
-    ['lg-inner-spread', 'innerSpread', (v, el) => {
-      const label = $(el.id + '-val'); if (label) label.textContent = v + 'px';
-      return Number(v);
-    }],
-    ['lg-accent', 'accentHue', (v, el) => {
-      const label = $(el.id + '-val'); if (label) label.textContent = v + '°';
-      return Number(v);
-    }],
-  ];
-  map.forEach(([id, key, parse]) => {
-    const el = $(id);
-    if (!el || el.dataset.lgBound) {
-      /* 已绑定也要同步当前值（恢复默认时刷新控件） */
-      if (silent && el) {
-        const cur = loadLGPrefs();
-        if (key === 'accentHue') el.value = cur[key];
-        else el.value = cur[key];
-        const label = $(id + '-val');
-        if (label) {
-          if (key === 'radius' || key === 'frost' || key === 'innerBlur' || key === 'innerSpread') label.textContent = cur[key] + 'px';
-          else if (key === 'tintOpacity') label.textContent = cur[key] + '%';
-          else if (key === 'accentHue') label.textContent = cur[key] + '°';
-          else label.textContent = cur[key];
-        }
-      }
-      return;
-    }
-    el.dataset.lgBound = '1';
-    /* 用当前保存值初始化控件 */
-    el.value = p[key];
-    const initLabel = $(id + '-val');
-    if (initLabel) {
-      if (key === 'radius' || key === 'frost' || key === 'innerBlur' || key === 'innerSpread') initLabel.textContent = p[key] + 'px';
-      else if (key === 'tintOpacity') initLabel.textContent = p[key] + '%';
-      else if (key === 'accentHue') initLabel.textContent = p[key] + '°';
-      else initLabel.textContent = p[key];
-    }
-    const handler = () => {
-      const cur = loadLGPrefs();
-      cur[key] = parse(el.value, el);
-      saveLGPrefs(cur);
-      applyLGParams(cur);
-    };
-    el.addEventListener('input', handler);
-    el.addEventListener('change', handler);
-  });
-}
-
-function initLGControls() {
-  applyLGParams();
-  bindLGControls(false);
 }
 
 /* ============ 首页公告（新）============ */
@@ -2795,7 +2659,7 @@ function setCustomBackground(mode) {
   applyBackgroundPreview();
 }
 function applyBackgroundPreview() {
-  /* 一次性迁移：老版本没背景时自动切到色块底（液态玻璃才看得出效果） */
+  /* 一次性迁移：老版本没背景时自动切到色块底 */
   if (localStorage.getItem('blfp_bg_v') !== '2') {
     localStorage.setItem('blfp_bg_v', '2');
     if (!localStorage.getItem('blfp_bg_mode') || localStorage.getItem('blfp_bg_mode') === 'default') {
@@ -2817,7 +2681,7 @@ function applyBackgroundPreview() {
     document.body.prepend(bgEl);
   }
   if (mode === 'blocks') {
-    /* 多彩色块背景：大量光斑铺满，为液态玻璃提供可折射的彩色底 */
+    /* 多彩色块背景 */
     bgEl.style.background = '#080a14';
     bgEl.innerHTML = '';
     const palette = [

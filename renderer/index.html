@@ -6,12 +6,6 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src *; img-src 'self' data:;">
   <title>BLFP 联机助手</title>
   <link rel="stylesheet" href="style.css">
-  <style id="glass-style" disabled>
-    html.native-glass-ready .sidebar { background: transparent !important; border: none !important; }
-    html.native-glass-ready #main-app { background: transparent; }
-    html.native-glass-ready .content { margin-left: 0; }
-    html.native-glass-ready .sidebar-glass { display: none; }
-  </style>
 </head>
 <body>
 
@@ -33,7 +27,7 @@
 
 <!-- ====== 登录页 ====== -->
 <div class="auth-wrap" id="auth-page">
-  <div class="auth-box liquid-glass">
+  <div class="auth-box">
     <div class="logo-wrap">
       <img class="logo-img" src="BLFP-Logo.svg" alt="BLFP" draggable="false">
       <h1>BLFP</h1>
@@ -107,7 +101,6 @@
 <div id="main-app" class="hidden">
   <!-- 侧边栏 -->
   <aside class="sidebar" id="app-sidebar">
-    <div class="sidebar-glass liquid-glass" id="sidebar-glass-effect"></div>
     <div class="sidebar-logo">
       <img class="logo-img" src="BLFP-Logo.svg" alt="BLFP" draggable="false">
       <span class="logo-label">BLFP</span>
@@ -180,7 +173,7 @@
     <div id="page-host" class="page">
       <h1 class="page-title">创建房间</h1>
 
-      <div class="card glass-card" id="host-setup">
+      <div class="card" id="host-setup">
         <h2>连接模式</h2>
         <div class="mode-select">
           <div class="mode-card active" id="mode-easytier" onclick="selectMode('easytier')">
@@ -254,7 +247,7 @@
     <!-- 好友 -->
     <div id="page-friends" class="page">
       <h1 class="page-title">好友</h1>
-      <div class="card glass-card">
+      <div class="card">
         <div class="search-row" style="display:flex;gap:10px;align-items:stretch;margin:12px 0 18px">
           <input id="friend-search" type="text" placeholder="输入用户名搜索" style="flex:1" onkeydown="if(event.key==='Enter')searchFriends()">
           <button class="btn btn-primary btn-sm" onclick="searchFriends()">搜索</button>
@@ -283,7 +276,7 @@
     <!-- 聊天室 -->
     <div id="page-chat" class="page">
       <h1 class="page-title">聊天室</h1> 
-      <div class="card glass-card" style="padding:0">
+      <div class="card" style="padding:0">
         <div class="chat-container">
           <div class="chat-messages" id="chat-messages">
             <div class="chat-msg system"><div class="chat-msg-text">连接中，请稍候...</div></div>
@@ -308,7 +301,7 @@
         <button class="btn btn-outline btn-sm" style="margin-left:auto;flex-shrink:0" onclick="navToSettingsFromUser()">前往设置</button>
       </div>
 
-      <div class="card glass-card">
+      <div class="card">
         <h2>账户信息</h2>
         <div class="app-info-row"><span>用户名</span><strong id="us-info-name">-</strong></div>
         <div class="app-info-row"><span>头衔</span><strong id="us-info-role">-</strong></div>
@@ -317,19 +310,19 @@
         <div class="app-info-row"><span>服务器</span><strong id="us-info-server">-</strong></div>
       </div>
 
-      <div class="card glass-card announcement-admin-section hidden">
+      <div class="card announcement-admin-section hidden">
         <h2>公告管理</h2>
         <div class="form-group"><label>公告标题</label><input id="admin-ann-title" type="text" class="ann-input" placeholder="公告标题"></div>
         <div class="form-group"><label>公告内容</label><textarea id="admin-ann-content" class="ann-input" rows="3" placeholder="公告内容"></textarea></div>
         <button class="btn btn-primary btn-glow" onclick="publishAnnouncement()">发布公告</button>
       </div>
 
-      <div class="card glass-card">
+      <div class="card">
         <h2>外观</h2>
         <div class="form-group"><label>主题</label><div class="theme-toggle-row"><button id="theme-dark" class="theme-btn active" onclick="setTheme('dark')">深色</button><button id="theme-light" class="theme-btn" onclick="setTheme('light')">浅色</button></div></div>
       </div>
 
-      <div class="card glass-card">
+      <div class="card">
         <h2>账户</h2>
         <div class="settings-row">
           <div><div class="settings-label">退出登录</div><div class="settings-desc">退出后需重新登录</div></div>
@@ -342,34 +335,20 @@
     <div id="page-settings" class="page">
       <h1 class="page-title">设置</h1>
 
-      <div class="card glass-card">
-        <h2>Liquid Glass 参数</h2>
-        <p style="color:var(--text2);font-size:.82rem;margin-bottom:14px">对应 liquid-glass.pro 全部参数，拖动实时生效</p>
-        <div class="lg-param-grid">
-          <div class="lg-param"><label>圆角</label><input type="range" id="lg-radius" min="0" max="48" value="28"><span class="value-display" id="lg-radius-val">28px</span></div>
-          <div class="lg-param"><label>毛玻璃模糊</label><input type="range" id="lg-frost" min="0" max="40" value="0"><span class="value-display" id="lg-frost-val">0px</span></div>
-          <div class="lg-param"><label>玻璃着色</label><input type="color" id="lg-tint-color" value="#ffffff"><span class="value-display" id="lg-tint-color-val">#ffffff</span></div>
-          <div class="lg-param"><label>着色不透明度</label><input type="range" id="lg-tint-opacity" min="0" max="100" value="0"><span class="value-display" id="lg-tint-opacity-val">0%</span></div>
-          <div class="lg-param"><label>内阴影颜色</label><input type="color" id="lg-inner-color" value="#ffffff"><span class="value-display" id="lg-inner-color-val">#ffffff</span></div>
-          <div class="lg-param"><label>内阴影模糊</label><input type="range" id="lg-inner-blur" min="0" max="60" value="20"><span class="value-display" id="lg-inner-blur-val">20px</span></div>
-          <div class="lg-param"><label>内阴影扩散</label><input type="range" id="lg-inner-spread" min="-30" max="20" value="-5"><span class="value-display" id="lg-inner-spread-val">-5px</span></div>
-          <div class="lg-param"><label>强调光颜色</label><input type="range" id="lg-accent" min="0" max="360" value="222"><span class="value-display" id="lg-accent-val">222°</span></div>
-        </div>
-        <button class="btn btn-outline btn-sm" style="margin-top:14px" onclick="resetLGParams()">恢复默认</button>
-      </div>
 
 
 
 
 
-      <div class="card glass-card">
+
+      <div class="card">
         <h2>外观</h2>
         <div class="form-group"><label>侧边栏模式</label><select id="sidebar-mode" onchange="setSidebarMode(this.value)"><option value="normal">正常（展开）</option><option value="collapsed">收起（仅图标）</option></select></div>
         <div class="form-group"><label>动画性能档位</label><select id="perf-level" onchange="setPerfLevel(this.value)"><option value="high">高（全特效）</option><option value="medium" selected>中（推荐）</option><option value="low">低（省电）</option><option value="off">关闭</option></select></div>
         <div class="form-group"><label class="toggle-label"><span>交互粒子背景</span><label class="switch"><input type="checkbox" id="cursor-trail-toggle" onchange="setCursorTrail(this.checked)"><span class="slider"></span></label></label></div>
       </div>
 
-      <div class="card glass-card">
+      <div class="card">
         <h2>连接</h2>
         <div class="form-group hidden"><input id="s-server" type="hidden" value="http://154.40.43.136:4000"></div>
         <div class="form-group"><label>默认 MC 端口</label><input id="s-mc-port" type="number" value="25565" min="1" max="65535"></div>
@@ -377,7 +356,7 @@
         <button class="btn btn-primary btn-glow" onclick="saveSettings()">保存设置</button>
       </div>
 
-      <div class="card glass-card">
+      <div class="card">
         <h2>个性化</h2>
         <div class="form-group" style="margin-bottom:16px"><label>界面字体</label><select id="font-select" onchange="setFontFamily(this.value)">
           <option value="default">系统默认</option>
@@ -409,29 +388,29 @@
           </select>
           <input id="bg-color-input" type="color" value="#08080f" style="margin-top:8px;width:100%;height:38px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);cursor:pointer;display:none" oninput="applyBackgroundPreview()">
           <input id="bg-image-input" type="text" class="text-input-cond" placeholder="背景图片 URL 或本地路径" style="display:none" oninput="applyBackgroundPreview()">
-          <div id="bg-blocks-hint" style="margin-top:8px;font-size:.78rem;color:var(--text2)">多彩光斑背景，配合液态玻璃卡片效果最佳</div>
+          <div id="bg-blocks-hint" style="margin-top:8px;font-size:.78rem;color:var(--text2)">多彩光斑背景</div>
           <div class="form-group"><label>背景模糊度</label><input type="range" id="bg-blur" min="0" max="30" value="0" oninput="applyBackgroundPreview()"></div>
         </div>
       </div>
 
-      <div class="card glass-card">
+      <div class="card">
         <h2>开发者</h2>
         <div class="form-group"><label class="toggle-label"><span>开发者调试模式（保留完整底层日志）</span><label class="switch"><input type="checkbox" id="debug-mode-toggle" onchange="setDebugMode(this.checked)"><span class="slider"></span></label></label></div>
       </div>
 
-      <div class="card glass-card">
+      <div class="card">
         <h2>EasyTier 节点</h2>
         <div class="form-group"><label>节点选择</label><select id="s-et-node"><option value="auto">自动（选择延迟最低的节点）</option></select><div class="et-node-actions" style="display:flex;align-items:center;gap:10px;margin-top:8px"><button type="button" class="btn btn-outline btn-sm" onclick="testEtNodes()">测速</button><span id="s-et-latency" class="latency-badge hidden"></span></div><div id="s-et-results" class="et-results hidden"></div></div>
       </div>
 
-      <div class="card glass-card">
+      <div class="card">
         <h2>运行日志</h2>
         <div class="log-box" id="log-box"></div>
         <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn btn-outline btn-sm" onclick="clearLog()">清除日志</button></div>
         <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn btn-outline btn-sm" onclick="toggleLiveLog()">📋 实时日志 (PowerShell)</button></div>
       </div>
 
-      <div class="card glass-card">
+      <div class="card">
         <h2>关于</h2>
         <div class="app-info-row"><span>当前版本</span><strong id="app-version">获取中…</strong></div>
         <div class="app-info-row"><span>运行环境</span><span id="app-platform">--</span></div>
@@ -597,7 +576,6 @@
 <div id="s-et-latency" class="hidden"></div>
 <div id="us-logged-in-as" class="hidden"></div>
 
-<script src="lg-components.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
