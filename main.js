@@ -191,10 +191,9 @@ ipcMain.handle('set-custom-titlebar', async (_e, opts) => {
       require('fs').writeFileSync(logPath, 'BLFP 日志\r\n===\r\n');
     }
     if (process.platform === 'win32') {
-      require('child_process').spawn('powershell.exe', [
-        '-NoExit', '-Command',
-        'Write-Host "=== BLFP 日志 (实时) ===" -ForegroundColor Cyan; Get-Content -Path "' + logPath + '" -Tail 100 -Wait'
-      ], { detached: true, stdio: 'ignore' }).unref();
+      // 用 start 命令确保弹出独立 PowerShell 窗口
+      const script = 'Write-Host "=== BLFP 实时日志 ===" -ForegroundColor Cyan; Get-Content -Path "' + logPath.replace(/\//g, '\\\\') + '" -Tail 200 -Wait';
+      require('child_process').exec('start "BLFP 日志" powershell -NoExit -Command "' + script + '"', { windowsHide: false });
     } else if (process.platform === 'darwin') {
       require('child_process').spawn('open', ['-a', 'Terminal', logPath], { detached: true }).unref();
     } else {

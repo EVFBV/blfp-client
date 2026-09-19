@@ -344,7 +344,7 @@ function resolveUserThemeClass(theme, role) {
 }
 
 function applyUserAppearance(user) {
-  const title = user.title || ({ admin: '管理员', sponsor: '赞助用户', user: '普通用户' }[user.role] || '普通用户');
+  const title = user.title || ({ admin: '管理员', dev: '开发者', sponsor: '赞助用户', user: '普通用户' }[user.role] || '普通用户');
   const cls = resolveUserThemeClass(user.theme, user.role);
   $('s-role').textContent = title;
   $('s-role').className = `user-role ${cls}`.trim();
@@ -385,6 +385,7 @@ let currentPage = 'home';
 let navTimer = null;
 let navLock = false;
 function navTo(page, btn) {
+  if (page === 'settings' && window.LGComponents) setTimeout(window.LGComponents.enhance, 80);
   // When navigating to any page other than settings, remove .active from gear-btn
   if (page !== 'settings' && page !== 'user-settings') {
     const gearBtn = $('sidebar-gear-btn');
@@ -2001,7 +2002,7 @@ async function loadAnnouncements() {
     } else if (data && data.content) {
       container.innerHTML = '<div class="announcement-item">' + escapeHtml(data.content) + '</div>';
     } else {
-      container.innerHTML = '';
+      container.innerHTML = '<div class="announcement-item" style="opacity:.7">暂无公告。BLFP 联机助手——与好友畅玩 Minecraft，局域网穿透，零门槛联机。</div>';
     }
   } catch (e) {
     debugLog('首页公告加载失败: ' + e.message);

@@ -391,7 +391,8 @@ body::before {
 }
 
 .sidebar-nav { flex: 1; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
-.sidebar-nav::-webkit-scrollbar { width: 2px; }
+.sidebar-nav::-webkit-scrollbar { width: 0 !important; display: none; }
+.sidebar-nav { scrollbar-width: none; -ms-overflow-style: none; }
 .sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 1px; }
 
 .nav-item {
@@ -1597,14 +1598,23 @@ body.sidebar-collapsed .nav-item.active .nav-icon {
 select, .custom-select {
   appearance: none;
   -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 100%;
+  height: 38px;
+  padding: 0 36px 0 14px;
+  background-color: hsla(220, 20%, 12%, calc(var(--glass-opacity) + 0.15));
   background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8fa8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
   background-size: 14px;
-  padding-right: 36px !important;
+  color: var(--text);
+  font-size: .86rem;
+  font-family: inherit;
+  border: 1px solid rgba(255,255,255, calc(var(--glass-border-opacity) * 1.2));
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--base);
-  border-radius: var(--radius-sm);
+  box-shadow: inset 0 1px 0 rgba(255,255,255, calc(var(--glass-highlight) * 0.2));
 }
 select:hover, .custom-select:hover {
   border-color: hsla(var(--lg-accent-h), 50%, 55%, 0.3);
@@ -1808,4 +1818,28 @@ input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; transform: 
 }
 [data-theme="light"] input[type="range"]::-webkit-slider-thumb {
   background: radial-gradient(circle at 35% 30%, #fff, hsla(var(--lg-accent-h), 55%, 50%, 0.9));
+}
+
+
+/* 个性化：每个子项清晰分隔 */
+#titlebar-mode, #bg-mode { margin-bottom: 4px; }
+.glass-config-item + .form-group,
+.form-group + .form-group { margin-top: 10px; }
+
+/* 好友搜索栏：输入框 + 按钮玻璃化 */
+.search-row input[type="text"] {
+  flex: 1; height: 38px; padding: 0 14px;
+  background: hsla(220, 20%, 12%, calc(var(--glass-opacity) + 0.12));
+  border: 1px solid rgba(255,255,255, calc(var(--glass-border-opacity) * 1.1));
+  border-radius: var(--radius-sm);
+  color: var(--text); font-size: .86rem; font-family: inherit;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  transition: all var(--base);
+}
+.search-row input[type="text"]:focus {
+  border-color: hsla(var(--lg-accent-h), 50%, 55%, 0.4);
+  box-shadow: 0 0 0 3px hsla(var(--lg-accent-h), 50%, 50%, 0.08);
+}
+[data-theme="light"] .search-row input[type="text"] {
+  background: hsla(220, 30%, 96%, 0.8); border-color: rgba(0,0,0,0.1); color: #2a3040;
 }
