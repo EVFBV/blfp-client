@@ -10,7 +10,7 @@
   --base: calc(0.28s * var(--anim-speed));
   --slow: calc(0.5s * var(--anim-speed));
 
-  --glass-blur: 32px;
+  --glass-blur: 32;
   --glass-saturate: 1.6;
   --glass-brightness: 1.1;
   --glass-opacity: 0.72;
@@ -191,15 +191,33 @@ body::before {
   height: 38px; flex: 0 0 38px;
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 12px 0 16px;
-  background: hsla(226, 50%, 5%, 0.85);
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  background: hsla(226, 50%, calc(6% + var(--glass-tint-strength) * 30%), calc(var(--glass-opacity) * 0.85));
+  backdrop-filter: blur(calc(var(--glass-blur) * 1px)) saturate(calc(var(--glass-saturate) * 100%)) brightness(calc(var(--glass-brightness) * 100%));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1px)) saturate(calc(var(--glass-saturate) * 100%)) brightness(calc(var(--glass-brightness) * 100%));
+  border-bottom: 1px solid rgba(var(--glass-glow-color), calc(var(--glass-border-opacity) * 0.5));
   user-select: none;
   -webkit-app-region: drag;
   position: relative; z-index: 50;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
-[data-theme="light"] .window-titlebar { background: #eef0f8; }
+/* 标题栏光散射层 */
+.window-titlebar::before {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 15% 0%, hsla(var(--lg-accent-h), 50%, 60%, calc(var(--glass-scatter) * 0.06)), transparent 55%),
+    radial-gradient(ellipse at 85% 100%, hsla(280, 30%, 50%, calc(var(--glass-scatter) * 0.04)), transparent 50%);
+}
+/* 标题栏底部折射辉光 */
+.window-titlebar::after {
+  content: '';
+  position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, hsla(var(--lg-accent-h), 60%, 55%, calc(var(--glass-refraction) * 0.35)) 30%, hsla(var(--lg-accent-h), 60%, 55%, calc(var(--glass-refraction) * 0.35)) 70%, transparent);
+}
+[data-theme="light"] .window-titlebar {
+  background: hsla(220, 50%, 90%, calc(var(--glass-opacity) * 0.8));
+}
 .titlebar-title { 
   font-size: .78rem; color: var(--text2); letter-spacing: 2px;
   font-weight: 500;
@@ -1294,11 +1312,11 @@ input[type="range"]::-webkit-slider-thumb:active {
 @keyframes trailFade { to { opacity: 0; transform: scale(0.25); } }
 
 body.perf-low .page.active .card { animation-delay: 0s; }
-body.perf-low .liquid-glass { --glass-blur: 20px; }
+body.perf-low .liquid-glass { --glass-blur: 20; }
 body.perf-low .liquid-glass::before { opacity: 0.3; }
 body.perf-off #particle-bg { display: none; }
 body.perf-off .page.active, body.perf-off .page.active .card, body.perf-off .toast, body.perf-off .modal, body.perf-off .modal-backdrop, body.perf-off .cursor-trail { animation: none !important; }
-body.perf-off .liquid-glass { --glass-blur: 16px; --glass-saturate: 1.2; }
+body.perf-off .liquid-glass { --glass-blur: 16; --glass-saturate: 1.2; }
 body.perf-off .liquid-glass::before { opacity: 0.15; }
 body.perf-off *, body.perf-off *::before, body.perf-off *::after { transition: none !important; }
 
@@ -1701,4 +1719,11 @@ select option {
   display: flex; align-items: center; justify-content: center;
   font-size: .78rem; color: var(--text3);
   pointer-events: none; transition: opacity 0.3s;
+}
+
+/* 玻璃辉光大小实际生效 */
+.liquid-glass, .glass-card {
+  box-shadow:
+    0 0 var(--glass-glow-size) 0 rgba(var(--glass-glow-color), 0.18),
+    0 8px 32px rgba(0, 0, 0, var(--glass-shadow-opacity));
 }

@@ -1945,30 +1945,36 @@ function saveGlassPrefs(prefs) {
 
 function applyGlassPrefs(prefs) {
   const p = prefs || loadGlassPrefs();
-  document.documentElement.style.setProperty('--glass-blur', p.blur + 'px');
-  document.documentElement.style.setProperty('--glass-saturate', p.saturate + '%');
-  document.documentElement.style.setProperty('--glass-brightness', p.brightness + '%');
-  document.documentElement.style.setProperty('--glass-opacity', (p.opacity / 100).toString());
-  document.documentElement.style.setProperty('--glass-scatter', p.scatter + '%');
-  document.documentElement.style.setProperty('--glass-refraction', p.refraction + '%');
-  document.documentElement.style.setProperty('--glass-glow-size', p.glow + 'px');
-  document.documentElement.style.setProperty('--glass-glow-spread', (p.glow * 0.6) + 'px');
-  document.documentElement.style.setProperty('--lg-accent-h', p.accentHue.toString());
+  // 注意：CSS 中这些变量用于 calc(var(--x) * 1px / * 100%) 等计算，必须是无单位数值
+  document.documentElement.style.setProperty('--glass-blur', String(p.blur));                    // 8-60 → calc(*1px)
+  document.documentElement.style.setProperty('--glass-saturate', String(p.saturate / 100));      // 160% → 1.6
+  document.documentElement.style.setProperty('--glass-brightness', String(p.brightness / 100));  // 110% → 1.1
+  document.documentElement.style.setProperty('--glass-opacity', String(p.opacity / 100));        // 72% → 0.72
+  document.documentElement.style.setProperty('--glass-scatter', String(p.scatter / 100));        // 60 → 0.6
+  document.documentElement.style.setProperty('--glass-refraction', String(p.refraction / 100));  // 30 → 0.3
+  document.documentElement.style.setProperty('--glass-glow-size', (p.glow * 0.08).toFixed(2) + 'px'); // 50 → 4px
+  document.documentElement.style.setProperty('--glass-glow-spread', (p.glow * 0.05).toFixed(2) + 'px');
+  document.documentElement.style.setProperty('--lg-accent-h', String(p.accentHue));
 }
 
 function initGlassControls() {
   applyGlassPrefs();
-  // Bind sliders if they exist
-  const sliders = ['glass-blur', 'glass-saturate', 'glass-brightness', 'glass-opacity', 'glass-scatter', 'glass-refraction', 'glass-glow', 'glass-accent'];
+  // 滑块 → 显示单位后缀映射
+  const unitMap = {
+    'glass-blur': 'px', 'glass-saturate': '%', 'glass-brightness': '%', 'glass-opacity': '%',
+    'glass-scatter': '%', 'glass-refraction': '%', 'glass-glow': '', 'glass-accent-h': '°'
+  };
+  const sliders = Object.keys(unitMap);
   sliders.forEach((id) => {
     const slider = $(id);
     const display = $(id + '-val');
     if (slider && display) {
+      // 初始化显示值（带单位）
+      display.textContent = slider.value + unitMap[id];
       slider.addEventListener('input', () => {
-        display.textContent = slider.value;
+        display.textContent = slider.value + unitMap[id];
         const prefs = loadGlassPrefs();
-        const key = id.replace('glass-', '');
-        if (id === 'glass-accent') prefs.accentHue = Number(slider.value);
+        if (id === 'glass-accent-h') prefs.accentHue = Number(slider.value);
         else if (id === 'glass-blur') prefs.blur = Number(slider.value);
         else if (id === 'glass-saturate') prefs.saturate = Number(slider.value);
         else if (id === 'glass-brightness') prefs.brightness = Number(slider.value);
