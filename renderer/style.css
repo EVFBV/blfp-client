@@ -372,10 +372,12 @@ body::before {
   position: absolute; inset: -1px;
   z-index: -1;
   pointer-events: none;
-  background: hsla(226, 50%, calc(8% + var(--glass-tint-strength) * 40%), var(--glass-opacity));
+  background:
+    linear-gradient(180deg, rgba(255,255,255,calc(var(--glass-highlight) * 0.10)) 0%, rgba(255,255,255,0) 40%),
+    hsla(226, 60%, calc(12% + var(--glass-tint-strength) * 26%), calc(var(--glass-opacity) * 0.42));
   backdrop-filter: blur(calc(var(--glass-blur) * 1px)) saturate(calc(var(--glass-saturate) * 100%)) brightness(calc(var(--glass-brightness) * 100%));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1px)) saturate(calc(var(--glass-saturate) * 100%)) brightness(calc(var(--glass-brightness) * 100%));
-  border-right: 1px solid rgba(255,255,255, var(--glass-border-opacity));
+  border-right: 1px solid rgba(255,255,255, calc(var(--glass-border-opacity) * 2));
   box-shadow: inset -1px 0 0 hsla(226, 50%, 80%, calc(var(--glass-highlight) * 0.2));
 }
 [data-theme="light"] .sidebar-glass {
@@ -584,13 +586,22 @@ body.sidebar-collapsed .sidebar-gear-btn { margin-left: 0; }
 /* === 玻璃卡片 (Liquid Glass) === */
 .glass-card {
   border-radius: var(--radius-lg);
-  background: hsla(226, 50%, calc(8% + var(--glass-tint-strength) * 40%), var(--glass-opacity));
+  /* 液态玻璃：低不透明度让背后彩色透出，backdrop 负责模糊+增饱和+提亮 */
+  background:
+    linear-gradient(180deg, rgba(255,255,255,calc(var(--glass-highlight) * 0.18)) 0%, rgba(255,255,255,0) 45%),
+    hsla(226, 60%, calc(14% + var(--glass-tint-strength) * 30%), calc(var(--glass-opacity) * 0.30));
   backdrop-filter: blur(calc(var(--glass-blur) * 1px)) saturate(calc(var(--glass-saturate) * 100%)) brightness(calc(var(--glass-brightness) * 100%));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1px)) saturate(calc(var(--glass-saturate) * 100%)) brightness(calc(var(--glass-brightness) * 100%));
-  border: 1px solid rgba(255,255,255,0.06);
-  box-shadow: 
-    inset 0 1px 0 rgba(255,255,255,0.06),
-    0 12px 48px rgba(0,0,0,0.3);
+  /* 亮边（玻璃厚度感）：上/左偏亮，下/右偏暗 */
+  border: 1px solid rgba(255,255,255, calc(var(--glass-border-opacity) * 2.2));
+  border-top-color: rgba(255,255,255, calc(var(--glass-border-opacity) * 3.4));
+  border-left-color: rgba(255,255,255, calc(var(--glass-border-opacity) * 2.8));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255, calc(var(--glass-highlight) * 0.5)),
+    inset 0 -1px 0 rgba(0,0,0,0.18),
+    inset 1px 0 0 rgba(255,255,255, calc(var(--glass-highlight) * 0.22)),
+    0 12px 48px rgba(0,0,0,0.3),
+    0 0 calc(var(--glass-glow-size) * 0.5px) hsla(var(--lg-accent-h), 60%, 60%, calc(var(--glass-glow-size) * 0.004));
   position: relative;
   overflow: hidden;
   transition: all var(--fast);
@@ -601,9 +612,11 @@ body.sidebar-collapsed .sidebar-gear-btn { margin-left: 0; }
   inset: 0;
   pointer-events: none;
   border-radius: inherit;
+  /* 上缘斜向高光 + 底部散射（模拟玻璃反光与折射） */
   background:
-    radial-gradient(ellipse at 25% 20%, hsla(var(--lg-accent-h), 40%, 60%, 0.05), transparent 60%),
-    radial-gradient(ellipse at 75% 80%, hsla(280, 30%, 50%, 0.03), transparent 50%);
+    linear-gradient(115deg, rgba(255,255,255,calc(var(--glass-highlight) * 0.5)) 0%, rgba(255,255,255,0.06) 18%, transparent 34%),
+    radial-gradient(ellipse at 25% 15%, hsla(var(--lg-accent-h), 60%, 70%, calc(var(--glass-refraction) * 0.12)), transparent 62%),
+    radial-gradient(ellipse at 80% 90%, hsla(280, 50%, 60%, calc(var(--glass-scatter) * 0.06)), transparent 55%);
 }
 .glass-card:hover {
   border-color: rgba(255,255,255,0.12);

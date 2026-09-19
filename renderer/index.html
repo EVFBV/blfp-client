@@ -398,12 +398,14 @@
         </div>
         <div class="form-group" style="margin-bottom:16px"><label>背景自定义</label>
           <select id="bg-mode" onchange="setCustomBackground(this.value)">
+            <option value="blocks">色块（多彩光斑）</option>
             <option value="default">默认（动态光晕）</option>
             <option value="color">纯色</option>
             <option value="image">图片</option>
           </select>
           <input id="bg-color-input" type="color" value="#08080f" style="margin-top:8px;width:100%;height:38px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);cursor:pointer;display:none" oninput="applyBackgroundPreview()">
           <input id="bg-image-input" type="text" class="text-input-cond" placeholder="背景图片 URL 或本地路径" style="display:none" oninput="applyBackgroundPreview()">
+          <div id="bg-blocks-hint" style="margin-top:8px;font-size:.78rem;color:var(--text2)">多彩光斑背景，配合液态玻璃卡片效果最佳</div>
           <div class="form-group"><label>背景模糊度</label><input type="range" id="bg-blur" min="0" max="30" value="0" oninput="applyBackgroundPreview()"></div>
         </div>
       </div>

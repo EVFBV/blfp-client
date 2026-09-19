@@ -2553,11 +2553,20 @@ function setCustomBackground(mode) {
   const colorInput = $('bg-color-input');
   const imageInput = $('bg-image-input');
   if (colorInput) colorInput.style.display = mode === 'color' ? 'block' : 'none';
+  const blocksHint = $('bg-blocks-hint');
+  if (blocksHint) blocksHint.style.display = mode === 'blocks' ? 'block' : 'none';
   if (imageInput) imageInput.style.display = mode === 'image' ? 'block' : 'none';
   applyBackgroundPreview();
 }
 function applyBackgroundPreview() {
-  const mode = localStorage.getItem('blfp_bg_mode') || 'default';
+  /* 一次性迁移：老版本没背景时自动切到色块底（液态玻璃才看得出效果） */
+  if (localStorage.getItem('blfp_bg_v') !== '2') {
+    localStorage.setItem('blfp_bg_v', '2');
+    if (!localStorage.getItem('blfp_bg_mode') || localStorage.getItem('blfp_bg_mode') === 'default') {
+      localStorage.setItem('blfp_bg_mode', 'blocks');
+    }
+  }
+  const mode = localStorage.getItem('blfp_bg_mode') || 'blocks';
   const color = $('bg-color-input')?.value || localStorage.getItem('blfp_bg_color') || '#08080f';
   const image = $('bg-image-input')?.value || localStorage.getItem('blfp_bg_image') || '';
   const blur = Number($('bg-blur')?.value ?? localStorage.getItem('blfp_bg_blur') ?? 0);
@@ -2571,7 +2580,42 @@ function applyBackgroundPreview() {
     bgEl.style.cssText = 'position:fixed;inset:0;z-index:0;pointer-events:none;';
     document.body.prepend(bgEl);
   }
-  if (mode === 'color') {
+  if (mode === 'blocks') {
+    /* 多彩色块背景：大量光斑铺满，为液态玻璃提供可折射的彩色底 */
+    bgEl.style.background = '#080a14';
+    bgEl.innerHTML = '';
+    const palette = [
+      'hsla(222, 90%, 62%, .95)', 'hsla(268, 85%, 65%, .9)', 'hsla(320, 80%, 62%, .85)',
+      'hsla(190, 85%, 58%, .9)', 'hsla(160, 75%, 55%, .85)', 'hsla(38, 90%, 60%, .85)',
+      'hsla(12, 85%, 60%, .9)', 'hsla(300, 75%, 60%, .8)', 'hsla(240, 80%, 68%, .85)',
+      'hsla(175, 80%, 52%, .8)',
+    ];
+    const COLS = 6, ROWS = 5, N = COLS * ROWS;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:absolute;inset:-10%;filter:blur(' + (blur > 0 ? blur : 42) + 'px) saturate(1.25);';
+    for (let i = 0; i < N; i++) {
+      const col = i % COLS, row = Math.floor(i / COLS);
+      /* 用固定伪随机（种子）保证每次渲染布局一致 */
+      const seed = (i * 9301 + 49297) % 233280 / 233280;
+      const seed2 = (i * 4801 + 9973) % 233280 / 233280;
+      const b = document.createElement('span');
+      const size = 26 + seed * 26;                     /* 块大小 % */
+      const x = col * (100 / (COLS - 1)) - 10 + (seed - 0.5) * 14;
+      const y = row * (100 / (ROWS - 1)) - 8 + (seed2 - 0.5) * 14;
+      b.style.cssText =
+        'position:absolute;left:' + x.toFixed(2) + '%;top:' + y.toFixed(2) + '%;' +
+        'width:' + size.toFixed(1) + '%;height:' + (size * (0.7 + seed2 * 0.6)).toFixed(1) + '%;' +
+        'background:' + palette[i % palette.length] + ';' +
+        'border-radius:' + (20 + seed * 40).toFixed(0) + '%;' +
+        'transform:rotate(' + ((seed - 0.5) * 50).toFixed(1) + 'deg);' +
+        'opacity:' + (0.55 + seed2 * 0.4).toFixed(2) + ';' +
+        'mix-blend-mode:screen;';
+      wrap.appendChild(b);
+    }
+    bgEl.appendChild(wrap);
+    bgEl.style.backdropFilter = 'none';
+    bgEl.style.filter = 'none';
+  } else if (mode === 'color') {
     bgEl.style.background = color;
     bgEl.style.backdropFilter = 'none';
     bgEl.innerHTML = '';
