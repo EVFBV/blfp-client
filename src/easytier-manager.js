@@ -306,7 +306,7 @@ class EasyTierManager extends EventEmitter {
     });
   }
 
-  async _startHostProxy(child, generation, virtualIp, mcPort, timeout = 30000) {
+  async _startHostProxy(child, generation, virtualIp, mcPort, timeout = 60000) {
     const deadline = Date.now() + timeout;
     let proxyPort = HOST_PORT;
     while (Date.now() < deadline) {
@@ -324,17 +324,23 @@ class EasyTierManager extends EventEmitter {
         this._log(`TCP 代理已监听 ${virtualIp}:${proxyPort} -> 127.0.0.1:${mcPort}`);
         return;
       } catch (error) {
-        if (!['EADDRNOTAVAIL', 'EADDRINUSE'].includes(error.code)) throw error;
+        if (!['EADDRNOTAVAIL', 'EADDRINUSE', 'EACCES'].includes(error.code)) throw error;
         if (error.code === 'EADDRINUSE' && proxyPort === HOST_PORT) {
           // 端口冲突：切换到随机空闲端口
           proxyPort = await this._findFreeTcpPort();
           this._log(`端口 ${HOST_PORT} 被占用，切换到代理端口 ${proxyPort}`);
           continue;
         }
+        if (error.code === 'EACCES') {
+          /* Windows：虚拟网卡刚创建时绑定虚拟 IP 会报 EACCES（对应 Linux 的 EADDRNOTAVAIL），等待重试 */
+          this._log('虚拟网卡尚未就绪（EACCES），等待就绪后重试...');
+          await this._delay(800);
+          continue;
+        }
         await this._delay(500);
       }
     }
-    throw new Error(`等待虚拟 IP ${virtualIp} 可绑定超时`);
+    throw new Error(`等待虚拟 IP ${virtualIp} 可绑定超时。请依次检查：1) 是否以管理员身份运行（虚拟网卡需要权限） 2) Windows 防火墙/杀软是否拦截 3) 端口 25565 是否被系统保留（管理员运行: netsh int ipv4 show excludedportrange protocol=tcp）`);
   }
 
   _probeTcp(host, port, timeout = 800) {
