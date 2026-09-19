@@ -16,7 +16,7 @@
     "appId": "com.blfp.uninstaller",
     "productName": "BLFP-Uninstall",
     "directories": {
-      "output": "out_v2.2.4"
+      "output": "out_v2.3.0-pre"
     },
     "files": [
       "main.js",

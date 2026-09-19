@@ -27,16 +27,33 @@ jobs:
         shell: bash
         run: echo "v=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
-      - name: Install & build client
+      - name: Install dependencies
         run: |
           npm ci
-          npm run dist -- --publish never
+          cd uninstaller && npm ci && cd ..
+          cd installer && npm ci && cd ..
 
-      - name: Install & build installer
+      - name: Build uninstaller
+        run: cd uninstaller && npm run dist -- --publish never
+
+      - name: Build client directory
+        run: npm run dist -- --publish never
+
+      - name: Assemble payload
+        shell: powershell
         run: |
-          cd installer
-          npm ci
-          npm run dist -- --publish never
+          $ver = "${{ steps.ver.outputs.v }}"
+          $clientOutput = Join-Path "build_v$ver" "win-unpacked"
+          $payloadDir = Join-Path "installer" "payload"
+          if (Test-Path $payloadDir) { Remove-Item -Recurse -Force $payloadDir }
+          New-Item -ItemType Directory -Path $payloadDir -Force | Out-Null
+          Compress-Archive -Path "$clientOutput/*" -DestinationPath (Join-Path $payloadDir "payload.zip") -Force
+          $uninstallerExe = Join-Path (Join-Path "uninstaller" "out_v$ver") "BLFP-Uninstall.exe"
+          Copy-Item -Path $uninstallerExe -Destination (Join-Path $payloadDir "BLFP-Uninstaller.exe") -Force
+          Write-Host "Payload files: $(Get-ChildItem $payloadDir -Name | Measure-Object).Count"
+
+      - name: Build installer
+        run: cd installer && npm run dist -- --publish never
 
       - name: Upload release
         uses: softprops/action-gh-release@v2
