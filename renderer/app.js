@@ -1333,9 +1333,7 @@ function confirmJoinRoom() {
     return;
   }
   closeModal('join-room-modal');
-  // Navigate to the original join functionality
-  navTo('host');
-  // Use the quick join approach
+  // 直接设置兼容输入框并加入（不再跳页）
   const originalInput = $('room-input');
   if (originalInput) originalInput.value = code;
   joinRoom();
@@ -2373,13 +2371,7 @@ function sendChatMessage() {
     userId: state.user ? state.user.id : 0,
   };
   try { sock.send(JSON.stringify(chatPayload)); } catch (e) { toast('发送失败：' + e.message, 'error'); return; }
-  // Render own message immediately
-  renderChatMessage({
-    text: text,
-    username: state.user ? state.user.username : 'Unknown',
-    userId: state.user ? state.user.id : 0,
-    local: true,
-  });
+  /* 不再本地立即渲染——服务端会广播回自己的消息，本地渲染会导致显示两条 */
   input.value = '';
 }
 
