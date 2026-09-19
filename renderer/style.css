@@ -1727,3 +1727,30 @@ select option {
     0 0 var(--glass-glow-size) 0 rgba(var(--glass-glow-color), 0.18),
     0 8px 32px rgba(0, 0, 0, var(--glass-shadow-opacity));
 }
+
+/* ============================================================
+ * 真液态玻璃折射（liunian.js.org 移植）
+ * backdrop-filter: url(#lg-refract-filter) = SVG 滤镜链
+ * （折射位移 + 增饱和 + 镜面高光）
+ * ============================================================ */
+.lg-refract {
+  backdrop-filter: url(#lg-refract-filter);
+  -webkit-backdrop-filter: url(#lg-refract-filter);
+  /* 模板式边缘光照阴影 */
+  box-shadow:
+    0 4px 22px rgba(0, 0, 0, 0.12),
+    inset 2px 7px 24px rgba(0, 0, 0, 0.09),
+    inset -2px -7px 24px rgba(255, 255, 255, 0.09);
+}
+/* 性能档位：中档以下回退普通玻璃 */
+body.perf-low .lg-refract,
+body.perf-off .lg-refract {
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.5px)) saturate(calc(var(--glass-saturate) * 100%));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.5px)) saturate(calc(var(--glass-saturate) * 100%));
+}
+[data-theme="light"] .lg-refract {
+  box-shadow:
+    0 4px 22px rgba(0, 0, 0, 0.08),
+    inset 2px 7px 24px rgba(255, 255, 255, 0.5),
+    inset -2px -7px 24px rgba(255, 255, 255, 0.35);
+}
