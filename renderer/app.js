@@ -2281,19 +2281,42 @@ function connectChatSocket() {
     const wsProtocol = serverUrl.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = wsProtocol + '//' + serverUrl.host + '/ws?token=' + encodeURIComponent(state.token);
     try { if (state.chatWs) { state.chatWs.onclose = null; state.chatWs.close(); } } catch (e) {}
-    state.chatWs = new WebSocket(wsUrl);
-    state.chatWs.onopen = () => resolve();
-    state.chatWs.onerror = () => reject(new Error('无法连接聊天服务器'));
-    state.chatWs.onclose = () => {
+    const sock = new WebSocket(wsUrl);
+    state.chatWs = sock;
+    let settled = false;
+    /* 握手成功不代表鉴权通过——必须等服务端 ready 帧；
+       若 3 秒内没收到（老版本服务端不发 ready），按可用处理 */
+    const readyTimer = setTimeout(() => {
+      if (!settled && sock.readyState === WebSocket.OPEN) { settled = true; resolve(); }
+    }, 3000);
+    sock.onopen = () => { /* 等 ready 帧 */ };
+    sock.onerror = () => {
+      if (settled) return;
+      settled = true; clearTimeout(readyTimer);
+      reject(new Error('无法连接聊天服务器'));
+    };
+    sock.onclose = (ev) => {
       state.chatWs = null;
+      if (!settled) { settled = true; clearTimeout(readyTimer); reject(new Error('聊天服务器拒绝连接（' + (ev.code || '?') + '）')); }
       if (currentPage === 'chat') {
         if (chatReconnectTimer) clearTimeout(chatReconnectTimer);
         chatReconnectTimer = setTimeout(() => { if (currentPage === 'chat') ensureChatConnection(); }, 3000);
       }
     };
-    state.chatWs.onmessage = (ev) => {
+    sock.onmessage = (ev) => {
       let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
-      if (msg && msg.type === 'chat') renderChatMessage(msg);
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'ready') {
+        if (!settled) { settled = true; clearTimeout(readyTimer); resolve(); }
+        return;
+      }
+      if (msg.type === 'error') {
+        logLine('聊天服务器: ' + (msg.error || '未知错误'));
+        if (!settled) { settled = true; clearTimeout(readyTimer); reject(new Error(msg.error || '聊天服务器拒绝连接')); }
+        else if (msg.error) toast(msg.error, 'warn');
+        return;
+      }
+      if (msg.type === 'chat') renderChatMessage(msg);
     };
   });
 }
@@ -2311,7 +2334,7 @@ function ensureChatConnection() {
       messages.appendChild(sys);
     }
   }).catch((e) => {
-    /* 聊天服务器不可用 → 回退主服务器（两者都带聊天能力） */
+    /* 聊天服务器不可用 / 鉴权失败 → 回退主服务器（两者都带聊天能力） */
     if (state.chatServer !== state.server) {
       logLine('聊天服务器连接失败，回退主服务器：' + e.message);
       state.chatServer = state.server;
