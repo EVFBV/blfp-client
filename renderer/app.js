@@ -2578,24 +2578,6 @@ async function publishAnnouncement() {
   }
 }
 
-/* ====== 聊天室信令服务器说明 ====== */
-function showChatServerHelp() {
-  showModal('chat-help-modal', `
-    <h3>聊天室 — 信令服务器说明</h3>
-    <p style="color:var(--text2);font-size:.84rem;line-height:1.8;margin:10px 0">
-      聊天室基于 BLFP 官方信令服务器（与联机房间同一信令通道）：
-    </p>
-    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:12px 14px;font-family:monospace;font-size:.78rem;color:var(--accent2);margin:10px 0">
-      wss://${location.hostname || 'p.blfp.cn'}/signal
-    </div>
-    <p style="color:var(--text2);font-size:.84rem;line-height:1.8">
-      • 登录后自动连接，无需手动配置<br>
-      • 自建服务器：修改 <code style="color:var(--accent2)">server/signaling.js</code> 中的 WebSocket 端口后，在客户端设置中将服务器地址改为你的域名<br>
-      • 服务器源码位于 <code style="color:var(--accent2)">server/</code> 目录（Node.js + ws），运行 <code style="color:var(--accent2)">node server.js</code> 即可启动
-    </p>
-    <div class="modal-actions"><button class="btn btn-outline btn-sm" onclick="closeModal('chat-help-modal')">知道了</button></div>
-  `);
-}
 
 /* ====== 用户页设置归类（部分设置移到主设置页提示） ====== */
 function categorizeUserSettings() {
