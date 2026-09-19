@@ -1,5 +1,5 @@
 /* ============ 全局状态 ============ */
-const DEFAULT_SERVER = 'http://154.40.43.136:4001';
+const DEFAULT_SERVER = 'http://154.40.43.136:4000';
 const GITHUB_REPO_URL = 'https://github.com/EVFBV/BLFP-client';
 const state = {
   server: DEFAULT_SERVER,

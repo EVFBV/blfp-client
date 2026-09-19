@@ -35,7 +35,7 @@ function createWindow() {
     minHeight: 600,
     title: 'BLFP 联机助手',
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#050505', symbolColor: '#ffffff', height: 36 },
+    /* 不使用系统 titleBarOverlay——否则会和 HTML 自定义标题栏叠成两条 */
     show: false,
     backgroundColor: '#0f1117',
     webPreferences: {
@@ -160,12 +160,24 @@ ipcMain.handle('check-github-update', async () => {
 // ====== IPC: 本机局域网 IP ======
 ipcMain.handle('get-lan-ip', async () => getLanIp());
 
+// ====== IPC: 自定义标题栏窗口控制 ======
+ipcMain.handle('window-minimize', () => { if (mainWindow) mainWindow.minimize(); return { ok: true }; });
+ipcMain.handle('window-maximize', () => {
+  if (!mainWindow) return { ok: false };
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
+  return { ok: true, maximized: mainWindow.isMaximized() };
+});
+ipcMain.handle('window-is-maximized', () => (mainWindow ? mainWindow.isMaximized() : false));
+ipcMain.handle('window-close', () => { if (mainWindow) mainWindow.close(); return { ok: true }; });
+
 // ====== IPC: 窗口三按钮跟随主题（任务1）======
 // titleBarOverlay 颜色只能在主进程实时改，渲染进程切换主题时通过这里同步
 ipcMain.handle('set-titlebar-overlay', async (_e, theme) => {
   if (!mainWindow) return { ok: false };
   const light = theme === 'light';
   try {
+    if (typeof mainWindow.setTitleBarOverlay !== 'function') return { ok: false };
     mainWindow.setTitleBarOverlay({
       color: light ? '#f3f4f6' : '#000000',
       symbolColor: light ? '#17181c' : '#ffffff',

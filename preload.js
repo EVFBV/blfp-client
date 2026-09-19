@@ -16,6 +16,12 @@ contextBridge.exposeInMainWorld('mclink', {
   // 窗口三按钮跟随主题
   setTitlebarOverlay: (theme) => ipcRenderer.invoke('set-titlebar-overlay', theme),
 
+  // 自定义标题栏窗口控制
+  minimize: () => ipcRenderer.invoke('window-minimize'),
+  maximize: () => ipcRenderer.invoke('window-maximize'),
+  close: () => ipcRenderer.invoke('window-close'),
+  isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
+
   // 退出软件
   exitApp: () => ipcRenderer.invoke('exit-app'),
 
