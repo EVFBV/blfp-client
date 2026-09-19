@@ -27,6 +27,14 @@ jobs:
         shell: bash
         run: echo "v=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
+      - name: Write build info
+        shell: bash
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
+          printf 'window.__BLFP_BUILD__ = { sha: "%s", builtAt: "%s" };\n' "$SHA" "$DATE" > renderer/build-info.js
+          cat renderer/build-info.js
+
       - name: Install dependencies
         run: |
           npm ci

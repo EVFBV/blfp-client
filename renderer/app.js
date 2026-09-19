@@ -640,13 +640,24 @@ function parsePeerTarget(peer) {
   } catch { return null; }
 }
 
+let lastPingError = '';
 async function pingPeerUrl(peer) {
   const target = parsePeerTarget(peer);
-  if (!target || !window.mclink || !window.mclink.pingNode) return null;
+  if (!target || !window.mclink || !window.mclink.pingNode) {
+    lastPingError = '客户端接口不可用';
+    return null;
+  }
   try {
     const res = await window.mclink.pingNode({ host: target.host, port: target.port });
-    return res && res.ok ? Number(res.latency) : null;
-  } catch { return null; }
+    if (res && res.ok) { lastPingError = ''; return Number(res.latency); }
+    lastPingError = (res && res.error) || '未知错误';
+    logLine('测速失败 ' + target.host + ':' + target.port + ' → ' + lastPingError);
+    return null;
+  } catch (e) {
+    lastPingError = e.message || '调用失败';
+    logLine('测速异常 ' + target.host + ':' + target.port + ' → ' + lastPingError);
+    return null;
+  }
 }
 
 async function loadEtNodes(options = {}) {
@@ -689,7 +700,7 @@ async function testEtNodes() {
   rows.sort((a, b) => (a.latency ?? Infinity) - (b.latency ?? Infinity));
   if (results) {
     results.innerHTML = rows.map((r) => {
-      const text = r.latency === null ? '不可达' : `${r.latency} ms`;
+      const text = r.latency === null ? ('不可达 ' + (lastPingError || '')) : `${r.latency} ms`;
       const cls = r.latency === null ? 'et-node-bad' : 'et-node-good';
       return `<div class="et-result-row"><span>${escapeHtml(r.node.name)}</span><span class="${cls}">${text}</span></div>`;
     }).join('');

@@ -273,16 +273,16 @@ ipcMain.handle('ping-node', async (_e, { host, port }) => {
     const start = Date.now();
     const socket = new net.Socket();
     let done = false;
-    const finish = (ok) => {
+    const finish = (ok, error) => {
       if (done) return;
       done = true;
       try { socket.destroy(); } catch {}
-      resolve(ok ? { ok: true, latency: Date.now() - start } : { ok: false });
+      resolve(ok ? { ok: true, latency: Date.now() - start } : { ok: false, error: error || 'UNKNOWN' });
     };
-    socket.setTimeout(3000);
+    socket.setTimeout(5000);
     socket.once('connect', () => finish(true));
-    socket.once('timeout', () => finish(false));
-    socket.once('error', () => finish(false));
+    socket.once('timeout', () => finish(false, 'ETIMEDOUT'));
+    socket.once('error', (err) => finish(false, (err && (err.code || err.message)) || 'ERROR'));
     try { socket.connect(port || 7000, host); } catch { finish(false); }
   });
 });
