@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test src/*.test.js",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "build:payload": "node scripts/build-payload.js"
   },
   "author": "xingyub <160427359@qq.com>",
   "license": "MIT",
