@@ -489,6 +489,7 @@ body.sidebar-collapsed .sidebar-gear-btn { margin-left: 0; }
 .page.leave-to-right { animation: pageOutRight calc(0.25s * var(--anim-speed)) ease-in forwards; }
 .page-title { font-size: 1.3rem; margin-bottom: 20px; font-weight: 650; letter-spacing: -.3px; }
 .page-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.page-head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 .card {
   background: rgba(12, 13, 24, 0.5);
