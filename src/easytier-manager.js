@@ -135,7 +135,10 @@ class EasyTierManager extends EventEmitter {
       this._attachProcess(child, generation, networkSecret);
 
       await this._waitForPeerReady(child, generation, cliPath, rpcPortal);
-      if (mode === 'host') await this._startHostProxy(child, generation, proxyIp, mcPort);
+      if (mode === 'host') {
+        await this._waitForVirtualIp(proxyIp, 20000);
+        await this._startHostProxy(child, generation, proxyIp, mcPort);
+      }
 
       if (this._generation !== generation || this._proc !== child || !this._isChildAlive(child)) {
         throw new Error('EasyTier 进程在启动期间退出');
@@ -351,6 +354,40 @@ class EasyTierManager extends EventEmitter {
     } catch (fallbackError) {
       throw new Error('等待虚拟 IP ' + virtualIp + ' 可绑定超时。请依次检查：1) 是否以管理员身份运行（虚拟网卡需要权限） 2) Windows 防火墙/杀软是否拦截 3) 端口 25565 是否被系统保留（管理员运行: netsh int ipv4 show excludedportrange protocol=tcp）');
     }
+  }
+
+  /* 列出本机所有 IPv4 地址（诊断虚拟网卡是否创建成功） */
+  _listLocalIpv4() {
+    try {
+      const os = require('os');
+      const out = [];
+      const ifaces = os.networkInterfaces();
+      Object.keys(ifaces).forEach((name) => {
+        (ifaces[name] || []).forEach((info) => {
+          if (info && (info.family === 'IPv4' || info.family === 4) && info.address) {
+            out.push({ name, address: info.address });
+          }
+        });
+      });
+      return out;
+    } catch (e) { return []; }
+  }
+
+  /* 等待虚拟 IP 出现在本机网卡上（EasyTier 创建 TUN 成功后才会出现） */
+  async _waitForVirtualIp(virtualIp, timeout = 20000) {
+    const deadline = Date.now() + timeout;
+    let last = [];
+    while (Date.now() < deadline) {
+      last = this._listLocalIpv4();
+      if (last.some((item) => item.address === virtualIp)) {
+        this._log('虚拟网卡已就绪: ' + virtualIp + '（接口 ' + last.find((i) => i.address === virtualIp).name + '）');
+        return true;
+      }
+      await this._delay(500);
+    }
+    this._log('警告：虚拟 IP ' + virtualIp + ' 未出现在本机网卡上。当前 IPv4: ' + (last.map((i) => i.address).join(', ') || '无'));
+    this._log('这通常表示 EasyTier 的虚拟网卡(TUN/wintun)创建失败，请检查上方 [EasyTier] 日志中的驱动相关报错');
+    return false;
   }
 
   _probeTcp(host, port, timeout = 800) {
