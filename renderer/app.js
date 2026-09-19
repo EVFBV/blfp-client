@@ -280,6 +280,7 @@ async function doRegister() {
   if (!username || !password) return showAuthErr('请输入用户名和密码');
   if (!email) return showAuthErr('请填写邮箱');
   if (!code) return showAuthErr('请填写邮箱验证码');
+  if (!requireGeetest()) return showAuthErr('请先完成人机验证');
 
   try {
     await api('/auth/register', { method: 'POST', body: JSON.stringify({ username, email, code, password }) });
@@ -390,6 +391,11 @@ function navTo(page, btn) {
     if (gearBtn) gearBtn.classList.remove('active');
   }
   if (page === currentPage) {
+    // 重复点当前选项卡 → 回主页（设置/用户页除外）
+    if (page !== 'home' && page !== 'settings' && page !== 'user-settings') {
+      navTo('home');
+      return;
+    }
     document.querySelectorAll('.nav-item').forEach((n) => n.classList.toggle('active', n === (btn || document.querySelector(`.nav-item[data-page="${page}"]`))));
     return;
   }
@@ -1094,6 +1100,81 @@ function selectStartMode(mode) {
   const frp = $('start-mode-frp');
   if (et) et.classList.toggle('active', mode === 'easytier');
   if (frp) frp.classList.toggle('active', mode === 'frp');
+  // frp 模式：伸长展开节点选择；easytier：收起
+  const section = $('frp-node-section');
+  if (section) {
+    if (mode === 'frp') {
+      section.classList.remove('collapsed');
+      loadStartDialogFrpNodes();
+    } else {
+      section.classList.add('collapsed');
+    }
+  }
+}
+
+/* 开始联机弹窗的 frp 节点选择（卡片式） */
+let startDialogNodesLoaded = false;
+async function loadStartDialogFrpNodes(force = false) {
+  const list = $('frp-node-list');
+  const status = $('frp-node-status');
+  if (!list) return;
+  if (startDialogNodesLoaded && !force) return;
+  try {
+    if (status) status.textContent = '加载中...';
+    const result = await api('/nodes');
+    const nodes = Array.isArray(result) ? result : [];
+    state.frpNodes = nodes;
+    if (!nodes.length) {
+      list.innerHTML = '<div class="frp-node-empty">暂无可用节点</div>';
+      if (status) status.textContent = '暂无节点';
+      return;
+    }
+    if (status) status.textContent = nodes.length + ' 个节点可用';
+    // 默认选第一个
+    if (!state.frpNodeId || !nodes.find(n => n.id === state.frpNodeId)) {
+      state.frpNodeId = nodes[0].id;
+    }
+    list.innerHTML = nodes.map((n, i) => `
+      <div class="frp-node-item ${n.id === state.frpNodeId ? 'selected' : ''}" style="animation-delay:${Math.min(i * 0.07, 0.5)}s" onclick="selectStartDialogNode(${n.id})">
+        <div>
+          <div class="frp-node-name">${escapeHtml(n.name)}</div>
+          <div class="frp-node-location">${escapeHtml(n.region || '未知')} · ${escapeHtml(n.bandwidth || '')}</div>
+        </div>
+        <div class="frp-node-latency mid" id="start-node-latency-${n.id}">测速中</div>
+      </div>`).join('');
+    startDialogNodesLoaded = true;
+    // 后台测速（不阻塞）
+    nodes.forEach((n) => {
+      pingStartNode(n).catch(() => {});
+    });
+  } catch (e) {
+    list.innerHTML = '<div class="frp-node-empty">节点获取失败，<a href="#" onclick="loadStartDialogFrpNodes(true);return false" style="color:var(--accent2)">重试</a></div>';
+    if (status) status.textContent = '加载失败';
+  }
+}
+function selectStartDialogNode(id) {
+  state.frpNodeId = id;
+  document.querySelectorAll('.frp-node-item').forEach((el) => {
+    el.classList.toggle('selected', el.onclick.toString().includes(String(id)));
+  });
+  // 更精确的选中态
+  document.querySelectorAll('#frp-node-list .frp-node-item').forEach((el, i) => {
+    if (state.frpNodes[i]) el.classList.toggle('selected', state.frpNodes[i].id === id);
+  });
+}
+async function pingStartNode(node) {
+  const el = $('start-node-latency-' + node.id);
+  if (!el) return;
+  try {
+    const t0 = performance.now();
+    await window.electronAPI.pingNode({ host: node.host || node.addr, port: Number(node.port || 443) });
+    const ms = Math.round(performance.now() - t0);
+    el.textContent = ms + ' ms';
+    el.className = 'frp-node-latency ' + (ms < 80 ? 'good' : ms < 200 ? 'mid' : 'bad');
+  } catch (e) {
+    el.textContent = '超时';
+    el.className = 'frp-node-latency bad';
+  }
 }
 
 function confirmStartHost() {
@@ -1660,18 +1741,26 @@ function disableCursorTrail() {
 let publicRoomsInterval = null;
 function loadPublicRooms(initial = false) {
   if (!state.token) return;
+  // 性能优化：仅在房间列表页可见时轮询，间隔30秒，失败静默（最多提示一次）
+  let pollFailCount = 0;
   const fetchRooms = async () => {
+    // 页面不可见时跳过请求
+    if (document.hidden) return;
+    // 不在房间列表页且非首次时跳过
+    if (!initial && currentPage !== 'rooms') return;
     try {
       const rooms = await api('/rooms/public');
       renderPublicRooms(rooms);
       if (initial) logLine('已加载公开房间列表');
+      pollFailCount = 0;
     } catch (e) {
-      if (initial) logLine('加载公开房间失败: ' + e.message);
+      pollFailCount++;
+      if (initial || pollFailCount === 1) logLine('加载公开房间失败: ' + e.message);
     }
   };
   fetchRooms();
   if (publicRoomsInterval) clearInterval(publicRoomsInterval);
-  publicRoomsInterval = setInterval(fetchRooms, 5000);
+  publicRoomsInterval = setInterval(fetchRooms, 30000);
 }
 function renderPublicRooms(rooms) {
   const list = $('public-rooms');
@@ -1685,8 +1774,10 @@ function renderPublicRooms(rooms) {
     const code = /^\d{6}$/.test(rawCode) ? rawCode : '';
     const total = Number(room.total ?? room.members ?? 1);
     const maxMembers = Number(room.max_members ?? room.maxMembers ?? 8);
+    const motd = String(room.motd || '').trim();
+    const motdHtml = motd ? '<div class="pr-motd"><span class="pr-motd-inner">' + escapeHtml(motd) + '</span></div>' : '';
     return `
-    <div class="public-room" onclick="quickJoinRoom('${code}')">
+    <div class="public-room" onclick="showRoomDetail('${code}')">
       <div class="pr-code">${escapeHtml(code)}</div>
       <div class="pr-info">
         <div class="pr-host">${escapeHtml(room.host || '未知用户')}</div>
@@ -1694,8 +1785,9 @@ function renderPublicRooms(rooms) {
           <span class="tag ${room.mode === 'frp' ? 'tag-frp' : 'tag-p2p'}">${room.mode === 'frp' ? 'frp 中转' : 'EasyTier 智能组网'}</span>
           <span>${total}/${maxMembers} 人在线</span>
         </div>
+        ${motdHtml}
       </div>
-      <div class="pr-join">加入</div>
+      <div class="pr-join" onclick="event.stopPropagation();quickJoinRoom('${code}')">加入</div>
     </div>`;
   }).join('');
 }
@@ -2122,3 +2214,371 @@ function initAuth() {
 document.addEventListener('DOMContentLoaded', () => {
   initAuth();
 });
+
+
+/* ====== 主页欢迎语随时间切换 ====== */
+function updateWelcomeText() {
+  const el = document.querySelector('.home-welcome') || $('home-welcome');
+  if (!el) return;
+  const h = new Date().getHours();
+  let greeting;
+  if (h >= 5 && h < 9) greeting = '早上好';
+  else if (h >= 9 && h < 12) greeting = '上午好';
+  else if (h >= 12 && h < 14) greeting = '中午好';
+  else if (h >= 14 && h < 18) greeting = '下午好';
+  else if (h >= 18 && h < 23) greeting = '晚上好';
+  else greeting = '夜深了';
+  const username = state.user?.username || '';
+  const week = ['日', '一', '二', '三', '四', '五', '六'][new Date().getDay()];
+  const dateStr = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+  el.textContent = username
+    ? greeting + '，' + username + ' · 今天是' + dateStr + ' 星期' + week + '，祝你游玩愉快'
+    : greeting + ' · 今天是' + dateStr + ' 星期' + week;
+}
+// 每 60 秒刷新一次（跨时段自动切换）
+setInterval(updateWelcomeText, 60000);
+
+/* ====== PowerShell 呼出日志 ====== */
+async function openLogInPowerShell() {
+  try {
+    if (window.electronAPI?.openLogExternal) {
+      await window.electronAPI.openLogExternal();
+      toast('已在 PowerShell 中打开日志', 'success');
+    } else {
+      // 回退：复制日志内容
+      const logBox = document.querySelector('.log-box');
+      if (logBox) {
+        const text = logBox.innerText;
+        await navigator.clipboard.writeText(text);
+        toast('已复制日志到剪贴板（当前版本不支持直接呼出 PS）', 'info');
+      }
+    }
+  } catch (e) {
+    toast('打开日志失败: ' + e.message, 'error');
+  }
+}
+
+/* ====== 房间详情（点房间卡片显示详情弹窗） ====== */
+async function showRoomDetail(code) {
+  try {
+    const room = await api('/rooms/public/' + code + '/detail');
+    const statsHtml = `
+      <div class="room-detail-stat">
+        <div class="stat-value ${room.latency < 80 ? 'latency-good' : room.latency < 200 ? 'latency-mid' : 'latency-bad'}">${room.latency ?? '--'} ms</div>
+        <div class="stat-label">节点延迟</div>
+      </div>
+      <div class="room-detail-stat">
+        <div class="stat-value">${room.members?.length ?? 0}/${room.max_members ?? 8}</div>
+        <div class="stat-label">在线人数</div>
+      </div>`;
+    const membersHtml = (room.members || []).map((m) => `
+      <div class="room-detail-member">
+        <span class="fi-avatar" style="width:20px;height:20px;font-size:.6rem">${escapeHtml((m.username || '?')[0].toUpperCase())}</span>
+        <span>${escapeHtml(m.username || '未知')}</span>
+        ${m.title ? '<span class="user-title">' + escapeHtml(m.title) + '</span>' : ''}
+      </div>`).join('');
+    const motdHtml = room.motd
+      ? `<div style="margin-top:10px"><div style="font-size:.78rem;color:var(--text3);margin-bottom:6px">服务器 MOTD（超过3行隐藏）</div><div class="room-detail-motd-full">${escapeHtml(room.motd)}</div></div>`
+      : '';
+    const iconHtml = room.icon
+      ? `<img class="room-detail-server-icon" src="${escapeHtml(room.icon)}" onerror="this.style.display='none'">`
+      : '';
+    showModal('room-detail-modal', `<h3>房间 ${escapeHtml(code)} 详情</h3>` + iconHtml + `<div class="room-detail-grid">` + statsHtml + `</div><div style="font-size:.78rem;color:var(--text3);margin-bottom:6px">在线成员</div><div class="room-detail-members">` + membersHtml + `</div>` + motdHtml + `<div class="modal-actions"><button class="btn btn-outline btn-sm" onclick="closeModal('room-detail-modal')">关闭</button><button class="btn btn-primary btn-sm" onclick="closeModal('room-detail-modal');quickJoinRoom('${code}')">加入房间</button></div>`);
+  } catch (e) {
+    toast('获取房间详情失败: ' + e.message, 'error');
+  }
+}
+
+
+/* ====== Geetest 人机验证 ====== */
+let geetestPassed = false;
+let geetestLoading = false;
+function initGeetest() {
+  const box = $('geetest-captcha-box');
+  if (!box || geetestPassed || geetestLoading) return;
+  geetestLoading = true;
+  box.innerHTML = '<span style="color:var(--accent2)">正在加载验证...</span>';
+  // 尝试从服务器获取 geetest 配置；服务器未配置时使用滑块验证回退
+  api('/auth/captcha-config').then((cfg) => {
+    if (cfg && cfg.gt && cfg.challenge) {
+      initGeetestGT(cfg);
+    } else {
+      fallbackSliderCaptcha(box);
+    }
+  }).catch(() => {
+    fallbackSliderCaptcha(box);
+  });
+}
+function initGeetestGT(cfg) {
+  if (typeof initGeetest === 'function' && window.initGeetest) {
+    window.initGeetest({
+      gt: cfg.gt,
+      challenge: cfg.challenge,
+      offline: !cfg.success,
+      new_captcha: true
+    }, (captchaObj) => {
+      captchaObj.appendTo('#geetest-captcha-box');
+      captchaObj.onSuccess(() => {
+        geetestPassed = true;
+        const result = captchaObj.getValidate();
+        state.geetestValidate = result;
+        toast('验证通过', 'success');
+      });
+      captchaObj.onError(() => {
+        geetestLoading = false;
+        fallbackSliderCaptcha($('geetest-captcha-box'));
+      });
+    });
+  } else {
+    fallbackSliderCaptcha($('geetest-captcha-box'));
+  }
+}
+function fallbackSliderCaptcha(box) {
+  // 极验不可用时的滑块验证回退
+  let dragging = false, startX = 0, currentX = 0;
+  const trackW = () => box.clientWidth - 44;
+  box.innerHTML = '<div class="slider-captcha"><div class="sc-track"><div class="sc-fill"></div><div class="sc-thumb">→</div><span class="sc-hint">按住滑块拖到最右侧</span></div></div>';
+  const track = box.querySelector('.sc-track');
+  const fill = box.querySelector('.sc-fill');
+  const thumb = box.querySelector('.sc-thumb');
+  const hint = box.querySelector('.sc-hint');
+  const onDown = (e) => {
+    dragging = true;
+    startX = (e.touches ? e.touches[0] : e).clientX;
+    e.preventDefault();
+  };
+  const onMove = (e) => {
+    if (!dragging) return;
+    currentX = Math.max(0, Math.min(trackW(), (e.touches ? e.touches[0] : e).clientX - startX));
+    thumb.style.transform = 'translateX(' + currentX + 'px)';
+    fill.style.width = (currentX + 44) + 'px';
+    hint.style.opacity = String(Math.max(0, 1 - currentX / (trackW() / 2)));
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (currentX >= trackW() - 4) {
+      geetestPassed = true;
+      track.style.borderColor = 'var(--success)';
+      thumb.style.background = 'var(--success)';
+      hint.textContent = '验证通过 ✓';
+      hint.style.opacity = '1';
+      hint.style.color = 'var(--success)';
+      state.geetestValidate = { fallback: true };
+    } else {
+      thumb.style.transform = 'translateX(0)';
+      fill.style.width = '44px';
+      hint.style.opacity = '1';
+    }
+  };
+  thumb.addEventListener('mousedown', onDown);
+  thumb.addEventListener('touchstart', onDown, { passive: false });
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('touchmove', onMove, { passive: false });
+  document.addEventListener('mouseup', onUp);
+  document.addEventListener('touchend', onUp);
+  geetestLoading = false;
+}
+function requireGeetest() {
+  if (!geetestPassed) {
+    toast('请先完成人机验证', 'warn');
+    initGeetest();
+    return false;
+  }
+  return true;
+}
+
+/* ====== 个性化：字体/标题栏/背景 ====== */
+function setFontFamily(font) {
+  localStorage.setItem('blfp_font', font);
+  applyFontFamily();
+}
+function applyFontFamily() {
+  const font = localStorage.getItem('blfp_font') || 'default';
+  const stack = font === 'default'
+    ? '"Segoe UI Variable Display", "Inter", "SF Pro Display", "Microsoft YaHei", system-ui, sans-serif'
+    : font + ', "Microsoft YaHei", system-ui, sans-serif';
+  document.body.style.fontFamily = stack;
+  const sel = $('font-select');
+  if (sel) sel.value = font;
+}
+function setCustomTitlebar(mode) {
+  localStorage.setItem('blfp_titlebar_mode', mode);
+  const textInput = $('titlebar-text-input');
+  const imageInput = $('titlebar-image-input');
+  const preview = $('titlebar-preview');
+  if (textInput) textInput.style.display = (mode === 'text' || mode === 'mixed') ? 'block' : 'none';
+  if (imageInput) imageInput.style.display = (mode === 'image' || mode === 'mixed') ? 'block' : 'none';
+  if (preview) preview.style.display = mode === 'default' ? 'none' : 'flex';
+  applyTitlebarPreview();
+}
+function applyTitlebarPreview() {
+  const mode = localStorage.getItem('blfp_titlebar_mode') || 'default';
+  const text = $('titlebar-text-input')?.value || localStorage.getItem('blfp_titlebar_text') || '';
+  const image = $('titlebar-image-input')?.value || localStorage.getItem('blfp_titlebar_image') || '';
+  if (mode === 'text' || mode === 'mixed') localStorage.setItem('blfp_titlebar_text', text);
+  if (mode === 'image' || mode === 'mixed') localStorage.setItem('blfp_titlebar_image', image);
+  // 更新实际标题栏
+  const titleEl = document.querySelector('.titlebar-title');
+  const preview = $('titlebar-preview');
+  if (titleEl) {
+    if (mode === 'text') titleEl.innerHTML = escapeHtml(text || 'BLFP');
+    else if (mode === 'image') titleEl.innerHTML = image ? '<img src="' + escapeHtml(image) + '" style="height:18px;max-width:140px;object-fit:contain;border-radius:3px" onerror="this.outerHTML=\'BLFP\'">' : 'BLFP';
+    else if (mode === 'mixed') titleEl.innerHTML = (image ? '<img src="' + escapeHtml(image) + '" style="height:18px;max-width:120px;object-fit:contain;border-radius:3px;margin-right:8px" onerror="this.remove()">' : '') + escapeHtml(text || 'BLFP');
+    else titleEl.textContent = 'BLFP';
+  }
+  if (preview) {
+    preview.style.alignItems = 'center';
+    preview.style.gap = '8px';
+    preview.innerHTML = titleEl ? titleEl.innerHTML : '';
+  }
+}
+function setCustomBackground(mode) {
+  localStorage.setItem('blfp_bg_mode', mode);
+  const colorInput = $('bg-color-input');
+  const imageInput = $('bg-image-input');
+  if (colorInput) colorInput.style.display = mode === 'color' ? 'block' : 'none';
+  if (imageInput) imageInput.style.display = mode === 'image' ? 'block' : 'none';
+  applyBackgroundPreview();
+}
+function applyBackgroundPreview() {
+  const mode = localStorage.getItem('blfp_bg_mode') || 'default';
+  const color = $('bg-color-input')?.value || localStorage.getItem('blfp_bg_color') || '#08080f';
+  const image = $('bg-image-input')?.value || localStorage.getItem('blfp_bg_image') || '';
+  const blur = Number($('bg-blur')?.value ?? localStorage.getItem('blfp_bg_blur') ?? 0);
+  localStorage.setItem('blfp_bg_color', color);
+  localStorage.setItem('blfp_bg_image', image);
+  localStorage.setItem('blfp_bg_blur', String(blur));
+  let bgEl = $('custom-bg-layer');
+  if (!bgEl) {
+    bgEl = document.createElement('div');
+    bgEl.id = 'custom-bg-layer';
+    bgEl.style.cssText = 'position:fixed;inset:0;z-index:0;pointer-events:none;';
+    document.body.prepend(bgEl);
+  }
+  if (mode === 'color') {
+    bgEl.style.background = color;
+    bgEl.style.backdropFilter = 'none';
+    bgEl.innerHTML = '';
+  } else if (mode === 'image') {
+    bgEl.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = image;
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;' + (blur > 0 ? 'filter:blur(' + blur + 'px);transform:scale(1.1);' : '');
+    img.onerror = () => { bgEl.innerHTML = ''; };
+    bgEl.appendChild(img);
+  } else {
+    bgEl.innerHTML = '';
+    bgEl.style.background = 'transparent';
+  }
+}
+// 启动时恢复个性化设置
+function restorePersonalization() {
+  applyFontFamily();
+  const tbMode = localStorage.getItem('blfp_titlebar_mode');
+  if (tbMode && tbMode !== 'default') {
+    const sel = $('titlebar-mode');
+    if (sel) sel.value = tbMode;
+    setCustomTitlebar(tbMode);
+  }
+  const bgMode = localStorage.getItem('blfp_bg_mode');
+  if (bgMode && bgMode !== 'default') {
+    const sel = $('bg-mode');
+    if (sel) sel.value = bgMode;
+    setCustomBackground(bgMode);
+  }
+  updateWelcomeText();
+}
+document.addEventListener('DOMContentLoaded', () => {
+  restorePersonalization();
+  setTimeout(restorePersonalization, 500); // 主界面显示后再次应用
+});
+
+
+/* ====== 特殊头衔权限控制 ====== */
+const PRIVILEGES = {
+  admin: ['publish_announcement', 'manage_rooms', 'view_logs', 'manage_users', 'manage_nodes', 'ban_user', 'edit_motd', 'server_stats'],
+  dev: ['publish_announcement', 'manage_rooms', 'view_logs', 'server_stats', 'edit_motd'],
+  sponsor: ['custom_title', 'priority_nodes']
+};
+function hasPrivilege(priv) {
+  const role = state.user?.role || state.user?.title;
+  if (!role) return false;
+  return (PRIVILEGES[role] || []).includes(priv);
+}
+function applyPrivilegeUI() {
+  // 根据头衔显示/隐藏管理功能
+  const isAdmin = hasPrivilege('publish_announcement');
+  const annAdmin = document.querySelector('.announcement-admin-section');
+  if (annAdmin) annAdmin.classList.toggle('hidden', !isAdmin);
+  // 主页公告发布按钮（仅 admin/dev 可见）
+  let pubBtn = $('publish-announcement-btn');
+  if (isAdmin && !pubBtn) {
+    const home = $('page-home');
+    if (home) {
+      const div = document.createElement('div');
+      div.className = 'card glass-card announcement-admin-section';
+      div.style.marginTop = '12px';
+      div.innerHTML = '<h2>发布公告</h2><div class="form-group"><label>公告标题</label><input id="admin-ann-title" type="text" placeholder="公告标题"></div><div class="form-group"><label>公告内容</label><textarea id="admin-ann-content" rows="3" placeholder="公告内容" style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:var(--text);font-family:inherit;resize:vertical"></textarea></div><button class="btn btn-primary btn-glow" onclick="publishAnnouncement()">发布公告</button>';
+      const annContainer = $('home-announcements');
+      if (annContainer && annContainer.parentNode) {
+        annContainer.parentNode.insertBefore(div, annContainer.nextSibling);
+      }
+    }
+  } else if (!isAdmin && pubBtn) {
+    pubBtn.closest('.announcement-admin-section')?.remove();
+  }
+}
+async function publishAnnouncement() {
+  const title = $('admin-ann-title')?.value?.trim();
+  const content = $('admin-ann-content')?.value?.trim();
+  if (!title || !content) return toast('请填写公告标题和内容', 'warn');
+  try {
+    await api('/settings/announcement', { method: 'POST', body: JSON.stringify({ title, content }) });
+    toast('公告发布成功', 'success');
+    loadAnnouncements();
+  } catch (e) {
+    toast('公告发布失败: ' + e.message, 'error');
+  }
+}
+
+/* ====== 聊天室信令服务器说明 ====== */
+function showChatServerHelp() {
+  showModal('chat-help-modal', `
+    <h3>聊天室 — 信令服务器说明</h3>
+    <p style="color:var(--text2);font-size:.84rem;line-height:1.8;margin:10px 0">
+      聊天室基于 BLFP 官方信令服务器（与联机房间同一信令通道）：
+    </p>
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:12px 14px;font-family:monospace;font-size:.78rem;color:var(--accent2);margin:10px 0">
+      wss://${location.hostname || 'p.blfp.cn'}/signal
+    </div>
+    <p style="color:var(--text2);font-size:.84rem;line-height:1.8">
+      • 登录后自动连接，无需手动配置<br>
+      • 自建服务器：修改 <code style="color:var(--accent2)">server/signaling.js</code> 中的 WebSocket 端口后，在客户端设置中将服务器地址改为你的域名<br>
+      • 服务器源码位于 <code style="color:var(--accent2)">server/</code> 目录（Node.js + ws），运行 <code style="color:var(--accent2)">node server.js</code> 即可启动
+    </p>
+    <div class="modal-actions"><button class="btn btn-outline btn-sm" onclick="closeModal('chat-help-modal')">知道了</button></div>
+  `);
+}
+
+/* ====== 用户页设置归类（部分设置移到主设置页提示） ====== */
+function categorizeUserSettings() {
+  // 用户页仅保留账户相关；界面类设置已在主设置页
+  const userPage = $('page-user-settings');
+  if (!userPage) return;
+  // 给用户页的界面类设置加提示标记
+  const items = userPage.querySelectorAll('.form-group');
+  items.forEach((item) => {
+    const label = item.querySelector('label');
+    if (label && (label.textContent.includes('主题') || label.textContent.includes('字体') || label.textContent.includes('玻璃'))) {
+      let badge = item.querySelector('.moved-badge');
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'moved-badge';
+        badge.textContent = '已移至主设置页';
+        badge.style.cssText = 'font-size:.66rem;color:var(--text3);margin-left:8px;padding:2px 8px;border-radius:8px;background:rgba(255,255,255,0.04)';
+        label.appendChild(badge);
+      }
+    }
+  });
+}

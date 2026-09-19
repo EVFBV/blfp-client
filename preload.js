@@ -44,4 +44,7 @@ contextBridge.exposeInMainWorld('mclink', {
 
   // 移除监听器
   removeAllListeners: (ch) => ipcRenderer.removeAllListeners(ch),
+  openLogExternal: () => ipcRenderer.invoke('open-log-external'),
+  setCustomTitlebar: (opts) => ipcRenderer.invoke('set-custom-titlebar', opts),
+  setCustomBackground: (opts) => ipcRenderer.invoke('set-custom-background', opts)
 });

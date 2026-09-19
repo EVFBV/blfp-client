@@ -160,7 +160,49 @@ ipcMain.handle('set-titlebar-overlay', async (_e, theme) => {
 });
 
 // ====== IPC: 退出软件（功能5）======
-ipcMain.handle('exit-app', async () => {
+ipcMain.handle('set-custom-titlebar', async (_e, opts) => {
+    // 自定义标题栏：文本 / 图片 / 混合
+    if (!mainWindow) return false;
+    const data = typeof opts === 'string' ? JSON.parse(opts) : (opts || {});
+    mainWindow.webContents.send('titlebar-customized', {
+      text: data.text || '',
+      image: data.image || '',
+      mode: data.mode || 'text'
+    });
+    return true;
+  });
+  ipcMain.handle('set-custom-background', async (_e, opts) => {
+    if (!mainWindow) return false;
+    const data = typeof opts === 'string' ? JSON.parse(opts) : (opts || {});
+    mainWindow.webContents.send('background-customized', {
+      image: data.image || '',
+      color: data.color || '',
+      blur: data.blur ?? 0
+    });
+    return true;
+  });
+  ipcMain.handle('open-log-external', async () => {
+    // 在 PowerShell 中打开日志文件
+    const logPath = require('path').join(process.env.APPDATA || process.env.HOME || '.', 'BLFP', 'logs', 'blfp.log');
+    const fs = require('fs');
+    // 确保日志目录存在
+    require('fs').mkdirSync(require('path').dirname(logPath), { recursive: true });
+    if (!require('fs').existsSync(logPath)) {
+      require('fs').writeFileSync(logPath, 'BLFP 日志\r\n===\r\n');
+    }
+    if (process.platform === 'win32') {
+      require('child_process').spawn('powershell.exe', [
+        '-NoExit', '-Command',
+        'Write-Host "=== BLFP 日志 (实时) ===" -ForegroundColor Cyan; Get-Content -Path "' + logPath + '" -Tail 100 -Wait'
+      ], { detached: true, stdio: 'ignore' }).unref();
+    } else if (process.platform === 'darwin') {
+      require('child_process').spawn('open', ['-a', 'Terminal', logPath], { detached: true }).unref();
+    } else {
+      require('child_process').spawn('x-terminal-emulator', ['-e', 'tail', '-f', logPath], { detached: true }).unref();
+    }
+    return logPath;
+  });
+  ipcMain.handle('exit-app', async () => {
   await stopServices();
   quitting = true;
   app.quit();
