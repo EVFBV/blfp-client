@@ -1710,6 +1710,10 @@ function resizeParticles() {
   canvas.width = innerWidth;
   canvas.height = innerHeight;
 }
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && particleEnabled && !particleFrame) drawParticles();
+});
+
 function enableCursorTrail() {
   particleEnabled = true;
   const bg = $('particle-bg');
@@ -2120,27 +2124,45 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ====== 鼠标光晕跟随 ======
 (function initMouseGlow() {
-  const body = document.body;
-  
-  // body::before 光晕跟随
+  // 性能修复：rAF 节流 + 按钮缓存 + 近距离过滤
+  // 旧版每次 mousemove 都 querySelectorAll + getBoundingClientRect（强制同步布局）导致鼠标卡顿
+  let mx = -1, my = -1, pending = false;
+  let btnCache = [];
+  let btnCacheTime = 0;
+  const BTN_CACHE_TTL = 2000;   /* 按钮列表缓存 2 秒 */
+  const NEAR_DIST = 260;       /* 只更新鼠标 260px 内的按钮 */
+
   document.addEventListener('mousemove', (e) => {
-    const x = e.clientX;
-    const y = e.clientY;
-    document.body.style.setProperty('--mouse-x', x + 'px');
-    document.body.style.setProperty('--mouse-y', y + 'px');
-  });
-  
-  // 为所有 .btn-glow 按钮添加鼠标位置追踪
-  document.addEventListener('mousemove', (e) => {
-    const btns = document.querySelectorAll('.btn-glow, .btn-primary, .btn-success, .btn-danger, .btn-outline');
-    for (const btn of btns) {
-      const rect = btn.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * 100;
-      const y = ((e.clientY - rect.top) / rect.height) * 100;
+    mx = e.clientX; my = e.clientY;
+    if (!pending) {
+      pending = true;
+      requestAnimationFrame(flushGlow);
+    }
+  }, { passive: true });
+
+  function flushGlow() {
+    pending = false;
+    if (document.hidden || mx < 0) return;
+    const now = performance.now();
+    /* body 光晕 */
+    document.body.style.setProperty('--mouse-x', mx + 'px');
+    document.body.style.setProperty('--mouse-y', my + 'px');
+    /* 按钮列表缓存 */
+    if (now - btnCacheTime > BTN_CACHE_TTL) {
+      btnCache = Array.from(document.querySelectorAll('.btn-glow, .btn-primary, .btn-success, .btn-danger, .btn-outline'));
+      btnCacheTime = now;
+    }
+    /* 只更新鼠标附近的按钮，跳过远处 */
+    for (const btn of btnCache) {
+      const r = btn.getBoundingClientRect();
+      if (mx < r.left - NEAR_DIST || mx > r.right + NEAR_DIST ||
+          my < r.top - NEAR_DIST || my > r.bottom + NEAR_DIST) continue;
+      const x = ((mx - r.left) / Math.max(1, r.width)) * 100;
+      const y = ((my - r.top) / Math.max(1, r.height)) * 100;
       btn.style.setProperty('--mouse-x', x + '%');
       btn.style.setProperty('--mouse-y', y + '%');
     }
-  });
+  }
 })();
 
 // ====== 登录页 ======

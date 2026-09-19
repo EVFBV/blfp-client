@@ -47,6 +47,24 @@ function createWindow() {
     autoHideMenuBar: true,
   });
   mainWindow.once('ready-to-show', () => mainWindow.show());
+
+  /* 后台自动降进程优先级（防止挂在后台时抢占鼠标/UI 响应） */
+  const os = require('os');
+  function lowerPriority() {
+    try { os.setPriority(process.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch (e) {}
+  }
+  function normalPriority() {
+    try { os.setPriority(process.pid, os.constants.priority.PRIORITY_NORMAL); } catch (e) {}
+  }
+  mainWindow.on('hide', lowerPriority);
+  mainWindow.on('minimize', lowerPriority);
+  mainWindow.on('show', normalPriority);
+  mainWindow.on('restore', normalPriority);
+  mainWindow.on('focus', normalPriority);
+  mainWindow.on('blur', () => {
+    // 失焦且被遮挡时也降（Electron occlusion 检测）
+    if (!mainWindow.isVisible() || mainWindow.isMinimized()) lowerPriority();
+  });
   mainWindow.webContents.setVisualZoomLevelLimits(1, 1);
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error('Renderer process exited:', details.reason);
