@@ -340,18 +340,21 @@
       <h1 class="page-title">设置</h1>
 
       <div class="card glass-card">
-        <h2>Liquid Glass 配置</h2>
-        <p style="color:var(--text2);font-size:.82rem;margin-bottom:14px">调整液态玻璃效果参数，实时生效</p>
-        <div class="glass-config-group">
-          <div class="glass-config-item"><label>玻璃模糊</label><input type="range" id="glass-blur" min="8" max="60" value="32"><span class="value-display" id="glass-blur-val">32px</span></div>
-          <div class="glass-config-item"><label>色彩饱和度</label><input type="range" id="glass-saturate" min="100" max="250" value="160"><span class="value-display" id="glass-saturate-val">160%</span></div>
-          <div class="glass-config-item"><label>亮度</label><input type="range" id="glass-brightness" min="80" max="150" value="110"><span class="value-display" id="glass-brightness-val">110%</span></div>
-          <div class="glass-config-item"><label>玻璃透明度</label><input type="range" id="glass-opacity" min="30" max="95" value="72"><span class="value-display" id="glass-opacity-val">72%</span></div>
-          <div class="glass-config-item"><label>光散射强度</label><input type="range" id="glass-scatter" min="0" max="100" value="60"><span class="value-display" id="glass-scatter-val">60%</span></div>
-          <div class="glass-config-item"><label>光学折射</label><input type="range" id="glass-refraction" min="0" max="100" value="30"><span class="value-display" id="glass-refraction-val">30%</span></div>
-          <div class="glass-config-item"><label>边缘辉光</label><input type="range" id="glass-glow" min="0" max="100" value="50"><span class="value-display" id="glass-glow-val">50%</span></div>
-          <div class="glass-config-item"><label>强调光颜色</label><input type="range" id="glass-accent-h" min="0" max="360" value="222"><span class="value-display" id="glass-accent-h-val">222°</span></div>
+        <h2>Liquid Glass 参数</h2>
+        <p style="color:var(--text2);font-size:.82rem;margin-bottom:14px">对应 liquid-glass.pro 全部参数，拖动实时生效</p>
+        <div class="lg-param-grid">
+          <div class="lg-param"><label>圆角</label><input type="range" id="lg-radius" min="0" max="48" value="28"><span class="value-display" id="lg-radius-val">28px</span></div>
+          <div class="lg-param"><label>毛玻璃模糊</label><input type="range" id="lg-frost" min="0" max="40" value="0"><span class="value-display" id="lg-frost-val">0px</span></div>
+          <div class="lg-param"><label>玻璃着色</label><input type="color" id="lg-tint-color" value="#ffffff"><span class="value-display" id="lg-tint-color-val">#ffffff</span></div>
+          <div class="lg-param"><label>着色不透明度</label><input type="range" id="lg-tint-opacity" min="0" max="100" value="0"><span class="value-display" id="lg-tint-opacity-val">0%</span></div>
+          <div class="lg-param"><label>噪点频率</label><input type="range" id="lg-noise-freq" min="1" max="50" value="8"><span class="value-display" id="lg-noise-freq-val">0.008</span></div>
+          <div class="lg-param"><label>噪点强度</label><input type="range" id="lg-noise-strength" min="0" max="200" value="77"><span class="value-display" id="lg-noise-strength-val">77</span></div>
+          <div class="lg-param"><label>内阴影颜色</label><input type="color" id="lg-inner-color" value="#ffffff"><span class="value-display" id="lg-inner-color-val">#ffffff</span></div>
+          <div class="lg-param"><label>内阴影模糊</label><input type="range" id="lg-inner-blur" min="0" max="60" value="20"><span class="value-display" id="lg-inner-blur-val">20px</span></div>
+          <div class="lg-param"><label>内阴影扩散</label><input type="range" id="lg-inner-spread" min="-30" max="20" value="-5"><span class="value-display" id="lg-inner-spread-val">-5px</span></div>
+          <div class="lg-param"><label>强调光颜色</label><input type="range" id="lg-accent" min="0" max="360" value="222"><span class="value-display" id="lg-accent-val">222°</span></div>
         </div>
+        <button class="btn btn-outline btn-sm" style="margin-top:14px" onclick="resetLGParams()">恢复默认</button>
       </div>
 
 

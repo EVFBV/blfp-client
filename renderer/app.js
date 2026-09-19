@@ -376,8 +376,7 @@ function enterApp() {
   loadPublicRooms(true);
   loadFriends(true);
   loadAnnouncements();
-  initGlassControls();
-  initGlassControls();
+  initLGControls();
   if (state.user.role === 'sponsor' && !sessionStorage.getItem('blfp_sponsor_welcome')) { sessionStorage.setItem('blfp_sponsor_welcome', '1'); toast(`感谢赞助，${state.user.username}，欢迎回来！`, 'success'); }
   syncPresence(true).catch((e) => logLine('在线状态同步失败: ' + e.message));
   if (state.presenceTimer) clearInterval(state.presenceTimer);
@@ -1984,72 +1983,154 @@ async function removeFriend(userId) {
   });
 }
 
-/* ============ 玻璃质感设置 ============ */
-const GLASS_PREFS_KEY = 'blfp_glass_prefs';
-const DEFAULT_GLASS_PREFS = {
-  blur: 32,
-  saturate: 160,
-  brightness: 110,
-  opacity: 72,
-  scatter: 60,
-  refraction: 30,
-  glow: 50,
-  accentHue: 222,
+/* ============ Liquid Glass 参数（对应 liquid-glass.pro）============ */
+const LG_PREFS_KEY = 'blfp_lg_prefs';
+const DEFAULT_LG_PREFS = {
+  radius: 28,          /* borderRadius */
+  frost: 0,            /* frostBlurRadius */
+  tintColor: '#ffffff',/* glassTintColor */
+  tintOpacity: 0,      /* glassTintOpacity 0-100 */
+  noiseFreq: 8,        /* noiseFrequency *1000（0.008） */
+  noiseStrength: 77,   /* noiseStrength */
+  innerColor: '#ffffff', /* innerShadowColor */
+  innerBlur: 20,       /* innerShadowBlur */
+  innerSpread: -5,     /* innerShadowSpread */
+  accentHue: 222,      /* 强调光颜色（本应用附加） */
 };
 
-function loadGlassPrefs() {
+function loadLGPrefs() {
   try {
-    const saved = JSON.parse(localStorage.getItem(GLASS_PREFS_KEY) || '{}');
-    return { ...DEFAULT_GLASS_PREFS, ...saved };
-  } catch {
-    return { ...DEFAULT_GLASS_PREFS };
-  }
+    const saved = JSON.parse(localStorage.getItem(LG_PREFS_KEY) || '{}');
+    return Object.assign({}, DEFAULT_LG_PREFS, saved);
+  } catch (e) { return Object.assign({}, DEFAULT_LG_PREFS); }
+}
+function saveLGPrefs(p) {
+  try { localStorage.setItem(LG_PREFS_KEY, JSON.stringify(p)); } catch (e) {}
+}
+function hexToRgbTriplet(hex) {
+  const h = String(hex || '#ffffff').replace('#', '');
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  const n = parseInt(full, 16);
+  if (!Number.isFinite(n)) return '255, 255, 255';
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255].join(', ');
+}
+function hexToRgba(hex, alpha) {
+  return 'rgba(' + hexToRgbTriplet(hex) + ', ' + Number(alpha).toFixed(3) + ')';
 }
 
-function saveGlassPrefs(prefs) {
-  localStorage.setItem(GLASS_PREFS_KEY, JSON.stringify(prefs));
+function applyLGParams(prefs) {
+  const p = prefs || loadLGPrefs();
+  const r = document.documentElement.style;
+  r.setProperty('--lg-radius', p.radius + 'px');
+  r.setProperty('--lg-frost', String(p.frost));
+  r.setProperty('--lg-tint-rgb', hexToRgbTriplet(p.tintColor));
+  r.setProperty('--lg-tint-alpha', String(p.tintOpacity / 100));
+  /* 噪点频率：0.001~0.05 → 纹理尺寸反比（频率越高颗粒越细） */
+  const freq = Math.max(0.001, p.noiseFreq / 1000);
+  r.setProperty('--lg-noise-size', (2 / freq).toFixed(1) + 'px');
+  r.setProperty('--lg-noise-alpha', String(Math.min(1, p.noiseStrength / 100)));
+  r.setProperty('--lg-noise-freq', String(freq));
+  r.setProperty('--lg-inner-color-rgb', hexToRgbTriplet(p.innerColor));
+  r.setProperty('--lg-inner-blur', p.innerBlur + 'px');
+  r.setProperty('--lg-inner-spread', p.innerSpread + 'px');
+  r.setProperty('--lg-accent-h', String(p.accentHue));
 }
 
-function applyGlassPrefs(prefs) {
-  const p = prefs || loadGlassPrefs();
-  const root = document.documentElement.style;
-  /* 全部写无单位数值——CSS 用 calc(var * 1px / 100%) 自行换算，带单位会令 calc 非法导致整个玻璃效果失效 */
-  root.setProperty('--glass-blur', String(p.blur));
-  root.setProperty('--glass-saturate', String(p.saturate / 100));
-  root.setProperty('--glass-brightness', String(p.brightness / 100));
-  root.setProperty('--glass-opacity', String(p.opacity / 100));
-  root.setProperty('--glass-scatter', String(p.scatter / 100));
-  root.setProperty('--glass-refraction', String(p.refraction / 100));
-  root.setProperty('--glass-glow-size', String(p.glow));
-  root.setProperty('--glass-glow-spread', String(p.glow * 0.6));
-  root.setProperty('--lg-accent-h', String(p.accentHue));
+function resetLGParams() {
+  saveLGPrefs(Object.assign({}, DEFAULT_LG_PREFS));
+  applyLGParams();
+  bindLGControls(true);
+  toast('已恢复默认参数');
 }
 
-function initGlassControls() {
-  applyGlassPrefs();
-  // Bind sliders if they exist
-  const sliders = ['glass-blur', 'glass-saturate', 'glass-brightness', 'glass-opacity', 'glass-scatter', 'glass-refraction', 'glass-glow', 'glass-accent-h'];
-  sliders.forEach((id) => {
-    const slider = $(id);
-    const display = $(id + '-val');
-    if (slider && display) {
-      slider.addEventListener('input', () => {
-        display.textContent = slider.value;
-        const prefs = loadGlassPrefs();
-        const key = id.replace('glass-', '');
-        if (id === 'glass-accent-h') prefs.accentHue = Number(slider.value);
-        else if (id === 'glass-blur') prefs.blur = Number(slider.value);
-        else if (id === 'glass-saturate') prefs.saturate = Number(slider.value);
-        else if (id === 'glass-brightness') prefs.brightness = Number(slider.value);
-        else if (id === 'glass-opacity') prefs.opacity = Number(slider.value);
-        else if (id === 'glass-scatter') prefs.scatter = Number(slider.value);
-        else if (id === 'glass-refraction') prefs.refraction = Number(slider.value);
-        else if (id === 'glass-glow') prefs.glow = Number(slider.value);
-        saveGlassPrefs(prefs);
-        applyGlassPrefs(prefs);
-      });
+function bindLGControls(silent) {
+  const p = loadLGPrefs();
+  const map = [
+    ['lg-radius', 'radius', (v, el) => {
+      const label = $(el.id + '-val'); if (label) label.textContent = v + 'px';
+      return Number(v);
+    }],
+    ['lg-frost', 'frost', (v, el) => {
+      const label = $(el.id + '-val'); if (label) label.textContent = v + 'px';
+      return Number(v);
+    }],
+    ['lg-tint-color', 'tintColor', (v, el) => {
+      const label = $(el.id + '-val'); if (label) label.textContent = v;
+      return v;
+    }],
+    ['lg-tint-opacity', 'tintOpacity', (v, el) => {
+      const label = $(el.id + '-val'); if (label) label.textContent = v + '%';
+      return Number(v);
+    }],
+    ['lg-noise-freq', 'noiseFreq', (v, el) => {
+      const label = $(el.id + '-val'); if (label) label.textContent = (v / 1000).toFixed(3);
+      return Number(v);
+    }],
+    ['lg-noise-strength', 'noiseStrength', (v, el) => {
+      const label = $(el.id + '-val'); if (label) label.textContent = v;
+      return Number(v);
+    }],
+    ['lg-inner-color', 'innerColor', (v, el) => {
+      const label = $(el.id + '-val'); if (label) label.textContent = v;
+      return v;
+    }],
+    ['lg-inner-blur', 'innerBlur', (v, el) => {
+      const label = $(el.id + '-val'); if (label) label.textContent = v + 'px';
+      return Number(v);
+    }],
+    ['lg-inner-spread', 'innerSpread', (v, el) => {
+      const label = $(el.id + '-val'); if (label) label.textContent = v + 'px';
+      return Number(v);
+    }],
+    ['lg-accent', 'accentHue', (v, el) => {
+      const label = $(el.id + '-val'); if (label) label.textContent = v + '°';
+      return Number(v);
+    }],
+  ];
+  map.forEach(([id, key, parse]) => {
+    const el = $(id);
+    if (!el || el.dataset.lgBound) {
+      /* 已绑定也要同步当前值（恢复默认时刷新控件） */
+      if (silent && el) {
+        const cur = loadLGPrefs();
+        if (key === 'accentHue') el.value = cur[key];
+        else el.value = cur[key];
+        const label = $(id + '-val');
+        if (label) {
+          if (key === 'radius' || key === 'frost' || key === 'innerBlur' || key === 'innerSpread') label.textContent = cur[key] + 'px';
+          else if (key === 'tintOpacity') label.textContent = cur[key] + '%';
+          else if (key === 'noiseFreq') label.textContent = (cur[key] / 1000).toFixed(3);
+          else if (key === 'accentHue') label.textContent = cur[key] + '°';
+          else label.textContent = cur[key];
+        }
+      }
+      return;
     }
+    el.dataset.lgBound = '1';
+    /* 用当前保存值初始化控件 */
+    el.value = p[key];
+    const initLabel = $(id + '-val');
+    if (initLabel) {
+      if (key === 'radius' || key === 'frost' || key === 'innerBlur' || key === 'innerSpread') initLabel.textContent = p[key] + 'px';
+      else if (key === 'tintOpacity') initLabel.textContent = p[key] + '%';
+      else if (key === 'noiseFreq') initLabel.textContent = (p[key] / 1000).toFixed(3);
+      else if (key === 'accentHue') initLabel.textContent = p[key] + '°';
+      else initLabel.textContent = p[key];
+    }
+    const handler = () => {
+      const cur = loadLGPrefs();
+      cur[key] = parse(el.value, el);
+      saveLGPrefs(cur);
+      applyLGParams(cur);
+    };
+    el.addEventListener('input', handler);
+    el.addEventListener('change', handler);
   });
+}
+
+function initLGControls() {
+  applyLGParams();
+  bindLGControls(false);
 }
 
 /* ============ 首页公告（新）============ */

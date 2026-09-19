@@ -10,6 +10,15 @@
   --base: calc(0.28s * var(--anim-speed));
   --slow: calc(0.5s * var(--anim-speed));
 
+  --lg-radius: 28px;
+  --lg-frost: 0;
+  --lg-tint-rgb: 255, 255, 255;
+  --lg-tint-alpha: 0;
+  --lg-noise-size: 250px;
+  --lg-noise-alpha: 0;
+  --lg-inner-color-rgb: 255, 255, 255;
+  --lg-inner-blur: 20px;
+  --lg-inner-spread: -5px;
   --glass-blur: 32;
   --glass-saturate: 1.6;
   --glass-brightness: 1.1;
@@ -585,21 +594,22 @@ body.sidebar-collapsed .sidebar-gear-btn { margin-left: 0; }
 
 /* === 玻璃卡片 (Liquid Glass) === */
 .glass-card {
-  border-radius: var(--radius-lg);
+  border-radius: var(--lg-radius, var(--radius-lg));
   /* 液态玻璃：低不透明度让背后彩色透出，backdrop 负责模糊+增饱和+提亮 */
   background:
     linear-gradient(180deg, rgba(255,255,255,calc(var(--glass-highlight) * 0.18)) 0%, rgba(255,255,255,0) 45%),
+    linear-gradient(rgba(var(--lg-tint-rgb, 255, 255, 255), var(--lg-tint-alpha, 0)), rgba(var(--lg-tint-rgb, 255, 255, 255), var(--lg-tint-alpha, 0))),
     hsla(226, 60%, calc(14% + var(--glass-tint-strength) * 30%), calc(var(--glass-opacity) * 0.30));
-  backdrop-filter: blur(calc(var(--glass-blur) * 1px)) saturate(calc(var(--glass-saturate) * 100%)) brightness(calc(var(--glass-brightness) * 100%));
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1px)) saturate(calc(var(--glass-saturate) * 100%)) brightness(calc(var(--glass-brightness) * 100%));
+  backdrop-filter: blur(calc((var(--glass-blur) + var(--lg-frost, 0)) * 1px)) saturate(calc(var(--glass-saturate) * 100%)) brightness(calc(var(--glass-brightness) * 100%));
+  -webkit-backdrop-filter: blur(calc((var(--glass-blur) + var(--lg-frost, 0)) * 1px)) saturate(calc(var(--glass-saturate) * 100%)) brightness(calc(var(--glass-brightness) * 100%));
   /* 亮边（玻璃厚度感）：上/左偏亮，下/右偏暗 */
   border: 1px solid rgba(255,255,255, calc(var(--glass-border-opacity) * 2.2));
   border-top-color: rgba(255,255,255, calc(var(--glass-border-opacity) * 3.4));
   border-left-color: rgba(255,255,255, calc(var(--glass-border-opacity) * 2.8));
   box-shadow:
+    inset 0 0 var(--lg-inner-blur, 20px) var(--lg-inner-spread, -5px) rgba(var(--lg-inner-color-rgb, 255, 255, 255), 0.55),
     inset 0 1px 0 rgba(255,255,255, calc(var(--glass-highlight) * 0.5)),
     inset 0 -1px 0 rgba(0,0,0,0.18),
-    inset 1px 0 0 rgba(255,255,255, calc(var(--glass-highlight) * 0.22)),
     0 12px 48px rgba(0,0,0,0.3),
     0 0 calc(var(--glass-glow-size) * 0.5px) hsla(var(--lg-accent-h), 60%, 60%, calc(var(--glass-glow-size) * 0.004));
   position: relative;
@@ -629,19 +639,9 @@ body.sidebar-collapsed .sidebar-gear-btn { margin-left: 0; }
 .glass-card::after {
   content: '';
   position: absolute;
-  inset: -1px;
+  inset: 0;
   pointer-events: none;
   border-radius: inherit;
-  background: linear-gradient(135deg, 
-    hsla(var(--lg-accent-h), 50%, 50%, 0.04) 0%, 
-    transparent 40%, 
-    transparent 60%, 
-    hsla(var(--lg-accent-h), 30%, 60%, 0.03) 100%);
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  padding: 1px;
 }
 
 .card::before {
@@ -1960,3 +1960,47 @@ body.sidebar-collapsed .sidebar-bottom {
   box-shadow: 0 4px 14px hsla(var(--lg-accent-h), 60%, 50%, 0.35);
   user-select: none;
 }
+
+
+/* ====== Liquid Glass 噪点纹理（noiseFrequency / noiseStrength）====== */
+.glass-card::after {
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: var(--lg-noise-size, 250px) var(--lg-noise-size, 250px);
+  opacity: var(--lg-noise-alpha, 0);
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+/* ====== 设置页参数网格（紧凑排布，不重叠）====== */
+.lg-param-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px 18px;
+}
+.lg-param {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.lg-param label {
+  font-size: .8rem;
+  color: var(--text2);
+}
+.lg-param input[type="range"] { width: 100%; }
+.lg-param input[type="color"] {
+  width: 100%;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.04);
+  cursor: pointer;
+}
+.lg-param .value-display {
+  font-size: .74rem;
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+}
+[data-theme="light"] .lg-param input[type="color"] { background: rgba(255,255,255,0.7); border-color: rgba(0,0,0,0.1); }
