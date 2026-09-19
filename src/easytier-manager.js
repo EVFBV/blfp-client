@@ -143,6 +143,8 @@ class EasyTierManager extends EventEmitter {
       if (this._generation !== generation || this._proc !== child || !this._isChildAlive(child)) {
         throw new Error('EasyTier 进程在启动期间退出');
       }
+      /* 访客入站需要：把虚拟网卡网络类别设为"专用"，否则 Windows 防火墙会按"公用网络"拦截 */
+      this._setTunProfilePrivate(proxyIp);
       this._setState('running');
       this._log('EasyTier 启动成功');
       return this.getStatus();
@@ -397,6 +399,28 @@ class EasyTierManager extends EventEmitter {
     return false;
   }
 
+  /* 找到承载虚拟 IP 的网卡名称 */
+  _tunInterfaceName(virtualIp) {
+    const hit = this._listLocalIpv4().find((item) => item.address === virtualIp);
+    return hit ? hit.name : null;
+  }
+
+  /* 把承载虚拟 IP 的网卡设为"专用网络"：否则 Windows 防火墙按"公用网络"拦截访客入站 */
+  _setTunProfilePrivate(virtualIp) {
+    if (process.platform !== 'win32') return;
+    const iface = this._tunInterfaceName(virtualIp);
+    if (!iface) return;
+    try {
+      const { execFile } = require('child_process');
+      execFile('powershell', ['-NoProfile', '-Command',
+        "Set-NetConnectionProfile -InterfaceAlias '" + iface.replace(/'/g, "''") + "' -NetworkCategory Private -ErrorAction SilentlyContinue"
+      ], (err) => {
+        if (err) this._log('虚拟网卡网络类别设置失败（可忽略）: ' + (err.message || ''));
+        else this._log('已将虚拟网卡 ' + iface + ' 设为专用网络（防火墙放行访客入站）');
+      });
+    } catch (e) { /* 忽略 */ }
+  }
+
   _probeTcp(host, port, timeout = 800) {
     return new Promise((resolve) => {
       const socket = net.createConnection({ host, port });
@@ -422,6 +446,7 @@ class EasyTierManager extends EventEmitter {
       const server = net.createServer((client) => {
         /* 回退监听 0.0.0.0 时，只放行来自虚拟网段的连接，避免把 MC 端口暴露到局域网/公网 */
         if (restrictToVirtual && !this._isVirtualSource(client.remoteAddress, virtualIp)) {
+          this._log('已拒绝非虚拟网段连接: ' + client.remoteAddress + '（仅放行虚拟网段）');
           client.destroy();
           return;
         }

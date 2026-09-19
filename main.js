@@ -27,6 +27,31 @@ function getLanIp() {
   return '127.0.0.1';
 }
 
+
+/* ====== Windows 防火墙自动放行（虚拟网卡属"公用网络"时会拦截入站，导致访客连不上）====== */
+function ensureFirewallRules() {
+  if (process.platform !== 'win32') return;
+  const { execFile } = require('child_process');
+  const path = require('path');
+  const ruleName = 'BLFP 联机助手';
+  execFile('netsh', ['advfirewall', 'firewall', 'show', 'rule', 'name=' + ruleName], (err, stdout) => {
+    if (!err && stdout && stdout.includes(ruleName)) return;   /* 已存在 */
+    const targets = [
+      process.execPath,
+      path.join(process.resourcesPath || '', 'bin', 'easytier-core.exe'),
+      path.join(process.resourcesPath || '', 'bin', 'frpc.exe'),
+    ].filter((p) => { try { return require('fs').existsSync(p); } catch (e) { return false; } });
+    if (!targets.length) return;
+    let done = 0;
+    targets.forEach((exe) => {
+      execFile('netsh', ['advfirewall', 'firewall', 'add', 'rule', 'name=' + ruleName, 'dir=in', 'action=allow', 'program=' + exe, 'enable=yes', 'profile=any'], () => {
+        done += 1;
+        if (done === targets.length) console.log('[BLFP] 防火墙规则已添加（放行 ' + targets.length + ' 个程序）');
+      });
+    });
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1100,
@@ -86,7 +111,10 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  ensureFirewallRules();
+});
 let quitting = false;
 
 // 退出前先释放代理端口并停止 EasyTier 子进程
@@ -336,7 +364,7 @@ ipcMain.handle('easytier-status', async () => easyTierMgr.getStatus());
 ipcMain.handle('easytier-test', async (_e, config) => {
   const hostVirtualIp = typeof config === 'string' ? config : config?.hostVirtualIp;
   const port = config?.port || 25565;
-  return easyTierMgr.testConnectivity(hostVirtualIp, port, 1000);
+  return easyTierMgr.testConnectivity(hostVirtualIp, port, 2500);
 });
 
 easyTierMgr.on('log', (line) => mainWindow?.webContents.send('easytier-log', line));

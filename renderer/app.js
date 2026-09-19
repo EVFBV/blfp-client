@@ -1445,7 +1445,8 @@ async function onRoomJoined(msg) {
       new Promise((resolve) => setTimeout(() => resolve({ ok: false, error: test?.error || '连接超时' }), remaining)),
     ]);
     if (test?.ok) break;
-    notify('正在等待 EasyTier 网络连通...');
+    logLine('EasyTier 连通性测试未通过: ' + (test?.error || '未知原因') + '（重试中）');
+    notify('正在等待 EasyTier 网络连通... (' + (test?.error || '重试中') + ')');
     const retryDelay = Math.min(Math.max(0, 1000 - (Date.now() - attemptStarted)), deadline - Date.now());
     if (retryDelay > 0) await new Promise((resolve) => setTimeout(resolve, retryDelay));
   }
