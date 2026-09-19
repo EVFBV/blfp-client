@@ -16,6 +16,7 @@ const state = {
   chatServer: DEFAULT_CHAT_SERVER,   // 聊天/公告专用服务器
   chatWs: null,        // 聊天室独立 WebSocket
   publicRooms: [],     // 最近一次获取的公开房间列表（详情降级用）
+  joinTimer: null,     // 加入房间超时计时器
   roomInfo: null,      // 房间信息（加入后由服务端下发）
   geetestValidate: null, // 极验验证回调
   token: null,
@@ -807,6 +808,15 @@ function closeModal(id) { $(id).classList.add('hidden'); }
 /* ============ 信令 WebSocket ============ */
 function connectSignaling() {
   return new Promise((resolve, reject) => {
+    /* 已有连接先关闭，避免残留 socket 干扰加入流程 */
+    try {
+      if (state.ws && state.ws.readyState !== WebSocket.CLOSED) {
+        state.closingSignaling = true;
+        state.ws.onclose = null;
+        state.ws.close();
+      }
+    } catch (e) {}
+    state.ws = null;
     const serverUrl = assertSecureServer(state.server);
     const wsProtocol = serverUrl.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProtocol}//${serverUrl.host}/ws?token=${encodeURIComponent(state.token)}`;
@@ -1343,9 +1353,17 @@ function confirmJoinRoom() {
 }
 
 /* ============ Guest 侧：加入房间 ============ */
+/* 取房间号：优先弹窗输入框，其次兼容元素（历史代码读的是隐藏 div，值为 undefined 会抛错） */
+function currentJoinCode() {
+  const modalInput = $('join-room-input');
+  const compat = $('room-input');
+  const raw = (modalInput && modalInput.value) || (compat && compat.value) || '';
+  return String(raw).replace(/\D/g, '').slice(0, 6);
+}
+
 async function joinRoom() {
   if (state.role) return toast('当前已在房间中，请先退出当前房间', 'warn');
-  const code = $('room-input').value.trim();
+  const code = currentJoinCode();
   if (!/^\d{6}$/.test(code)) return toast('请输入 6 位纯数字房间号', 'error');
 
   $('btn-join').disabled = true;
@@ -1359,6 +1377,15 @@ async function joinRoom() {
     state.role = 'guest';
     state.roomCode = code;
     sendSignal({ type: 'join', room: code });
+
+    /* 超时保护：15 秒内没收到 joined/error 就判定失败并恢复界面 */
+    if (state.joinTimer) clearTimeout(state.joinTimer);
+    state.joinTimer = setTimeout(() => {
+      if (state.role === 'guest' && !state.roomInfo) {
+        failGuestConnection('加入房间超时，请重试（房间可能已关闭或网络不稳定）');
+      }
+      state.joinTimer = null;
+    }, 15000);
   } catch (e) {
     toast(e.message, 'error');
     $('join-status').textContent = '连接失败: ' + e.message;
@@ -1376,6 +1403,7 @@ async function cleanupGuestConnection() {
 }
 
 async function failGuestConnection(message) {
+  if (state.joinTimer) { clearTimeout(state.joinTimer); state.joinTimer = null; }
   if (state.role !== 'guest') return;
   await cleanupGuestConnection();
   $('join-active').classList.add('hidden');
@@ -1387,6 +1415,7 @@ async function failGuestConnection(message) {
 }
 
 async function onRoomJoined(msg) {
+  if (state.joinTimer) { clearTimeout(state.joinTimer); state.joinTimer = null; }
   logLine('已加入房间 ' + msg.room + '，模式: ' + (msg.mode || 'easytier'));
   state.roomInfo = { room: msg.room, hostUser: msg.hostUser };
   if (Array.isArray(msg.members)) onMembers(msg);
