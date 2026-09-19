@@ -1842,3 +1842,52 @@ input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; transform: 
 [data-theme="light"] .search-row input[type="text"] {
   background: hsla(220, 30%, 96%, 0.8); border-color: rgba(0,0,0,0.1); color: #2a3040;
 }
+
+
+/* host 页 frp 节点区（动画外壳内的内容） */
+#frp-node-section .form-group { margin: 14px 0 0; }
+#frp-node-section .warn-box { margin-top: 10px; }
+
+/* 条件输入框通用样式（个性化） */
+.text-input-cond {
+  width: 100%; margin-top: 8px; height: 36px; padding: 0 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius-sm);
+  color: var(--text); font-size: .86rem; font-family: inherit;
+  display: block;
+}
+[data-theme="light"] .text-input-cond { background: rgba(255,255,255,0.7); border-color: rgba(0,0,0,0.1); color: #2a3040; }
+
+
+/* 好友搜索栏：彻底防重叠 */
+.search-row { display: flex !important; gap: 10px !important; align-items: center !important; }
+.search-row input[type="text"], .search-row input:not([type]) {
+  flex: 1 1 0 !important; min-width: 0 !important; width: auto !important;
+}
+.search-row .btn { flex: 0 0 auto !important; white-space: nowrap; }
+
+
+/* 侧边栏收起：用户行变纵向（齿轮上移到头像上方），彻底修挤成一团 */
+body.sidebar-collapsed .sidebar-user-row {
+  flex-direction: column-reverse;   /* 齿轮在上方 */
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+body.sidebar-collapsed .sidebar-user-row .sidebar-user-btn {
+  width: 100%;
+  justify-content: center;
+  padding: 6px 0;
+}
+body.sidebar-collapsed .sidebar-user-row .sidebar-gear-btn {
+  width: 100%;
+  justify-content: center;
+}
+body.sidebar-collapsed .sidebar-user-avatar {
+  width: 30px; height: 30px;
+  margin: 0 auto;
+}
+body.sidebar-collapsed .sidebar-bottom {
+  align-items: center;
+}

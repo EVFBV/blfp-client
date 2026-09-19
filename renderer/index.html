@@ -192,7 +192,7 @@
           </div>
         </div>
 
-        <div id="frp-node-section" class="hidden" style="margin-top:16px">
+        <div id="frp-node-section" class="frp-node-section collapsed">
           <div class="form-group">
             <label>选择 frp 节点</label>
             <div class="frp-node-row" style="display:flex;gap:8px;align-items:center">
@@ -315,65 +315,15 @@
       <div class="card glass-card">
         <h2>外观</h2>
         <div class="form-group"><label>主题</label><div class="theme-toggle-row"><button id="theme-dark" class="theme-btn active" onclick="setTheme('dark')">深色</button><button id="theme-light" class="theme-btn" onclick="setTheme('light')">浅色</button></div></div>
-        <div class="form-group"><label>侧边栏模式</label><select id="sidebar-mode" onchange="setSidebarMode(this.value)"><option value="normal">正常（展开）</option><option value="collapsed">收起（仅图标）</option></select></div>
-        <div class="form-group"><label>动画性能档位</label><select id="perf-level" onchange="setPerfLevel(this.value)"><option value="high">高（全特效）</option><option value="medium" selected>中（推荐）</option><option value="low">低（省电）</option><option value="off">关闭</option></select></div>
-        <div class="form-group"><label class="toggle-label"><span>交互粒子背景</span><label class="switch"><input type="checkbox" id="cursor-trail-toggle" onchange="setCursorTrail(this.checked)"><span class="slider"></span></label></label></div>
       </div>
 
-      <div class="card glass-card">
-        <h2>连接</h2>
-        <div class="form-group hidden"><input id="s-server" type="hidden" value="https://p.blfp.cn"></div>
-        <div class="form-group"><label>默认 MC 端口</label><input id="s-mc-port" type="number" value="25565" min="1" max="65535"></div>
-        <div class="form-group"><label>启动行为</label><select id="s-launch-behavior"><option value="ask">每次询问</option><option value="home">打开主页</option><option value="host">直接创建房间</option></select></div>
-        <button class="btn btn-primary btn-glow" onclick="saveSettings()">保存设置</button>
+
+
       </div>
 
-      <div class="card glass-card">
-        <h2>个性化</h2>
-        <div class="form-group"><label>界面字体</label><select id="font-select" onchange="setFontFamily(this.value)">
-          <option value="default">系统默认</option>
-          <option value="'Segoe UI Variable Display', 'Segoe UI', 'Microsoft YaHei'">Segoe UI（微软雅黑）</option>
-          <option value="'SF Pro Display', 'PingFang SC', 'Microsoft YaHei'">苹方（SF Pro）</option>
-          <option value="'HarmonyOS Sans SC', 'Microsoft YaHei'">HarmonyOS Sans</option>
-          <option value="'MiSans', 'Microsoft YaHei'">MiSans（小米）</option>
-          <option value="Inter, 'Microsoft YaHei'">Inter</option>
-          <option value="'JetBrains Mono', Consolas, monospace">等宽（JetBrains Mono）</option>
-          <option value="'Comic Sans MS', 'Microsoft YaHei'">Comic Sans（趣味）</option>
-        </select></div>
-        <div class="form-group"><label>标题栏样式</label>
-          <select id="titlebar-mode" onchange="setCustomTitlebar(this.value)">
-            <option value="default">默认（BLFP）</option>
-            <option value="text">自定义文本</option>
-            <option value="image">自定义图片</option>
-            <option value="mixed">混合（文本+图片）</option>
-          </select>
-          <input id="titlebar-text-input" type="text" placeholder="标题栏文本" style="margin-top:8px;display:none" oninput="applyTitlebarPreview()">
-          <input id="titlebar-image-input" type="text" placeholder="图片 URL 或本地路径" style="margin-top:8px;display:none" oninput="applyTitlebarPreview()">
-          <div id="titlebar-preview" style="margin-top:8px;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);font-size:.8rem;display:none"></div>
-        </div>
-        <div class="form-group"><label>背景自定义</label>
-          <select id="bg-mode" onchange="setCustomBackground(this.value)">
-            <option value="default">默认（动态光晕）</option>
-            <option value="color">纯色</option>
-            <option value="image">图片</option>
-          </select>
-          <input id="bg-color-input" type="color" value="#08080f" style="margin-top:8px;width:100%;height:38px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);cursor:pointer;display:none" oninput="applyBackgroundPreview()">
-          <input id="bg-image-input" type="text" placeholder="背景图片 URL 或本地路径" style="margin-top:8px;display:none" oninput="applyBackgroundPreview()">
-          <div class="form-group" style="margin-top:8px"><label>背景模糊度</label><input type="range" id="bg-blur" min="0" max="30" value="0" oninput="applyBackgroundPreview()"></div>
-        </div>
-      </div>
 
-      <div class="card glass-card">
-        <h2>运行日志</h2>
-        <p style="color:var(--text2);font-size:.82rem;margin-bottom:12px">在 PowerShell 中查看完整实时日志</p>
-        <button class="btn btn-primary btn-glow" onclick="openLogInPowerShell()">在 PowerShell 中打开日志</button>
-        <div id="log-box-container"></div>
-      </div>
 
-      <div class="card glass-card">
-        <h2>开发者</h2>
-        <div class="form-group"><label class="toggle-label"><span>开发者调试模式（保留完整底层日志）</span><label class="switch"><input type="checkbox" id="debug-mode-toggle" onchange="setDebugMode(this.checked)"><span class="slider"></span></label></label></div>
-      </div>
+
     </div>
 
     <!-- 设置 (主设置 - 齿轮页) -->
@@ -393,6 +343,61 @@
           <div class="glass-config-item"><label>边缘辉光</label><input type="range" id="glass-glow" min="0" max="100" value="50"><span class="value-display" id="glass-glow-val">50%</span></div>
           <div class="glass-config-item"><label>强调光颜色</label><input type="range" id="glass-accent-h" min="0" max="360" value="222"><span class="value-display" id="glass-accent-h-val">222°</span></div>
         </div>
+      </div>
+
+      <div class="card glass-card">
+        <h2>外观</h2>
+        <div class="form-group"><label>侧边栏模式</label><select id="sidebar-mode" onchange="setSidebarMode(this.value)"><option value="normal">正常（展开）</option><option value="collapsed">收起（仅图标）</option></select></div>
+        <div class="form-group"><label>动画性能档位</label><select id="perf-level" onchange="setPerfLevel(this.value)"><option value="high">高（全特效）</option><option value="medium" selected>中（推荐）</option><option value="low">低（省电）</option><option value="off">关闭</option></select></div>
+        <div class="form-group"><label class="toggle-label"><span>交互粒子背景</span><label class="switch"><input type="checkbox" id="cursor-trail-toggle" onchange="setCursorTrail(this.checked)"><span class="slider"></span></label></label></div>
+      </div>
+
+      <div class="card glass-card">
+        <h2>连接</h2>
+        <div class="form-group hidden"><input id="s-server" type="hidden" value="https://p.blfp.cn"></div>
+        <div class="form-group"><label>默认 MC 端口</label><input id="s-mc-port" type="number" value="25565" min="1" max="65535"></div>
+        <div class="form-group"><label>启动行为</label><select id="s-launch-behavior"><option value="ask">每次询问</option><option value="home">打开主页</option><option value="host">直接创建房间</option></select></div>
+        <button class="btn btn-primary btn-glow" onclick="saveSettings()">保存设置</button>
+      </div>
+
+      <div class="card glass-card">
+        <h2>个性化</h2>
+        <div class="form-group" style="margin-bottom:16px"><label>界面字体</label><select id="font-select" onchange="setFontFamily(this.value)">
+          <option value="default">系统默认</option>
+          <option value="'Segoe UI Variable Display', 'Segoe UI', 'Microsoft YaHei'">Segoe UI（微软雅黑）</option>
+          <option value="'SF Pro Display', 'PingFang SC', 'Microsoft YaHei'">苹方（SF Pro）</option>
+          <option value="'HarmonyOS Sans SC', 'Microsoft YaHei'">HarmonyOS Sans</option>
+          <option value="'MiSans', 'Microsoft YaHei'">MiSans（小米）</option>
+          <option value="Inter, 'Microsoft YaHei'">Inter</option>
+          <option value="'JetBrains Mono', Consolas, monospace">等宽（JetBrains Mono）</option>
+          <option value="'Comic Sans MS', 'Microsoft YaHei'">Comic Sans（趣味）</option>
+        </select></div>
+        <div class="form-group" style="margin-bottom:16px"><label>标题栏样式</label>
+          <select id="titlebar-mode" onchange="setCustomTitlebar(this.value)">
+            <option value="default">默认（BLFP）</option>
+            <option value="text">自定义文本</option>
+            <option value="image">自定义图片</option>
+            <option value="mixed">混合（文本+图片）</option>
+          </select>
+          <input id="titlebar-text-input" type="text" class="text-input-cond" placeholder="标题栏文本" style="display:none" oninput="applyTitlebarPreview()">
+          <input id="titlebar-image-input" type="text" class="text-input-cond" placeholder="标题栏图片 URL 或本地路径" style="display:none" oninput="applyTitlebarPreview()">
+          <div id="titlebar-preview" style="margin-top:8px;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);font-size:.8rem;display:none"></div>
+        </div>
+        <div class="form-group" style="margin-bottom:16px"><label>背景自定义</label>
+          <select id="bg-mode" onchange="setCustomBackground(this.value)">
+            <option value="default">默认（动态光晕）</option>
+            <option value="color">纯色</option>
+            <option value="image">图片</option>
+          </select>
+          <input id="bg-color-input" type="color" value="#08080f" style="margin-top:8px;width:100%;height:38px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);cursor:pointer;display:none" oninput="applyBackgroundPreview()">
+          <input id="bg-image-input" type="text" class="text-input-cond" placeholder="背景图片 URL 或本地路径" style="display:none" oninput="applyBackgroundPreview()">
+          <div class="form-group"><label>背景模糊度</label><input type="range" id="bg-blur" min="0" max="30" value="0" oninput="applyBackgroundPreview()"></div>
+        </div>
+      </div>
+
+      <div class="card glass-card">
+        <h2>开发者</h2>
+        <div class="form-group"><label class="toggle-label"><span>开发者调试模式（保留完整底层日志）</span><label class="switch"><input type="checkbox" id="debug-mode-toggle" onchange="setDebugMode(this.checked)"><span class="slider"></span></label></label></div>
       </div>
 
       <div class="card glass-card">
@@ -472,7 +477,7 @@
     </div>
 
     <!-- frp 节点选择（点 frp 时伸长展开） -->
-    <div class="frp-node-section collapsed" id="frp-node-section">
+    <div class="frp-node-section collapsed" id="modal-frp-node-section">
       <div class="frp-node-header">
         <label>frp 节点选择</label>
         <span class="frp-node-status" id="frp-node-status">加载中...</span>

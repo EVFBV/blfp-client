@@ -456,7 +456,16 @@ function selectMode(mode) {
   state.mode = mode;
   $('mode-easytier').classList.toggle('active', mode === 'easytier');
   $('mode-frp').classList.toggle('active', mode === 'frp');
-  $('frp-node-section').classList.toggle('hidden', mode !== 'frp');
+  // 伸长动画展开/收起节点选择
+  const sec = $('frp-node-section');
+  if (sec) {
+    if (mode === 'frp') {
+      sec.classList.remove('collapsed');
+      loadFrpNodes({ force: false }).catch(() => {});
+    } else {
+      sec.classList.add('collapsed');
+    }
+  }
 }
 
 let frpLoadPromise = null;
@@ -1100,7 +1109,7 @@ function selectStartMode(mode) {
   if (et) et.classList.toggle('active', mode === 'easytier');
   if (frp) frp.classList.toggle('active', mode === 'frp');
   // frp 模式：伸长展开节点选择；easytier：收起
-  const section = $('frp-node-section');
+  const section = $('modal-frp-node-section');
   if (section) {
     if (mode === 'frp') {
       section.classList.remove('collapsed');

@@ -181,7 +181,7 @@
   /* ==================== 开关（Switch 1:1，状态映射修正版） ==================== */
   function createLGSwitch(host, opts) {
     opts = opts || {};
-    var k = opts.scale || 0.42;                 /* 尺寸缩放（1=模板160x67，0.42=67x28 紧凑） */
+    var k = opts.scale || 0.3;                 /* 尺寸缩放（1=模板160x67，0.42=67x28 紧凑） */
     var W = 160 * k, H = 67 * k;                /* 轨道 */
     var tw = 146 * k, th = 92 * k, tr = 46 * k; /* 拇指 */
     var bezel = Math.max(3, Math.round(19 * k));
@@ -359,12 +359,13 @@
       thumb.style.transform = 'translateX(' + xS.get() + 'px) scale(' + sS.get() + ')';
       thumb.style.backgroundColor = 'rgba(255, 255, 255, ' + aS.get().toFixed(3) + ')';
       thumb.style.boxShadow = '0 2px 10px rgba(0,0,0,0.12)';
-      fill.style.width = xToPct(xS.get()) + '%';
+      /* fill 精确对齐拇指中心（速度同步的关键） */
+      fill.style.width = (xS.get() + tw2 / 2) + 'px';
     }
     render();
 
     function setActive() {
-      var on = pressed || hovered;
+      var on = pressed;   /* 只有按下才放大，不响应悬浮 */
       sS.set(on ? 1 : 0.6);
       aS.set(on ? 0.1 : 1);
       if (useFilter) setFilterRatio(filterId, on ? 0.9 : 0.4);
@@ -400,8 +401,6 @@
     window.addEventListener('touchmove', move, { passive: false });
     window.addEventListener('mouseup', up);
     window.addEventListener('touchend', up);
-    thumb.addEventListener('mouseenter', function () { hovered = true; setActive(); });
-    thumb.addEventListener('mouseleave', function () { hovered = false; setActive(); });
     track.addEventListener('mousedown', function (e) {
       var rect = root.getBoundingClientRect();
       var cx = e.clientX - rect.left - tw2 / 2;
@@ -428,22 +427,41 @@
       var input = sw.querySelector('input[type=checkbox]');
       if (!input) return;
       sw.dataset.lgEnhanced = '1';
-      sw.style.display = 'none';
+      /* 找到外层 toggle-label 行（开关必须移出 label，否则点击会双触发） */
+      var row = sw.closest('.toggle-label') || sw.closest('label') || sw.parentNode;
+      var host = row !== sw.parentNode ? row.parentNode : row;
       var holder = document.createElement('span');
-      holder.style.cssText = 'display:inline-flex;align-items:center;margin-left:auto;';
-      sw.parentNode.insertBefore(holder, sw.nextSibling);
-      var comp = null;
-      comp = createLGSwitch(holder, {
+      holder.style.cssText = 'display:inline-flex;align-items:center;margin-left:auto;flex-shrink:0;';
+      if (host) host.insertBefore(holder, row.nextSibling);
+      else sw.parentNode.insertBefore(holder, sw.nextSibling);
+      var suppress = false;
+      var comp = createLGSwitch(holder, {
         checked: input.checked,
-        scale: 0.55,
+        scale: 0.3,
         onChange: function (val) {
+          if (suppress) return;
           if (input.checked !== val) {
+            suppress = true;
             input.checked = val;
             input.dispatchEvent(new Event('change', { bubbles: true }));
+            suppress = false;
           }
         }
       });
+      /* 原生 input 变化（如整行 label 点击触发）→ 同步视觉 */
       input.addEventListener('change', function () { if (comp) comp.set(input.checked); });
+      /* 整行点击也能切换（label 默认会转发到 checkbox，这里确保任何位置都响应） */
+      if (row && row.addEventListener) {
+        row.addEventListener('click', function (e) {
+          /* 点击在 lg-switch 上的由组件自己处理，避免双触发 */
+          if (holder.contains(e.target)) return;
+          var next = !input.checked;
+          if (input.checked !== next) {
+            input.checked = next;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        });
+      }
     });
     /* 滑块 */
     document.querySelectorAll('input[type=range]').forEach(function (rng) {
