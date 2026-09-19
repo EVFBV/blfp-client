@@ -158,7 +158,7 @@ body {
   color: var(--text);
   overflow: hidden;
   display: flex; flex-direction: column;
-  padding-top: 38px;   /* 让出固定标题栏的空间 */
+  /* 不整体下移：面板背景要顶到窗口最上沿，标题栏浮在上面 */
   transition: background-color var(--slow), color var(--slow);
   position: relative;
 }
@@ -2124,4 +2124,29 @@ input[type="checkbox"]:not(.lg-raw):checked {
   border: 0 !important;
   pointer-events: none;
   margin: 0;
+}
+
+
+/* ============================================================================
+ * 顶到顶布局：标题栏固定浮在窗口最上沿（translucent），
+ * 各面板背景从 y=0 开始延伸，仅内容内缩 38px 避免被标题栏遮挡。
+ * ========================================================================= */
+body { padding-top: 0 !important; }
+
+/* 主界面：侧边栏与内容区各自让出标题栏高度（内边距在盒子内部，背景依然顶到顶） */
+.sidebar { padding-top: 54px !important; }    /* 原 16px + 38px */
+.content { padding-top: 62px !important; }    /* 原 24px + 38px */
+.auth-wrap { padding-top: 62px !important; }  /* 登录页同理 */
+
+/* 确保主容器铺满窗口（自适应任意窗口尺寸） */
+html, body { height: 100%; }
+#app { height: 100%; min-height: 0; }
+#main-app { min-height: 0; }
+
+/* 标题栏：半透明玻璃浮层，覆盖在内容之上 */
+.window-titlebar {
+  background: hsla(226, 55%, calc(8% + var(--glass-tint-strength) * 30%), calc(var(--glass-opacity) * 0.35)) !important;
+}
+[data-theme="light"] .window-titlebar {
+  background: hsla(220, 50%, 92%, calc(var(--glass-opacity) * 0.45)) !important;
 }
