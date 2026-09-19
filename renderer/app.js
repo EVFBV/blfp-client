@@ -955,7 +955,7 @@ async function onRoomCreated(msg) {
 
   if (mode === 'frp' && typeof msg === 'object' && msg.frp) {
     const { host, port } = msg.frp;
-    $('host-status').textContent = 'frp 中转已启动';
+    notify('frp 中转已启动', 'success');
     $('host-lan-addr').textContent = host + ':' + port;
     logLine('frp 房间已创建: ' + code + '，访客连接地址: ' + host + ':' + port);
     state.frpEndpoint = { host, port };
@@ -964,7 +964,7 @@ async function onRoomCreated(msg) {
   }
 
   if (!msg.easytier) throw new Error('服务端未返回 EasyTier 配置');
-  $('host-status').textContent = '正在启动 EasyTier...';
+  notify('正在启动 EasyTier...');
   const etConfig = { ...msg.easytier, mode: 'host', mcPort: state.mcPort };
   etConfig.peers = await resolveEtPeers(etConfig.peers);
   const result = await window.mclink.easytierStart(etConfig);
@@ -973,7 +973,7 @@ async function onRoomCreated(msg) {
   const hostVirtualIp = msg.easytier.hostVirtualIp || state.easytier.virtualIp;
   if (!hostVirtualIp) throw new Error('未获取到房主虚拟 IP');
   state.easytier.hostVirtualIp = hostVirtualIp;
-  $('host-status').textContent = 'EasyTier 已启动，等待好友加入...';
+  notify('EasyTier 已启动，等待好友加入...', 'success');
   const etPort = result.status?.proxyPort || 25565;
   $('host-lan-addr').textContent = hostVirtualIp + ':' + etPort;
   logLine('EasyTier 房间已创建: ' + code + '，连接地址: ' + hostVirtualIp + ':' + etPort);
@@ -990,7 +990,7 @@ async function onRoomCreated(msg) {
 function onPeerJoined(msg) {
   if (state.role !== 'host') return;
   if (typeof msg.members === 'number') $('host-online-count').textContent = String(msg.members);
-  $('host-status').textContent = '好友已加入，EasyTier 正在自动组网';
+  notify('好友已加入，EasyTier 正在自动组网', 'success');
   logLine((msg.username || '好友') + ' 已加入房间');
   updateHostPeers();
 }
@@ -1025,7 +1025,7 @@ function updateHostPeers() {
 function onPeerLeft(msg) {
   logLine((msg.username || '好友') + ' 已离开房间');
   if (state.role === 'host') {
-    $('host-status').textContent = 'EasyTier 已启动，等待好友加入...';
+    notify('EasyTier 已启动，等待好友加入...', 'success');
     updateHostPeers();
   } else if (state.role === 'guest') {
     $('j-status').textContent = '房间成员已离开';
@@ -1367,12 +1367,11 @@ async function joinRoom() {
   if (!/^\d{6}$/.test(code)) return toast('请输入 6 位纯数字房间号', 'error');
 
   $('btn-join').disabled = true;
-  $('join-status').classList.remove('hidden');
-  $('join-status').textContent = '正在查询房间...';
+  notify('正在查询房间...');
 
   try {
     // 通过信令连接加入，服务端 joined 消息会携带模式信息
-    $('join-status').textContent = '正在连接信令服务器...';
+    notify('正在连接信令服务器...');
     await connectSignaling();
     state.role = 'guest';
     state.roomCode = code;
@@ -1388,7 +1387,7 @@ async function joinRoom() {
     }, 15000);
   } catch (e) {
     toast(e.message, 'error');
-    $('join-status').textContent = '连接失败: ' + e.message;
+    notify('连接失败: ' + e.message, 'error');
     await cleanupGuestConnection();
     $('btn-join').disabled = false;
   }
@@ -1408,8 +1407,8 @@ async function failGuestConnection(message) {
   await cleanupGuestConnection();
   $('join-active').classList.add('hidden');
   $('join-form').classList.remove('hidden');
-  $('join-status').classList.remove('hidden');
-  $('join-status').textContent = message;
+  
+  notify(message, 'error');
   $('btn-join').disabled = false;
   toast(message, 'error');
 }
@@ -1421,7 +1420,7 @@ async function onRoomJoined(msg) {
   if (Array.isArray(msg.members)) onMembers(msg);
 
   if (msg.mode === 'frp') {
-    $('join-status').classList.add('hidden');
+    
     $('btn-join').disabled = false;
     joinFrpRoom(msg);
     return;
@@ -1429,7 +1428,7 @@ async function onRoomJoined(msg) {
 
   if (!msg.easytier?.hostVirtualIp) throw new Error('服务端未返回 EasyTier 房主地址');
   const address = msg.easytier.hostVirtualIp + ':' + (msg.easytier.port || 25565);
-  $('join-status').textContent = '正在启动 EasyTier...';
+  notify('正在启动 EasyTier...');
   const etConfig = { ...msg.easytier, mode: 'guest' };
   etConfig.peers = await resolveEtPeers(etConfig.peers);
   const result = await window.mclink.easytierStart(etConfig);
@@ -1446,13 +1445,13 @@ async function onRoomJoined(msg) {
       new Promise((resolve) => setTimeout(() => resolve({ ok: false, error: test?.error || '连接超时' }), remaining)),
     ]);
     if (test?.ok) break;
-    $('join-status').textContent = '正在等待 EasyTier 网络连通...';
+    notify('正在等待 EasyTier 网络连通...');
     const retryDelay = Math.min(Math.max(0, 1000 - (Date.now() - attemptStarted)), deadline - Date.now());
     if (retryDelay > 0) await new Promise((resolve) => setTimeout(resolve, retryDelay));
   }
   if (!test?.ok) throw new Error('无法连接房主 Minecraft 端口: ' + (test?.error || '未知原因'));
 
-  $('join-status').classList.add('hidden');
+  
   $('btn-join').disabled = false;
   $('join-form').classList.add('hidden');
   $('join-active').classList.remove('hidden');
@@ -1495,7 +1494,7 @@ async function leaveRoom() {
     await cleanupGuestConnection();
     $('join-active').classList.add('hidden');
     $('join-form').classList.remove('hidden');
-    $('join-status').classList.add('hidden');
+    
     $('btn-join').disabled = false;
     logLine('已断开连接');
   }
@@ -1509,8 +1508,8 @@ async function onRoomClosed(msg) {
     await cleanupGuestConnection();
     $('join-active').classList.add('hidden');
     $('join-form').classList.remove('hidden');
-    $('join-status').classList.remove('hidden');
-    $('join-status').textContent = reason;
+    
+    notify(reason, 'error');
     $('btn-join').disabled = false;
   } else if (state.role === 'host') {
     await resetHostRoom(reason);
@@ -1526,7 +1525,7 @@ function setupTunnelBridge() {
     state.easytier = { ...state.easytier, ...status };
     const text = status?.state || (status?.running ? 'running' : 'stopped');
     if (!['starting', 'stopping', 'error'].includes(text)) return;
-    if (state.role === 'host' && $('host-status')) $('host-status').textContent = 'EasyTier 状态: ' + text;
+    if (state.role === 'host') notify('EasyTier: ' + text);
     if (state.role === 'guest' && $('j-status')) $('j-status').textContent = 'EasyTier 状态: ' + text;
   });
   window.mclink.onEasytierError((err) => {
@@ -1646,21 +1645,21 @@ function closeAnnouncement() {
 async function checkForUpdates(silent = false) {
   try {
     if (!state.appInfo) await loadAppInfo();
-    if (!silent) $('update-status').textContent = '正在检查更新…';
+    if (!silent) notify('正在检查更新…');
     const info = await window.mclink.checkGithubUpdate();
     state.updateInfo = info;
     if (info.latestVersion && compareVersions(info.latestVersion, state.appInfo.version) > 0) {
-      $('update-status').textContent = `GitHub Releases 发现新版本 ${info.latestVersion}`;
+      notify(`GitHub Releases 发现新版本 ${info.latestVersion}`);
       $('update-title').textContent = `发现新版本 ${info.latestVersion}`;
       $('update-notes').textContent = info.releaseNotes || '暂无更新说明';
       $('update-download').textContent = info.downloadUrl ? `下载 ${info.assetName || '安装程序'}` : '打开发布页';
       $('update-modal').classList.remove('hidden');
     } else {
-      $('update-status').textContent = '当前已是最新版本';
+      notify('当前已是最新版本');
       if (!silent) toast('当前已是最新版本', 'success');
     }
   } catch (e) {
-    if ($('update-status')) $('update-status').textContent = '检查失败：' + e.message;
+    notify('检查失败：' + e.message, 'error');
     if (!silent) toast('检查更新失败：' + e.message, 'error');
   }
 }
@@ -2446,6 +2445,14 @@ document.addEventListener('mousedown', (e) => {
   btn.style.setProperty('--ripple-x', (((e.clientX - rect.left) / rect.width) * 100).toFixed(1) + '%');
   btn.style.setProperty('--ripple-y', (((e.clientY - rect.top) / rect.height) * 100).toFixed(1) + '%');
 }, true);
+
+/* ====== 统一状态消息：所有状态/进度/错误都走这里（提示条 + 运行日志）====== */
+function notify(message, type = 'info') {
+  const msg = String(message == null ? '' : message);
+  if (!msg) return;
+  try { logLine(msg); } catch (e) {}
+  try { toast(msg, type); } catch (e) {}
+}
 
 /* ====== 复制到剪贴板（房间号/用户ID/日志等按钮调用）====== */
 async function copyText(text) {
