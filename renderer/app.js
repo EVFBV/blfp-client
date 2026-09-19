@@ -1952,8 +1952,8 @@ function applyGlassPrefs(prefs) {
   document.documentElement.style.setProperty('--glass-opacity', String(p.opacity / 100));        // 72% → 0.72
   document.documentElement.style.setProperty('--glass-scatter', String(p.scatter / 100));        // 60 → 0.6
   document.documentElement.style.setProperty('--glass-refraction', String(p.refraction / 100));  // 30 → 0.3
-  document.documentElement.style.setProperty('--glass-glow-size', (p.glow * 0.08).toFixed(2) + 'px'); // 50 → 4px
-  document.documentElement.style.setProperty('--glass-glow-spread', (p.glow * 0.05).toFixed(2) + 'px');
+  document.documentElement.style.setProperty('--glass-glow-size', (p.glow * 0.08).toFixed(2)); // 50 → 4px
+  document.documentElement.style.setProperty('--glass-glow-spread', (p.glow * 0.05).toFixed(2));
   document.documentElement.style.setProperty('--lg-accent-h', String(p.accentHue));
 }
 
@@ -1987,7 +1987,6 @@ function initGlassControls() {
       });
     }
   });
-  hookGlassSlidersToEngine();
 }
 
 /* ============ 首页公告（新）============ */
@@ -2586,54 +2585,6 @@ function categorizeUserSettings() {
         badge.style.cssText = 'font-size:.66rem;color:var(--text3);margin-left:8px;padding:2px 8px;border-radius:8px;background:rgba(255,255,255,0.04)';
         label.appendChild(badge);
       }
-    }
-  });
-}
-
-
-/* ====== 液态玻璃折射引擎：元素挂载 + 设置联动 ====== */
-(function initLiquidGlassRefraction() {
-  // 小中型控件挂折射滤镜（大表面不挂，保性能）
-  const REFRACT_SELECTORS = [
-    '.window-titlebar',
-    '.btn',
-    '.home-action-btn',
-    '.mode-card',
-    '.frp-node-item',
-    '.public-room',
-    '.switch',
-    '.nav-item'
-  ];
-  function mountRefract() {
-    REFRACT_SELECTORS.forEach((sel) => {
-      document.querySelectorAll(sel + ':not(.lg-refract)').forEach((el) => {
-        el.classList.add('lg-refract');
-      });
-    });
-  }
-  mountRefract();
-  // 动态渲染的元素（房间列表等）也挂上
-  setInterval(mountRefract, 2000);
-  // 首次渲染后
-  document.addEventListener('DOMContentLoaded', () => setTimeout(mountRefract, 300));
-})();
-
-/* 设置页滑块 → 液态玻璃引擎 */
-function hookGlassSlidersToEngine() {
-  const map = [
-    ['glass-refraction', (v) => ({ refraction: Math.max(0.02, v / 100 * 0.8) })],  /* 折射强度 */
-    ['glass-scatter',    (v) => ({ bezelWidth: Math.max(8, v * 0.7) })],          /* 边带宽度 */
-    ['glass-glow',       (v) => ({ specularOpacity: v / 100 * 0.9 })],            /* 镜面高光 */
-  ];
-  map.forEach(([id, fn]) => {
-    const slider = $(id);
-    if (slider && !slider.dataset.lgHooked) {
-      slider.dataset.lgHooked = '1';
-      slider.addEventListener('input', () => {
-        if (window.LiquidGlass) window.LiquidGlass.update(fn(Number(slider.value)));
-      });
-      // 初始化时应用一次
-      if (window.LiquidGlass) window.LiquidGlass.update(fn(Number(slider.value)));
     }
   });
 }
