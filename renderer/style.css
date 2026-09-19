@@ -2103,3 +2103,25 @@ input[type="checkbox"]:not(.lg-raw):checked {
   background-color: #3BBF4EEE;
   background-position: 20px 0;
 }
+
+
+/* ============================================================================
+ * 修正：.switch 内的原生 checkbox 必须彻底隐藏
+ * 原因：上一条裸 checkbox 美化规则（input[type=checkbox]:not(.lg-raw)）
+ *       特异性高于 .switch input，把本该隐藏的原生复选框显示了出来，
+ *       导致每个开关上都叠着白色圆点/白块。
+ * ========================================================================= */
+.switch input[type="checkbox"] {
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  position: absolute !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  background: none !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  border: 0 !important;
+  pointer-events: none;
+  margin: 0;
+}
