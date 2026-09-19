@@ -2025,10 +2025,12 @@ function applyLGParams(prefs) {
   r.setProperty('--lg-frost', String(p.frost));
   r.setProperty('--lg-tint-rgb', hexToRgbTriplet(p.tintColor));
   r.setProperty('--lg-tint-alpha', String(p.tintOpacity / 100));
-  /* 噪点频率：0.001~0.05 → 纹理尺寸反比（频率越高颗粒越细） */
+  /* 噪点频率 / 强度 → 直接写进官方滤镜（feTurbulence baseFrequency + feDisplacementMap scale） */
   const freq = Math.max(0.001, p.noiseFreq / 1000);
-  r.setProperty('--lg-noise-size', (2 / freq).toFixed(1) + 'px');
-  r.setProperty('--lg-noise-alpha', String(Math.min(1, p.noiseStrength / 100)));
+  const turb = document.getElementById('lg-turbulence');
+  if (turb) turb.setAttribute('baseFrequency', String(freq));
+  const disp = document.getElementById('lg-displacement');
+  if (disp) disp.setAttribute('scale', String(p.noiseStrength));
   r.setProperty('--lg-noise-freq', String(freq));
   r.setProperty('--lg-inner-color-rgb', hexToRgbTriplet(p.innerColor));
   r.setProperty('--lg-inner-blur', p.innerBlur + 'px');

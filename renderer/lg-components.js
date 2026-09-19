@@ -463,10 +463,8 @@
   }
 
   function enhanceControls() {
-    /* 覆盖全部复选框：label.switch 结构 与 裸 checkbox（如公告弹窗"今日不再显示"） */
-    document.querySelectorAll('label.switch input[type=checkbox], input[type=checkbox]').forEach(function (input) {
-      try { enhanceOneSwitch(input); } catch (e) { console.warn('[LG] switch enhance failed', e); }
-    });
+    /* 开关：已改为纯 CSS 官方样式（见 style.css 末尾），不再用 JS 逐个替换；
+       这里只处理滑块。 */
     /* 滑块 */
     document.querySelectorAll('input[type=range]').forEach(function (rng) {
       if (rng.dataset.lgEnhanced) return;
