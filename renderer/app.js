@@ -14,6 +14,9 @@ const GITHUB_REPO_URL = 'https://github.com/EVFBV/BLFP-client';
 const state = {
   server: DEFAULT_SERVER,
   chatServer: DEFAULT_CHAT_SERVER,   // 聊天/公告专用服务器
+  chatWs: null,        // 聊天室独立 WebSocket
+  roomInfo: null,      // 房间信息（加入后由服务端下发）
+  geetestValidate: null, // 极验验证回调
   token: null,
   user: null,
   mode: 'easytier',
@@ -2230,9 +2233,18 @@ function sendChatMessage() {
   input.value = '';
 }
 
+let chatDedupeMap = new Map();   /* key -> 时间戳，避免同一条广播被两个连接各渲染一次 */
 function renderChatMessage(msg) {
   const container = $('chat-messages');
   if (!container) return;
+  const key = String(msg.userId || '') + '|' + String(msg.username || '') + '|' + String(msg.text || '') + '|' + String(msg.at || '');
+  const now = Date.now();
+  const last = chatDedupeMap.get(key);
+  if (last && now - last < 5000) return;      /* 5 秒内同一条消息只渲染一次 */
+  chatDedupeMap.set(key, now);
+  if (chatDedupeMap.size > 200) {
+    for (const [k, t] of chatDedupeMap) { if (now - t > 10000) chatDedupeMap.delete(k); }
+  }
   const isOwn = msg.local || (state.user && msg.userId === state.user.id);
   const el = document.createElement('div');
   el.className = 'chat-msg' + (isOwn ? ' self' : '') + (msg.system ? ' system' : '');
@@ -2355,81 +2367,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 })();
 
 // ====== 登录页 ======
-function initAuth() {
-  const authWrap = document.getElementById('auth-wrap');
-  if (!authWrap) return;
-  
-  const tabs = authWrap.querySelectorAll('.auth-tab');
-  const forms = authWrap.querySelectorAll('.auth-form');
-  
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      tabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      forms.forEach(f => f.classList.add('hidden'));
-      const target = document.getElementById(tab.dataset.form);
-      if (target) target.classList.remove('hidden');
-    });
-  });
-  
-  // 登录/注册按钮事件
-  const loginBtn = authWrap.querySelector('.btn-login');
-  const registerBtn = authWrap.querySelector('.btn-register');
-  
-  if (loginBtn) {
-    loginBtn.addEventListener('click', async () => {
-      const username = authWrap.querySelector('#login-username')?.value;
-      const password = authWrap.querySelector('#login-password')?.value;
-      if (!username || !password) return showToast('请输入用户名和密码');
-      try {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
-        if (data.success) {
-          showToast('登录成功');
-          // 隐藏登录页，显示主界面
-          // ...
-        } else {
-          showToast(data.message || '登录失败');
-        }
-      } catch(e) {
-        showToast('网络错误');
-      }
-    });
-  }
-  
-  if (registerBtn) {
-    registerBtn.addEventListener('click', async () => {
-      const username = authWrap.querySelector('#reg-username')?.value;
-      const password = authWrap.querySelector('#reg-password')?.value;
-      const email = authWrap.querySelector('#reg-email')?.value;
-      if (!username || !password) return showToast('请输入用户名和密码');
-      try {
-        const res = await fetch('/api/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password, email })
-        });
-        const data = await res.json();
-        if (data.success) {
-          showToast('注册成功');
-        } else {
-          showToast(data.message || '注册失败');
-        }
-      } catch(e) {
-        showToast('网络错误');
-      }
-    });
-  }
-}
+/* 旧的 initAuth 死代码已删除（引用了不存在的 #auth-wrap 和未定义的 showToast，登录逻辑由 submitLogin 处理） */
 
-// 页面加载后初始化
-document.addEventListener('DOMContentLoaded', () => {
-  initAuth();
-});
+
 
 
 /* ====== 主页欢迎语随时间切换 ====== */
@@ -2453,6 +2393,51 @@ function updateWelcomeText() {
 }
 // 每 60 秒刷新一次（跨时段自动切换）
 setInterval(updateWelcomeText, 60000);
+
+/* ====== 设置页「实时日志(PowerShell)」按钮 ====== */
+async function toggleLiveLog() {
+  try {
+    if (window.mclink && window.mclink.openLogExternal) {
+      await window.mclink.openLogExternal();
+      toast('已在 PowerShell 中打开日志', 'success');
+      return;
+    }
+  } catch (e) { /* 落到下面的提示 */ }
+  toast('无法打开外部日志窗口，请在用户面板点「在 PowerShell 中打开日志」', 'error');
+}
+
+/* ====== 按钮点击水波纹定位（CSS 的 .btn::after 使用 --ripple-x/y）====== */
+document.addEventListener('mousedown', (e) => {
+  const btn = e.target && e.target.closest && e.target.closest('.btn');
+  if (!btn) return;
+  const rect = btn.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  btn.style.setProperty('--ripple-x', (((e.clientX - rect.left) / rect.width) * 100).toFixed(1) + '%');
+  btn.style.setProperty('--ripple-y', (((e.clientY - rect.top) / rect.height) * 100).toFixed(1) + '%');
+}, true);
+
+/* ====== 复制到剪贴板（房间号/用户ID/日志等按钮调用）====== */
+async function copyText(text) {
+  const value = String(text ?? '').trim();
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    toast('已复制：' + value, 'success');
+  } catch (e) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = value;
+      ta.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+      toast('已复制：' + value, 'success');
+    } catch (e2) {
+      toast('复制失败，请手动选择复制', 'error');
+    }
+  }
+}
 
 /* ====== PowerShell 呼出日志 ====== */
 async function openLogInPowerShell() {

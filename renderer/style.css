@@ -505,28 +505,8 @@ body.sidebar-collapsed .sidebar-gear-btn { margin-left: 0; }
 }
 
 /* === 卡片 === */
-/* .card 基础样式由官方实现接管（见文件末尾） */
-
-.card:hover {
-  border-color: rgba(255,255,255,0.12);
-  box-shadow: 
-    inset 0 1px 0 rgba(255,255,255,0.08),
-    0 16px 56px rgba(0,0,0,0.4),
-    0 0 30px hsla(var(--lg-accent-h), 50%, 50%, 0.06);
-  transform: translateY(-2px);
-}
 
 
-.card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  background:
-    radial-gradient(ellipse at 25% 20%, hsla(var(--lg-accent-h), 40%, 60%, 0.04), transparent 60%),
-    radial-gradient(ellipse at 75% 80%, hsla(280, 30%, 50%, 0.03), transparent 50%);
-}
 .card:hover {
   border-color: rgba(255,255,255,0.1);
   box-shadow: 
@@ -1859,9 +1839,7 @@ body.sidebar-collapsed .sidebar-bottom {
   z-index: 1;
 }
 
-/* 圆角跟随官方 borderRadius 参数 */
 .card, .modal, .quick-host-card, .mode-card, .public-room { border-radius: var(--radius-lg); }
-[data-theme="light"] .card::before { background-color: rgba(255,255,255, calc(0 + 0.25)); }
 
 /* ---- 开关：传统样式（accent 轨道 + 白色拇指）---- */
 .switch {
