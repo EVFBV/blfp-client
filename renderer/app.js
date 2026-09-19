@@ -1,5 +1,5 @@
 /* ============ 全局状态 ============ */
-const DEFAULT_SERVER = 'https://p.blfp.cn';
+const DEFAULT_SERVER = 'http://154.40.43.136:4000';
 const GITHUB_REPO_URL = 'https://github.com/EVFBV/BLFP-client';
 const state = {
   server: DEFAULT_SERVER,
@@ -67,7 +67,10 @@ function debugLog(msg) {
 function assertSecureServer(server) {
   const url = new URL(server);
   const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
-  if (url.protocol !== 'https:' && !local) throw new Error('非本地服务器必须使用 HTTPS');
+  if (url.protocol !== 'https:' && !local) {
+    /* 允许 http（自建服务器无证书场景），仅在日志中提醒 */
+    logLine('警告：服务器使用 HTTP 明文传输，登录密码未加密，建议尽快配置 HTTPS');
+  }
   return url;
 }
 
