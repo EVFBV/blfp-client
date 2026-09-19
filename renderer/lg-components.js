@@ -326,12 +326,7 @@
 
     var thumb = document.createElement('div');
     thumb.style.cssText = 'position:absolute;width:' + tw2 + 'px;height:' + th2 + 'px;top:0;border-radius:' + r2 + 'px;cursor:grab;z-index:2;transform-origin:center;will-change:transform;';
-    if (useFilter) {
-      thumb.style.backdropFilter = 'url(#' + filterId + ')';
-      thumb.style.webkitBackdropFilter = 'url(#' + filterId + ')';
-    } else {
-      thumb.style.backdropFilter = 'blur(2px) saturate(1.6)';
-    }
+    thumb.style.backdropFilter = 'blur(2px) saturate(1.6)';
     root.appendChild(track);
     root.appendChild(thumb);
 
@@ -410,48 +405,67 @@
   }
 
 /* ==================== 增强设置页控件 ==================== */
-  function enhanceControls() {
-    /* 开关 */
-    document.querySelectorAll('label.switch').forEach(function (sw) {
-      if (sw.dataset.lgEnhanced) return;
-      var input = sw.querySelector('input[type=checkbox]');
-      if (!input) return;
-      sw.dataset.lgEnhanced = '1';
-      /* 找到外层 toggle-label 行（开关必须移出 label，否则点击会双触发） */
-      var row = sw.closest('.toggle-label') || sw.closest('label') || sw.parentNode;
-      var host = row !== sw.parentNode ? row.parentNode : row;
-      var holder = document.createElement('span');
-      holder.style.cssText = 'display:inline-flex;align-items:center;margin-left:auto;flex-shrink:0;';
-      if (host) host.insertBefore(holder, row.nextSibling);
-      else sw.parentNode.insertBefore(holder, sw.nextSibling);
-      var suppress = false;
-      var comp = createLGSwitch(holder, {
-        checked: input.checked,
-        scale: 0.3,
-        onChange: function (val) {
-          if (suppress) return;
-          if (input.checked !== val) {
-            suppress = true;
-            input.checked = val;
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-            suppress = false;
-          }
+  /* 单个开关：把「原生 checkbox(+可选外层行)」换成液态玻璃开关 */
+  function enhanceOneSwitch(input, opts) {
+    if (!input || input.dataset.lgSwitchDone) return;
+    var sw = input.closest('label.switch');
+    var row = (sw && (sw.closest('.toggle-label') || sw.closest('label'))) || input.closest('label') || input.parentNode;
+    /* 独立 checkbox（不在 label 内）时，行就是它的父容器 */
+    if (!sw) {
+      var lbl = input.closest('label');
+      row = lbl || input.parentNode;
+    }
+    input.dataset.lgSwitchDone = '1';
+    /* 隐藏原生控件（label.switch 整块隐藏；裸 checkbox 只隐藏自己） */
+    if (sw) sw.style.display = 'none';
+    else input.style.display = 'none';
+
+    var holder = document.createElement('span');
+    holder.style.cssText = 'display:inline-flex;align-items:center;' + (opts && opts.inline ? '' : 'margin-left:auto;') + 'flex-shrink:0;';
+    if (sw) {
+      var host = row && row !== sw.parentNode ? row.parentNode : row;
+      if (host && host.insertBefore) host.insertBefore(holder, row.nextSibling);
+      else (sw.parentNode || input.parentNode).insertBefore(holder, sw.nextSibling);
+    } else {
+      /* 裸 checkbox：直接插在它后面（或 label 内末尾） */
+      var insertParent = input.parentNode;
+      if (insertParent) insertParent.insertBefore(holder, input.nextSibling);
+    }
+
+    var suppress = false;
+    var comp = createLGSwitch(holder, {
+      checked: !!input.checked,
+      scale: 0.3,
+      onChange: function (val) {
+        if (suppress) return;
+        if (input.checked !== val) {
+          suppress = true;
+          input.checked = val;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          suppress = false;
+        }
+      }
+    });
+    input.addEventListener('change', function () { if (comp) comp.set(!!input.checked); });
+    /* 整行点击也能切换（label 会转发给 checkbox；非 label 行由这里兜底） */
+    var clickRow = (sw ? row : (input.closest('label') || null));
+    if (clickRow && clickRow.addEventListener) {
+      clickRow.addEventListener('click', function (e) {
+        if (holder.contains(e.target)) return;      /* 点开关本体交给组件自己处理 */
+        if (e.target === input) return;             /* 原生 input 自己有行为 */
+        var next = !input.checked;
+        if (input.checked !== next) {
+          input.checked = next;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
         }
       });
-      /* 原生 input 变化（如整行 label 点击触发）→ 同步视觉 */
-      input.addEventListener('change', function () { if (comp) comp.set(input.checked); });
-      /* 整行点击也能切换（label 默认会转发到 checkbox，这里确保任何位置都响应） */
-      if (row && row.addEventListener) {
-        row.addEventListener('click', function (e) {
-          /* 点击在 lg-switch 上的由组件自己处理，避免双触发 */
-          if (holder.contains(e.target)) return;
-          var next = !input.checked;
-          if (input.checked !== next) {
-            input.checked = next;
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-          }
-        });
-      }
+    }
+  }
+
+  function enhanceControls() {
+    /* 覆盖全部复选框：label.switch 结构 与 裸 checkbox（如公告弹窗"今日不再显示"） */
+    document.querySelectorAll('label.switch input[type=checkbox], input[type=checkbox]').forEach(function (input) {
+      try { enhanceOneSwitch(input); } catch (e) { console.warn('[LG] switch enhance failed', e); }
     });
     /* 滑块 */
     document.querySelectorAll('input[type=range]').forEach(function (rng) {
@@ -483,9 +497,45 @@
 
   window.LGComponents = { enhance: enhanceControls, createLGSwitch: createLGSwitch, createLGSlider: createLGSlider };
 
+  /* 自动增强：任何页面/弹窗/动态内容里出现的新开关都会在 120ms 内被替换 */
+  var enhanceTimer = null;
+  function scheduleEnhance() {
+    if (enhanceTimer) return;
+    enhanceTimer = setTimeout(function () {
+      enhanceTimer = null;
+      try { enhanceControls(); } catch (e) {}
+    }, 120);
+  }
+
   function boot() {
     try { enhanceControls(); } catch (e) { console.warn('[LG] enhance failed', e); }
     setTimeout(function () { try { enhanceControls(); } catch (e) {} }, 1200);
+    /* 监听 DOM 变化（切页、开弹窗、列表重绘都会触发） */
+    try {
+      var mo = new MutationObserver(function (muts) {
+        for (var i = 0; i < muts.length; i++) {
+          var added = muts[i].addedNodes;
+          for (var j = 0; j < added.length; j++) {
+            var n = added[j];
+            if (n.nodeType !== 1) continue;
+            if (n.matches && (n.matches('input[type=checkbox]') || n.matches('input[type=range]') ||
+                n.matches('label.switch') || n.querySelector && (n.querySelector('input[type=checkbox]:not([data-lg-switch-done])') || n.querySelector('input[type=range]:not([data-lg-enhanced])') || n.querySelector('label.switch')))) {
+              scheduleEnhance();
+              return;
+            }
+          }
+        }
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+    } catch (e) {}
+    /* 切换页面时也强制扫一遍 */
+    document.addEventListener('click', function (e) {
+      var t = e.target;
+      if (t && t.closest && (t.closest('.nav-item') || t.closest('.ftab') || t.closest('[onclick*="navTo"]') || t.closest('[onclick*="Modal"]'))) {
+        setTimeout(scheduleEnhance, 60);
+        setTimeout(scheduleEnhance, 400);
+      }
+    }, true);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
