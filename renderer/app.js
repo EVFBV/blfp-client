@@ -439,14 +439,12 @@ function navTo(page, btn) {
 function toggleSettingsGear() {
   const gearBtn = $('sidebar-gear-btn');
   if (!gearBtn) return;
-  // Toggle .active class: rotate 60° when active, 0° when not
-  const wasActive = gearBtn.classList.contains('active');
-  if (!wasActive && (currentPage === 'settings' || currentPage === 'user-settings')) {
-    gearBtn.classList.add('active');
-  } else if (wasActive) {
+  if (currentPage === 'settings') {
+    // 已在设置页 → 回主页
     gearBtn.classList.remove('active');
+    navTo('home');
   } else {
-    // Navigate to settings
+    // 其他任何页面（含用户面板）→ 进设置
     navTo('settings');
     gearBtn.classList.add('active');
   }
@@ -2588,3 +2586,5 @@ function categorizeUserSettings() {
     }
   });
 }
+
+function navToSettingsFromUser() { navTo('settings'); const g = $('sidebar-gear-btn'); if (g) g.classList.add('active'); }
