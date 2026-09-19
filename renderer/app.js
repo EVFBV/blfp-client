@@ -15,6 +15,7 @@ const state = {
   server: DEFAULT_SERVER,
   chatServer: DEFAULT_CHAT_SERVER,   // 聊天/公告专用服务器
   chatWs: null,        // 聊天室独立 WebSocket
+  publicRooms: [],     // 最近一次获取的公开房间列表（详情降级用）
   roomInfo: null,      // 房间信息（加入后由服务端下发）
   geetestValidate: null, // 极验验证回调
   token: null,
@@ -1891,6 +1892,7 @@ function loadPublicRooms(initial = false) {
   publicRoomsInterval = setInterval(fetchRooms, 30000);
 }
 function renderPublicRooms(rooms) {
+  state.publicRooms = Array.isArray(rooms) ? rooms : [];
   const list = $('public-rooms');
   if (!list) return;
   if (!rooms || !rooms.length) {
@@ -2461,8 +2463,30 @@ async function openLogInPowerShell() {
 
 /* ====== 房间详情（点房间卡片显示详情弹窗） ====== */
 async function showRoomDetail(code) {
+  let fallbackUsed = false;
+  let room;
   try {
-    const room = await api('/rooms/public/' + code + '/detail');
+    room = await api('/rooms/public/' + code + '/detail');
+  } catch (e) {
+    /* 服务器还没有详情接口（旧版本返回 404）时，用房间列表里已有的数据展示 */
+    const cached = (state.publicRooms || []).find((r) => String(r.room_code ?? r.code ?? '') === String(code));
+    if (!cached) {
+      toast('获取房间详情失败: ' + e.message, 'error');
+      return;
+    }
+    fallbackUsed = true;
+    room = {
+      room_code: code,
+      host: cached.host,
+      mode: cached.mode,
+      total: cached.total,
+      max_members: cached.max_members,
+      members: [],
+      latency: null,
+      motd: cached.motd || '',
+    };
+  }
+  try {
     const statsHtml = `
       <div class="room-detail-stat">
         <div class="stat-value ${room.latency < 80 ? 'latency-good' : room.latency < 200 ? 'latency-mid' : 'latency-bad'}">${room.latency ?? '--'} ms</div>
@@ -2484,7 +2508,7 @@ async function showRoomDetail(code) {
     const iconHtml = room.icon
       ? `<img class="room-detail-server-icon" src="${escapeHtml(room.icon)}" onerror="this.style.display='none'">`
       : '';
-    showModal('room-detail-modal', `<h3>房间 ${escapeHtml(code)} 详情</h3>` + iconHtml + `<div class="room-detail-grid">` + statsHtml + `</div><div style="font-size:.78rem;color:var(--text3);margin-bottom:6px">在线成员</div><div class="room-detail-members">` + membersHtml + `</div>` + motdHtml + `<div class="modal-actions"><button class="btn btn-outline btn-sm" onclick="closeModal('room-detail-modal')">关闭</button><button class="btn btn-primary btn-sm" onclick="closeModal('room-detail-modal');quickJoinRoom('${code}')">加入房间</button></div>`);
+    showModal('room-detail-modal', `<h3>房间 ${escapeHtml(code)} 详情</h3>` + iconHtml + (fallbackUsed ? '<div style="font-size:.75rem;color:var(--warn);margin-bottom:8px">服务器未提供详情接口，以下为房间列表数据（更新服务器后可显示成员与延迟）</div>' : '') + `<div class="room-detail-grid">` + statsHtml + `</div><div style="font-size:.78rem;color:var(--text3);margin-bottom:6px">在线成员</div><div class="room-detail-members">` + membersHtml + `</div>` + motdHtml + `<div class="modal-actions"><button class="btn btn-outline btn-sm" onclick="closeModal('room-detail-modal')">关闭</button><button class="btn btn-primary btn-sm" onclick="closeModal('room-detail-modal');quickJoinRoom('${code}')">加入房间</button></div>`);
   } catch (e) {
     toast('获取房间详情失败: ' + e.message, 'error');
   }
