@@ -77,7 +77,10 @@ async function probeServer(url, timeoutMs) {
     const timer = setTimeout(() => ctrl.abort(), timeoutMs || 4000);
     const res = await fetch(url + '/api/health', { signal: ctrl.signal, cache: 'no-store' });
     clearTimeout(timer);
-    return res.ok;
+    if (!res.ok) return false;
+    /* 必须数据库就绪（ready:true）——否则会选到"服务活着但数据库没连上"的实例，报"数据库尚未就绪" */
+    const data = await res.json().catch(() => ({}));
+    return data.ok !== false && data.ready === true;
   } catch (e) { return false; }
 }
 
