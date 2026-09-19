@@ -178,10 +178,10 @@
     return document.body.classList.contains('perf-off') || document.body.classList.contains('perf-low');
   }
 
-  /* ==================== 开关（Switch 1:1） ==================== */
+  /* ==================== 开关（Switch 1:1，状态映射修正版） ==================== */
   function createLGSwitch(host, opts) {
     opts = opts || {};
-    var k = opts.scale || 0.55;                 /* 尺寸缩放，1=模板原尺寸 */
+    var k = opts.scale || 0.42;                 /* 尺寸缩放（1=模板160x67，0.42=67x28 紧凑） */
     var W = 160 * k, H = 67 * k;                /* 轨道 */
     var tw = 146 * k, th = 92 * k, tr = 46 * k; /* 拇指 */
     var bezel = Math.max(3, Math.round(19 * k));
@@ -191,6 +191,7 @@
     var checked = !!opts.checked;
     var onChange = opts.onChange || function () {};
     var pressed = false;
+    var dragging = false;
 
     var filterId = 'lg-sw-' + (++uid);
     var useFilter = false;
@@ -200,7 +201,7 @@
           w: Math.round(tw), h: Math.round(th), radius: Math.round(tr),
           bezelWidth: bezel, glassThickness: thick, refractiveIndex: 1.5,
           bezelType: 'lip', blur: 0.2, specularOpacity: 0.5, specularSaturation: 6,
-          scaleRatio: 0.4 + 0.5 * (checked ? 1 : 0)
+          scaleRatio: 0.4
         });
         useFilter = true;
       } catch (e) { useFilter = false; }
@@ -213,7 +214,7 @@
     var thumb = document.createElement('div');
     var left0 = (-25.55 + (67 - 92 * F) / 2) * k;
     thumb.style.cssText = 'position:absolute;width:' + tw + 'px;height:' + th + 'px;border-radius:' + tr + 'px;' +
-      'top:' + (H / 2) + 'px;left:' + left0 + 'px;transform-origin:center;z-index:2;will-change:transform,background-color;';
+      'top:' + (H / 2) + 'px;left:' + left0 + 'px;transform-origin:center;z-index:2;will-change:transform;';
     if (useFilter) {
       thumb.style.backdropFilter = 'url(#' + filterId + ')';
       thumb.style.webkitBackdropFilter = 'url(#' + filterId + ')';
@@ -222,11 +223,11 @@
     }
     root.appendChild(thumb);
 
-    /* 状态弹簧 */
-    var xS = spring(checked ? v : 0, 1000, 80, render);
-    var sS = spring(checked ? R2 : F, 2000, 80, render);
-    var aS = spring(checked ? 0.1 : 1, 2000, 80, render);
-    var cS = spring(checked ? 1 : 0, 1000, 80, render);
+    /* 状态弹簧 —— 关键修正：缩放/透明度受 pressed 驱动，非 checked */
+    var xS = spring(checked ? v : 0, 1000, 80, render);       /* 位置：checked 驱动 */
+    var cS = spring(checked ? 1 : 0, 1000, 80, render);       /* 轨道色：checked 驱动 */
+    var sS = spring(F, 2000, 80, render);                     /* 缩放：pressed 驱动 */
+    var aS = spring(1, 2000, 80, render);                     /* 透明度：pressed 驱动 */
 
     function trackColor(e) {
       var r = Math.round(148 + (59 - 148) * e);
@@ -245,21 +246,24 @@
     }
     render();
 
+    function setPressed(on) {
+      sS.set(on ? R2 : F);
+      aS.set(on ? 0.1 : 1);
+      if (useFilter) setFilterRatio(filterId, on ? 0.9 : 0.4);
+    }
+
     function setChecked(val, silent) {
       checked = val;
       xS.set(checked ? v : 0);
-      sS.set(checked ? R2 : F);
-      aS.set(checked ? 0.1 : 1);
       cS.set(checked ? 1 : 0);
-      if (useFilter) setFilterRatio(filterId, 0.4 + 0.5 * (checked ? 1 : 0));
       if (!silent) onChange(checked);
     }
 
     /* 拖拽 + 点击 */
-    var dragX0 = 0, moved = false, dragging = false;
+    var dragX0 = 0, moved = false;
     function px(e) { return e.touches ? e.touches[0].clientX : e.clientX; }
     function down(e) {
-      dragging = true; moved = false; dragX0 = px(e); pressed = true; render();
+      dragging = true; moved = false; dragX0 = px(e); pressed = true; setPressed(true); render();
       e.preventDefault();
     }
     function move(e) {
@@ -267,13 +271,13 @@
       var dx = px(e) - dragX0;
       if (Math.abs(dx) > 4) moved = true;
       var raw = (checked ? v : 0) + dx;
-      var shown = raw < 0 ? raw * 0.6 : (raw > v ? v + (raw - v) * 0.4 : raw); /* 橡皮筋 */
+      var shown = raw < 0 ? raw * 0.6 : (raw > v ? v + (raw - v) * 0.4 : raw);
       xS.jump(shown);
       e.preventDefault();
     }
     function up() {
       if (!dragging) return;
-      dragging = false; pressed = false;
+      dragging = false; pressed = false; setPressed(false);
       if (moved) setChecked(xS.get() > v / 2);
       else setChecked(!checked);
       render();
@@ -292,27 +296,27 @@
     };
   }
 
-  /* ==================== 滑块（Slider 1:1） ==================== */
+/* ==================== 滑块（Slider 1:1，紧凑+拖动防回写） ==================== */
   function createLGSlider(host, opts) {
     opts = opts || {};
-    var k = (opts.width || 240) / 330;
-    var W = 330 * k, H = 60 * k;                 /* 容器 */
-    var thTrack = 14 * k;                        /* 轨道高 */
-    var tw2 = 90 * k, th2 = 60 * k, r2 = 30 * k; /* 拇指 */
-    var bezel = Math.max(2, Math.round(16 * k));
-    var thick = Math.max(5, Math.round(80 * k));
+    var k = (opts.width || 220) / 330;
+    var W = 330 * k, H = 34;                       /* 容器固定矮高 */
+    var thTrack = 6;                               /* 轨道高 */
+    var tw2 = 50, th2 = 34, r2 = 17;               /* 拇指（紧凑） */
+    var bezel = Math.max(2, Math.round(16 * (tw2 / 90)));
+    var thick = Math.max(5, Math.round(80 * (tw2 / 90)));
     var min = opts.min !== undefined ? opts.min : 0;
     var max = opts.max !== undefined ? opts.max : 100;
     var pct = ((opts.value !== undefined ? opts.value : min) - min) / (max - min || 1) * 100;
     var onChange = opts.onChange || function () {};
-    var pressed = false, hovered = false;
+    var pressed = false, hovered = false, dragging = false;
 
     var filterId = 'lg-sl-' + (++uid);
     var useFilter = false;
     if (!perfOff() && typeof ImageData === 'function') {
       try {
         ensureFilter(filterId, {
-          w: Math.round(tw2), h: Math.round(th2), radius: Math.round(r2),
+          w: tw2, h: th2, radius: r2,
           bezelWidth: bezel, glassThickness: thick, refractiveIndex: 1.45,
           bezelType: 'convex_squircle', blur: 0, specularOpacity: 0.4, specularSaturation: 7,
           scaleRatio: 0.4
@@ -323,31 +327,28 @@
 
     var root = document.createElement('div');
     root.className = 'lg-slider';
-    root.style.cssText = 'position:relative;width:' + W + 'px;height:' + H + 'px;flex:1;min-width:120px;touch-action:none;';
+    root.style.cssText = 'position:relative;width:' + W + 'px;height:' + H + 'px;flex:1;min-width:100px;touch-action:none;';
 
     var track = document.createElement('div');
     track.style.cssText = 'position:absolute;left:0;top:' + ((H - thTrack) / 2) + 'px;width:' + W + 'px;height:' + thTrack + 'px;border-radius:' + (thTrack / 2) + 'px;background:#89898F66;cursor:pointer;';
     var fill = document.createElement('div');
-    fill.style.cssText = 'height:100%;width:' + pct + '%;border-radius:' + (6 * k) + 'px;background:#0377F7;';
-    var fillWrap = document.createElement('div');
-    fillWrap.style.cssText = 'width:100%;height:100%;overflow:hidden;border-radius:inherit;';
-    fillWrap.appendChild(fill);
-    track.appendChild(fillWrap);
+    fill.style.cssText = 'height:100%;width:' + pct + '%;border-radius:' + (thTrack / 2) + 'px;background:#0377F7;';
+    track.appendChild(fill);
 
     var thumb = document.createElement('div');
-    thumb.style.cssText = 'position:absolute;width:' + tw2 + 'px;height:' + th2 + 'px;top:0;border-radius:' + r2 + 'px;cursor:pointer;z-index:2;transform-origin:center;will-change:transform,background-color;';
+    thumb.style.cssText = 'position:absolute;width:' + tw2 + 'px;height:' + th2 + 'px;top:0;border-radius:' + r2 + 'px;cursor:grab;z-index:2;transform-origin:center;will-change:transform;';
     if (useFilter) {
       thumb.style.backdropFilter = 'url(#' + filterId + ')';
       thumb.style.webkitBackdropFilter = 'url(#' + filterId + ')';
     } else {
-      thumb.style.backdropFilter = 'blur(' + (2 * k) + 'px) saturate(1.6)';
+      thumb.style.backdropFilter = 'blur(2px) saturate(1.6)';
     }
     root.appendChild(track);
     root.appendChild(thumb);
 
-    /* 拇指行程: center ∈ [tw2/2, W - tw2/2] */
     var leftMin = 0, leftMax = W - tw2;
-    function valueToPct(p) { return Math.max(0, Math.min(100, p)); }
+    function clampX(x) { return Math.max(leftMin - 4, Math.min(leftMax + 4, x)); }
+    function xToPct(x) { return Math.max(0, Math.min(100, (x - leftMin) / ((leftMax - leftMin) || 1) * 100)); }
     function pctToX(p) { return leftMin + (leftMax - leftMin) * (p / 100); }
 
     var xS = spring(pctToX(pct), 1000, 80, render);
@@ -357,11 +358,8 @@
     function render() {
       thumb.style.transform = 'translateX(' + xS.get() + 'px) scale(' + sS.get() + ')';
       thumb.style.backgroundColor = 'rgba(255, 255, 255, ' + aS.get().toFixed(3) + ')';
-      thumb.style.boxShadow = '0 ' + (3 * k) + 'px ' + (14 * k) + 'px rgba(0,0,0,0.1)';
-      var p = valueToPct((xS.get() + tw2 / 2 - tw2 / 2 - leftMin) / ((leftMax - leftMin) || 1) * 100);
-      /* 直接由 x 换算填充 */
-      var pp = valueToPct((xS.get() - leftMin) / ((leftMax - leftMin) || 1) * 100);
-      fill.style.width = pp + '%';
+      thumb.style.boxShadow = '0 2px 10px rgba(0,0,0,0.12)';
+      fill.style.width = xToPct(xS.get()) + '%';
     }
     render();
 
@@ -369,15 +367,16 @@
       var on = pressed || hovered;
       sS.set(on ? 1 : 0.6);
       aS.set(on ? 0.1 : 1);
-      if (useFilter) setFilterRatio(filterId, 0.4 + 0.5 * (on ? 1 : 0));
+      if (useFilter) setFilterRatio(filterId, on ? 0.9 : 0.4);
     }
 
+    /* 拖动中不回写（防飞） */
     function emit() {
-      var pp = valueToPct((xS.get() - leftMin) / ((leftMax - leftMin) || 1) * 100);
+      var pp = xToPct(xS.get());
       onChange(min + (max - min) * pp / 100);
     }
 
-    var dragX0 = 0, x0 = 0, dragging = false;
+    var dragX0 = 0, x0 = 0;
     function px(e) { return e.touches ? e.touches[0].clientX : e.clientX; }
     function down(e) {
       dragging = true; pressed = true; setActive();
@@ -387,8 +386,7 @@
     function move(e) {
       if (!dragging) return;
       var dx = px(e) - dragX0;
-      var nx = Math.max(leftMin - 6, Math.min(leftMax + 6, x0 + dx));
-      xS.jump(nx);
+      xS.jump(clampX(x0 + dx));
       emit();
       e.preventDefault();
     }
@@ -404,7 +402,6 @@
     window.addEventListener('touchend', up);
     thumb.addEventListener('mouseenter', function () { hovered = true; setActive(); });
     thumb.addEventListener('mouseleave', function () { hovered = false; setActive(); });
-    /* 点击轨道跳转 */
     track.addEventListener('mousedown', function (e) {
       var rect = root.getBoundingClientRect();
       var cx = e.clientX - rect.left - tw2 / 2;
@@ -415,13 +412,15 @@
     host.appendChild(root);
     return {
       set: function (val) {
-        var p = valueToPct(((val !== undefined ? val : min) - min) / (max - min || 1) * 100);
-        xS.set(pctToX(p));
+        if (dragging) return;   /* 拖动中禁止外部回写，防飞 */
+        var p = xToPct(xS.get());
+        var np = ((val !== undefined ? val : min) - min) / (max - min || 1) * 100;
+        if (Math.abs(np - p) > 0.5) xS.set(pctToX(np));
       }
     };
   }
 
-  /* ==================== 增强设置页控件 ==================== */
+/* ==================== 增强设置页控件 ==================== */
   function enhanceControls() {
     /* 开关 */
     document.querySelectorAll('label.switch').forEach(function (sw) {
