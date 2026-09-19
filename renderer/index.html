@@ -14,16 +14,7 @@
   </style>
 </head>
 <body>
-<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
-  <defs>
-    <!-- 官方 liquid-glass.pro 折射滤镜 -->
-    <filter id="glass-distortion" x="0%" y="0%" width="100%" height="100%">
-      <feTurbulence id="lg-turbulence" type="fractalNoise" baseFrequency="0.008" numOctaves="2" seed="92" result="noise"/>
-      <feGaussianBlur in="noise" stdDeviation="2" result="blurred"/>
-      <feDisplacementMap id="lg-displacement" in="SourceGraphic" in2="blurred" scale="77" xChannelSelector="R" yChannelSelector="G"/>
-    </filter>
-  </defs>
-</svg>
+
 
 
 <div class="window-titlebar">
@@ -359,8 +350,6 @@
           <div class="lg-param"><label>毛玻璃模糊</label><input type="range" id="lg-frost" min="0" max="40" value="0"><span class="value-display" id="lg-frost-val">0px</span></div>
           <div class="lg-param"><label>玻璃着色</label><input type="color" id="lg-tint-color" value="#ffffff"><span class="value-display" id="lg-tint-color-val">#ffffff</span></div>
           <div class="lg-param"><label>着色不透明度</label><input type="range" id="lg-tint-opacity" min="0" max="100" value="0"><span class="value-display" id="lg-tint-opacity-val">0%</span></div>
-          <div class="lg-param"><label>噪点频率</label><input type="range" id="lg-noise-freq" min="1" max="50" value="8"><span class="value-display" id="lg-noise-freq-val">0.008</span></div>
-          <div class="lg-param"><label>噪点强度</label><input type="range" id="lg-noise-strength" min="0" max="200" value="77"><span class="value-display" id="lg-noise-strength-val">77</span></div>
           <div class="lg-param"><label>内阴影颜色</label><input type="color" id="lg-inner-color" value="#ffffff"><span class="value-display" id="lg-inner-color-val">#ffffff</span></div>
           <div class="lg-param"><label>内阴影模糊</label><input type="range" id="lg-inner-blur" min="0" max="60" value="20"><span class="value-display" id="lg-inner-blur-val">20px</span></div>
           <div class="lg-param"><label>内阴影扩散</label><input type="range" id="lg-inner-spread" min="-30" max="20" value="-5"><span class="value-display" id="lg-inner-spread-val">-5px</span></div>

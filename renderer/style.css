@@ -1963,54 +1963,22 @@ body.sidebar-collapsed .sidebar-bottom {
  * ========================================================================= */
 
 /* ---- 官方 .liquid-glass 视觉层（原样） ---- */
-.glass-card,
-.sidebar-glass,
-.modal,
-.auth-box,
-.quick-host-card,
-.mode-card,
-.public-room {
-  position: relative;
-  isolation: isolate;
-  box-shadow: 0px 6px 24px rgba(0, 0, 0, 0.2);
-  border: none;
-  background: none;
-}
-.glass-card::before,
-.sidebar-glass::before,
-.modal::before,
-.auth-box::before,
-.quick-host-card::before,
-.mode-card::before,
-.public-room::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  border-radius: inherit;
-  box-shadow: inset 0 0 var(--lg-inner-blur, 20px) var(--lg-inner-spread, -5px) rgba(var(--lg-inner-color-rgb, 255,255,255), 0.7);
-  background-color: rgba(var(--lg-tint-rgb, 255, 255, 255), var(--lg-tint-alpha, 0));
-  pointer-events: none;
-}
-.glass-card::after,
-.sidebar-glass::after,
-.modal::after,
-.auth-box::after,
-.quick-host-card::after,
-.mode-card::after,
-.public-room::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
+.glass-card, .modal, .auth-box, .quick-host-card, .mode-card, .public-room {
+  border-radius: var(--lg-radius, var(--radius-lg));
+  background: hsla(226, 60%, calc(14% + var(--glass-tint-strength) * 30%), calc(var(--glass-opacity) * 0.55));
   backdrop-filter: blur(calc((var(--glass-blur) + var(--lg-frost, 0)) * 1px)) saturate(calc(var(--glass-saturate) * 100%)) brightness(calc(var(--glass-brightness) * 100%));
   -webkit-backdrop-filter: blur(calc((var(--glass-blur) + var(--lg-frost, 0)) * 1px)) saturate(calc(var(--glass-saturate) * 100%)) brightness(calc(var(--glass-brightness) * 100%));
-  filter: url(#glass-distortion);
-  -webkit-filter: url(#glass-distortion);
-  pointer-events: none;
+  border: 1px solid rgba(255,255,255, calc(var(--glass-border-opacity) * 1.6));
+  box-shadow:
+    inset 0 0 var(--lg-inner-blur, 20px) var(--lg-inner-spread, -5px) rgba(var(--lg-inner-color-rgb, 255,255,255), 0.35),
+    0 6px 24px rgba(0, 0, 0, 0.2);
+  position: relative;
+  overflow: hidden;
+  transition: all var(--fast);
 }
-/* 内容必须浮在玻璃层之上 */
+[data-theme="light"] .glass-card, [data-theme="light"] .modal {
+  background: hsla(220, 50%, 96%, calc(var(--glass-opacity) * 0.75));
+}
 .glass-card > *,
 .modal > *,
 .auth-box > *,
@@ -2025,60 +1993,44 @@ body.sidebar-collapsed .sidebar-bottom {
 .glass-card, .modal, .quick-host-card, .mode-card, .public-room { border-radius: var(--lg-radius, 28px); }
 [data-theme="light"] .glass-card::before { background-color: rgba(255,255,255, calc(var(--lg-tint-alpha) + 0.25)); }
 
-/* ---- 开关：官方技术（噪点位移 + 背景模糊），纯 CSS 覆盖全部开关，无需 JS ---- */
+/* ---- 开关：传统样式（accent 轨道 + 白色拇指）---- */
 .switch {
   position: relative;
   display: inline-block;
   width: 44px;
   height: 24px;
   flex-shrink: 0;
-  isolation: isolate;
 }
 .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
 .switch .slider {
   position: absolute;
   inset: 0;
   border-radius: 12px;
-  background: #94949F77;
-  transition: background var(--base) cubic-bezier(0.34, 1.56, 0.64, 1);
-  overflow: visible;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: background var(--base), border-color var(--base), box-shadow var(--base);
+  cursor: pointer;
 }
-.switch input:checked + .slider { background: #3BBF4EEE; }
 .switch .slider::before {
-  /* 官方玻璃层：噪点位移折射 + 背景模糊 */
   content: '';
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 20px;
-  height: 20px;
-  border-radius: 10px;
-  isolation: isolate;
-  backdrop-filter: blur(2px) saturate(calc(var(--glass-saturate) * 100%));
-  -webkit-backdrop-filter: blur(2px) saturate(calc(var(--glass-saturate) * 100%));
-  filter: url(#glass-distortion);
-  -webkit-filter: url(#glass-distortion);
-  background-color: rgba(255, 255, 255, 0.55);
-  box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.2), inset 0 0 8px -2px rgba(255, 255, 255, 0.7);
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.3s ease;
-  z-index: 1;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.switch .slider::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  box-shadow: inset 0 0 12px -4px rgba(255, 255, 255, 0.5);
-  pointer-events: none;
+.switch input:checked + .slider {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 10px hsla(var(--lg-accent-h), 60%, 55%, 0.35);
 }
 .switch input:checked + .slider::before { transform: translateX(20px); }
-/* 按下：拇指缩小变透（与官网一致的反馈） */
-.switch:active .slider::before,
-.switch input:active + .slider::before {
-  transform: scale(0.9);
-  background-color: rgba(255, 255, 255, 0.15);
-}
-.switch input:checked:active + .slider::before { transform: translateX(20px) scale(0.9); }
+.switch:active .slider::before { transform: scale(0.92); }
+.switch input:checked:active + .slider::before { transform: translateX(20px) scale(0.92); }
 .switch input:focus-visible + .slider { box-shadow: 0 0 0 3px hsla(var(--lg-accent-h), 60%, 55%, 0.35); }
 
 /* 裸 checkbox（未被 label.switch 包裹时）也走同款样式 */

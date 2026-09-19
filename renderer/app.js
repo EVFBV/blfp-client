@@ -2094,8 +2094,6 @@ const DEFAULT_LG_PREFS = {
   frost: 0,            /* frostBlurRadius */
   tintColor: '#ffffff',/* glassTintColor */
   tintOpacity: 0,      /* glassTintOpacity 0-100 */
-  noiseFreq: 8,        /* noiseFrequency *1000（0.008） */
-  noiseStrength: 77,   /* noiseStrength */
   innerColor: '#ffffff', /* innerShadowColor */
   innerBlur: 20,       /* innerShadowBlur */
   innerSpread: -5,     /* innerShadowSpread */
@@ -2129,13 +2127,7 @@ function applyLGParams(prefs) {
   r.setProperty('--lg-frost', String(p.frost));
   r.setProperty('--lg-tint-rgb', hexToRgbTriplet(p.tintColor));
   r.setProperty('--lg-tint-alpha', String(p.tintOpacity / 100));
-  /* 噪点频率 / 强度 → 直接写进官方滤镜（feTurbulence baseFrequency + feDisplacementMap scale） */
-  const freq = Math.max(0.001, p.noiseFreq / 1000);
-  const turb = document.getElementById('lg-turbulence');
-  if (turb) turb.setAttribute('baseFrequency', String(freq));
-  const disp = document.getElementById('lg-displacement');
-  if (disp) disp.setAttribute('scale', String(p.noiseStrength));
-  r.setProperty('--lg-noise-freq', String(freq));
+  /* 噪点参数已移除（折射滤镜已删除） */
   r.setProperty('--lg-inner-color-rgb', hexToRgbTriplet(p.innerColor));
   r.setProperty('--lg-inner-blur', p.innerBlur + 'px');
   r.setProperty('--lg-inner-spread', p.innerSpread + 'px');
@@ -2168,14 +2160,6 @@ function bindLGControls(silent) {
       const label = $(el.id + '-val'); if (label) label.textContent = v + '%';
       return Number(v);
     }],
-    ['lg-noise-freq', 'noiseFreq', (v, el) => {
-      const label = $(el.id + '-val'); if (label) label.textContent = (v / 1000).toFixed(3);
-      return Number(v);
-    }],
-    ['lg-noise-strength', 'noiseStrength', (v, el) => {
-      const label = $(el.id + '-val'); if (label) label.textContent = v;
-      return Number(v);
-    }],
     ['lg-inner-color', 'innerColor', (v, el) => {
       const label = $(el.id + '-val'); if (label) label.textContent = v;
       return v;
@@ -2205,7 +2189,6 @@ function bindLGControls(silent) {
         if (label) {
           if (key === 'radius' || key === 'frost' || key === 'innerBlur' || key === 'innerSpread') label.textContent = cur[key] + 'px';
           else if (key === 'tintOpacity') label.textContent = cur[key] + '%';
-          else if (key === 'noiseFreq') label.textContent = (cur[key] / 1000).toFixed(3);
           else if (key === 'accentHue') label.textContent = cur[key] + '°';
           else label.textContent = cur[key];
         }
@@ -2219,7 +2202,6 @@ function bindLGControls(silent) {
     if (initLabel) {
       if (key === 'radius' || key === 'frost' || key === 'innerBlur' || key === 'innerSpread') initLabel.textContent = p[key] + 'px';
       else if (key === 'tintOpacity') initLabel.textContent = p[key] + '%';
-      else if (key === 'noiseFreq') initLabel.textContent = (p[key] / 1000).toFixed(3);
       else if (key === 'accentHue') initLabel.textContent = p[key] + '°';
       else initLabel.textContent = p[key];
     }
