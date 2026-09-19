@@ -158,6 +158,7 @@ body {
   color: var(--text);
   overflow: hidden;
   display: flex; flex-direction: column;
+  padding-top: 38px;   /* 让出固定标题栏的空间 */
   transition: background-color var(--slow), color var(--slow);
   position: relative;
 }
@@ -198,6 +199,8 @@ body::before {
 .btn-icon { width: 16px; height: 16px; }
 
 .window-titlebar {
+  /* 钉死在窗口最顶端（不参与流式布局，避免被居中的登录容器带偏） */
+  position: fixed; top: 0; left: 0; right: 0;
   height: 38px; flex: 0 0 38px;
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 12px 0 16px;
@@ -207,7 +210,7 @@ body::before {
   border-bottom: 1px solid rgba(var(--glass-glow-color), calc(var(--glass-border-opacity) * 0.5));
   user-select: none;
   -webkit-app-region: drag;
-  position: relative; z-index: 50;
+  z-index: 999;
 }
 /* 标题栏光散射层 */
 .window-titlebar::before {

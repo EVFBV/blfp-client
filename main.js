@@ -34,6 +34,7 @@ function createWindow() {
     minWidth: 860,
     minHeight: 600,
     title: 'BLFP 联机助手',
+    frame: false,                 /* 无原生边框，标题栏完全由 HTML 自己画 */
     titleBarStyle: 'hidden',
     /* 不使用系统 titleBarOverlay——否则会和 HTML 自定义标题栏叠成两条 */
     show: false,
