@@ -1,5 +1,10 @@
 /* ============ 全局状态 ============ */
 const DEFAULT_SERVER = 'http://154.40.43.136:4000';
+/* 多候选服务器：启动时自动探测，哪个能通用哪个（避免单一地址被代理/防火墙挡住就完全用不了） */
+const SERVER_CANDIDATES = [
+  'http://154.40.43.136:4000',   /* 直连 IP（自建服务器） */
+  'https://p.blfp.cn',           /* 域名（Cloudflare 中转，HTTPS） */
+];
 const GITHUB_REPO_URL = 'https://github.com/EVFBV/BLFP-client';
 const state = {
   server: DEFAULT_SERVER,
@@ -64,6 +69,34 @@ function debugLog(msg) {
   if (state.debugMode) logLine('[调试] ' + msg);
 }
 
+
+/* ====== 服务器自动探测：按候选顺序试 /api/health，取第一个可用的 ====== */
+async function probeServer(url, timeoutMs) {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs || 4000);
+    const res = await fetch(url + '/api/health', { signal: ctrl.signal, cache: 'no-store' });
+    clearTimeout(timer);
+    return res.ok;
+  } catch (e) { return false; }
+}
+
+async function resolveServer() {
+  for (const url of SERVER_CANDIDATES) {
+    if (await probeServer(url)) {
+      if (url !== state.server) logLine('已选择服务器: ' + url);
+      state.server = url;
+      const a = $('a-server'); if (a) a.value = url;
+      const s = $('s-server'); if (s) s.value = url;
+      return url;
+    }
+    logLine('服务器不可用，尝试下一个: ' + url);
+  }
+  logLine('警告：所有候选服务器均不可达，使用默认地址 ' + DEFAULT_SERVER);
+  state.server = DEFAULT_SERVER;
+  return DEFAULT_SERVER;
+}
+
 function assertSecureServer(server) {
   const url = new URL(server);
   const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
@@ -117,11 +150,44 @@ async function api(path, opts = {}) {
     if (!res.ok) throw new Error(data.error || '请求失败 (' + res.status + ')');
     return data;
   } catch (e) {
-    if (e.name === 'AbortError') throw new Error('请求超时，请检查网络后重试');
+    if (e.name === 'AbortError') {
+      /* 超时：换一个候选服务器再试一次 */
+      const next = await switchServerCandidate();
+      if (next) return api(path, opts);
+      throw new Error('请求超时，请检查网络后重试');
+    }
+    /* 网络层失败（Failed to fetch 等）：多半是当前地址被代理/防火墙挡住，换候选重试 */
+    if (e instanceof TypeError) {
+      const next = await switchServerCandidate();
+      if (next) {
+        logLine('当前服务器不可达，已切换到 ' + next + ' 并重试');
+        return api(path, opts);
+      }
+      throw new Error('无法连接服务器（' + state.server + '）。可能是本机代理未放行该地址，请尝试关闭系统代理后重试');
+    }
     throw e;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/* 切换到下一个可用候选服务器；没有可切换的返回 null */
+let serverSwitchLock = false;
+async function switchServerCandidate() {
+  if (serverSwitchLock) return null;
+  serverSwitchLock = true;
+  try {
+    const others = SERVER_CANDIDATES.filter((u) => u !== state.server);
+    for (const url of others) {
+      if (await probeServer(url)) {
+        state.server = url;
+        const a = $('a-server'); if (a) a.value = url;
+        const s = $('s-server'); if (s) s.value = url;
+        return url;
+      }
+    }
+    return null;
+  } finally { serverSwitchLock = false; }
 }
 
 function setLoginLoading(show, text = '登录中…') {
@@ -2252,6 +2318,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadSettings();
   } catch (error) {
     showStartupError('设置加载', error);
+  }
+
+  /* 自动探测可用服务器（有代理/防火墙时域名与 IP 哪个通用哪个） */
+  try {
+    await resolveServer();
+  } catch (error) {
+    logLine('服务器探测失败: ' + error.message);
   }
 
   if (!window.mclink) {
