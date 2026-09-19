@@ -360,6 +360,108 @@ ipcMain.handle('easytier-stop', async () => {
   }
 });
 
+
+/* ====== 一键收集诊断信息（用于对比"我的机器能用、别人的不能用"）====== */
+function runCapture(cmd, args, timeout = 6000) {
+  return new Promise((resolve) => {
+    try {
+      require('child_process').execFile(cmd, args, { timeout, windowsHide: true }, (err, stdout, stderr) => {
+        resolve({ ok: !err, out: String(stdout || stderr || (err && err.message) || '').trim() });
+      });
+    } catch (e) { resolve({ ok: false, out: e.message }); }
+  });
+}
+
+ipcMain.handle('collect-diagnostics', async () => {
+  const os = require('os');
+  const fs = require('fs');
+  const path = require('path');
+  const lines = [];
+  const add = (k, v) => lines.push(k + ': ' + v);
+
+  add('时间', new Date().toISOString());
+  add('程序版本', app.getVersion());
+  try {
+    const bi = require(path.join(__dirname, 'renderer', 'build-info.js'));
+  } catch (e) {}
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, 'renderer', 'build-info.js'), 'utf8');
+    add('构建标识', (raw.match(/sha:\s*"([^"]+)"/) || [])[1] || '未知');
+  } catch (e) { add('构建标识', '读取失败'); }
+  add('系统', os.type() + ' ' + os.release() + ' ' + os.arch());
+  add('Electron', process.versions.electron + '  Node ' + process.versions.node);
+  add('安装路径', __dirname);
+  add('resourcesPath', process.resourcesPath || '(无)');
+
+  /* 是否管理员 */
+  const adminCheck = await runCapture('net', ['session']);
+  add('管理员权限', adminCheck.ok ? '是' : '否（虚拟网卡可能无法创建！）');
+
+  /* 运行文件 */
+  const binDir = path.join(process.resourcesPath || '', 'bin');
+  try {
+    const files = fs.readdirSync(binDir);
+    add('bin 目录', binDir);
+    files.forEach((f) => {
+      const st = fs.statSync(path.join(binDir, f));
+      add('  ' + f, (st.size / 1048576).toFixed(1) + ' MB');
+    });
+    if (!files.length) add('  (空)', '缺少运行文件！');
+  } catch (e) { add('bin 目录', '不存在: ' + binDir); }
+
+  /* 网卡（含 EasyTier 虚拟网卡） */
+  const ifaces = os.networkInterfaces();
+  const ipv4 = [];
+  Object.keys(ifaces).forEach((name) => {
+    (ifaces[name] || []).forEach((info) => {
+      if (info && (info.family === 'IPv4' || info.family === 4)) ipv4.push(name + ' = ' + info.address);
+    });
+  });
+  add('网卡 IPv4', ipv4.length ? '\n    ' + ipv4.join('\n    ') : '(无)');
+  add('虚拟网卡', ipv4.some((s) => s.includes('10.200.')) ? '已创建' : '未创建（EasyTier 未运行或 TUN 失败）');
+
+  /* 防火墙规则 */
+  const fw = await runCapture('netsh', ['advfirewall', 'firewall', 'show', 'rule', 'name=BLFP 联机助手']);
+  add('防火墙规则', fw.out.includes('BLFP') ? '已存在' : '不存在（访客可能连不上）');
+
+  /* 网络类别 */
+  const prof = await runCapture('powershell', ['-NoProfile', '-Command', 'Get-NetConnectionProfile | Select-Object -Property InterfaceAlias,NetworkCategory | Format-Table -HideTableHeaders | Out-String']);
+  add('网络类别', '\n    ' + (prof.out || '(读取失败)').split('\n').filter(Boolean).join('\n    '));
+
+  /* 关键节点连通性 */
+  for (const [label, host, port] of [['EasyTier 中继', '47.103.142.240', 11010]]) {
+    const res = await new Promise((resolve) => {
+      const net = require('net');
+      const s = new net.Socket();
+      const t0 = Date.now();
+      let done = false;
+      const fin = (r) => { if (done) return; done = true; try { s.destroy(); } catch (e) {} resolve(r); };
+      s.setTimeout(5000);
+      s.once('connect', () => fin('OK ' + (Date.now() - t0) + ' ms'));
+      s.once('timeout', () => fin('超时 ETIMEDOUT'));
+      s.once('error', (e) => fin('失败 ' + (e.code || e.message)));
+      try { s.connect(port, host); } catch (e) { fin('失败 ' + e.message); }
+    });
+    add(label + ' (' + host + ':' + port + ')', res);
+  }
+  add('服务器 (' + (process.env.BLFP_SERVER || '154.40.43.136:4000') + ')', '(由客户端测速)');
+
+  /* 日志尾部 */
+  try {
+    const logPath = path.join(process.env.APPDATA || process.env.HOME || '.', 'BLFP', 'logs', 'blfp.log');
+    const content = fs.readFileSync(logPath, 'utf8');
+    const tail = content.split(/\r?\n/).filter(Boolean).slice(-40);
+    add('最近日志', '\n    ' + tail.join('\n    '));
+  } catch (e) { add('最近日志', '读取失败'); }
+
+  return lines.join('\n');
+});
+
+ipcMain.handle('is-elevated', async () => {
+  const r = await runCapture('net', ['session']);
+  return r.ok;
+});
+
 ipcMain.handle('easytier-status', async () => easyTierMgr.getStatus());
 ipcMain.handle('easytier-test', async (_e, config) => {
   const hostVirtualIp = typeof config === 'string' ? config : config?.hostVirtualIp;

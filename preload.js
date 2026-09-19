@@ -22,6 +22,10 @@ const blfpApi = {
   close: () => ipcRenderer.invoke('window-close'),
   isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
 
+  // 诊断信息
+  collectDiagnostics: () => ipcRenderer.invoke('collect-diagnostics'),
+  isElevated: () => ipcRenderer.invoke('is-elevated'),
+
   // 退出软件
   exitApp: () => ipcRenderer.invoke('exit-app'),
 

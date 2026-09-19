@@ -1970,3 +1970,21 @@ html, body { height: 100%; }
 /* 弹窗里的公告正文同样保留换行 */
 .announcement-text { white-space: pre-wrap; word-break: break-word; }
 [data-theme="light"] .announcement-content { color: #4a5266; }
+
+
+/* 诊断信息展示 */
+.diag-pre {
+  max-height: 50vh;
+  overflow: auto;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: .74rem;
+  line-height: 1.55;
+  color: var(--text2);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+[data-theme="light"] .diag-pre { background: rgba(0,0,0,0.05); }

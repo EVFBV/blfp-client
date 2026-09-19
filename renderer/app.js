@@ -2458,6 +2458,31 @@ document.addEventListener('mousedown', (e) => {
   btn.style.setProperty('--ripple-y', (((e.clientY - rect.top) / rect.height) * 100).toFixed(1) + '%');
 }, true);
 
+/* ====== 一键导出诊断信息（对比不同机器差异）====== */
+async function exportDiagnostics() {
+  notify('正在收集诊断信息...');
+  try {
+    if (!window.mclink || !window.mclink.collectDiagnostics) {
+      notify('当前版本不支持导出诊断信息', 'error');
+      return;
+    }
+    const text = await window.mclink.collectDiagnostics();
+    let copied = false;
+    try { await navigator.clipboard.writeText(text); copied = true; } catch (e) {}
+    showModal('diag-modal',
+      '<h3>诊断信息' + (copied ? '（已复制到剪贴板）' : '') + '</h3>' +
+      '<p style="font-size:.78rem;color:var(--text2);margin-bottom:10px">把下面内容整段发给开发者，即可定位这台机器与正常机器的差异。</p>' +
+      '<pre class="diag-pre">' + escapeHtml(text) + '</pre>' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-outline btn-sm" onclick="closeModal(\'diag-modal\')">关闭</button>' +
+      '<button class="btn btn-primary btn-sm" onclick="copyText(document.querySelector(\'.diag-pre\').textContent)">复制</button>' +
+      '</div>');
+    notify(copied ? '诊断信息已复制到剪贴板' : '诊断信息已生成', 'success');
+  } catch (e) {
+    notify('收集诊断信息失败: ' + e.message, 'error');
+  }
+}
+
 /* ====== 统一状态消息：所有状态/进度/错误都走这里（提示条 + 运行日志）====== */
 function notify(message, type = 'info') {
   const msg = String(message == null ? '' : message);
