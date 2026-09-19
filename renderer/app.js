@@ -95,7 +95,8 @@ async function apiChat(path, opts) {
   try {
     return await api(path, opts || {}, state.chatServer);
   } catch (e) {
-    if (state.chatServer !== state.server && /数据库尚未就绪|请求失败|无法连接|超时/.test(e.message || '')) {
+    /* 聊天服务器不可用/密钥不一致（401/403）时回退主服务器——主服务器同样能读写公告 */
+    if (state.chatServer !== state.server && /数据库尚未就绪|请求失败|无法连接|超时|未登录|登录已过期|权限/.test(e.message || '')) {
       logLine('聊天/公告服务器请求失败（' + e.message + '），已回退主服务器');
       state.chatServer = state.server;
       return api(path, opts || {}, state.server);
