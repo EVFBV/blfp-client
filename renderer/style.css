@@ -155,14 +155,14 @@ body {
 body::before {
   content: '';
   position: fixed;
-  width: 600px;
-  height: 600px;
+  width: 800px;
+  height: 800px;
   border-radius: 50%;
-  background: radial-gradient(circle, hsla(var(--lg-accent-h), 50%, 40%, 0.08) 0%, transparent 70%);
+  background: radial-gradient(circle, hsla(var(--lg-accent-h), 60%, 50%, 0.12) 0%, hsla(var(--lg-accent-h), 40%, 35%, 0.05) 40%, transparent 70%);
   pointer-events: none;
   z-index: 0;
   transform: translate(-50%, -50%);
-  transition: left 0.05s linear, top 0.05s linear;
+  transition: left 0.03s linear, top 0.03s linear;
   will-change: left, top;
 }
 #app { height: 100%; position: relative; z-index: 2; }
@@ -255,10 +255,12 @@ body::before {
   pointer-events: none;
   border-radius: inherit;
   background: linear-gradient(135deg, 
-    hsla(var(--lg-accent-h), 50%, 50%, 0.03) 0%, 
-    transparent 30%, 
-    transparent 70%, 
-    hsla(var(--lg-accent-h), 30%, 60%, 0.02) 100%);
+    hsla(var(--lg-accent-h), 60%, 60%, 0.06) 0%, 
+    hsla(var(--lg-accent-h), 40%, 40%, 0.02) 20%, 
+    transparent 40%, 
+    transparent 60%, 
+    hsla(280, 30%, 50%, 0.02) 80%,
+    hsla(var(--lg-accent-h), 40%, 50%, 0.04) 100%);
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask-composite: exclude;
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
@@ -1358,7 +1360,8 @@ body.perf-off *, body.perf-off *::before, body.perf-off *::after { transition: n
 #particle-bg {
   position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background: 
-    radial-gradient(ellipse at 20% 50%, hsla(var(--lg-accent-h), 30%, 30%, 0.05) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 50%, hsla(280, 20%, 30%, 0.04) 0%, transparent 50%),
-    radial-gradient(ellipse at 50% 100%, hsla(var(--lg-accent-h), 25%, 25%, 0.03) 0%, transparent 40%);
+    radial-gradient(ellipse at 15% 30%, hsla(var(--lg-accent-h), 40%, 35%, 0.08) 0%, transparent 45%),
+    radial-gradient(ellipse at 85% 60%, hsla(280, 25%, 30%, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 20%, hsla(var(--lg-accent-h), 30%, 25%, 0.05) 0%, transparent 35%),
+    radial-gradient(ellipse at 30% 80%, hsla(200, 30%, 20%, 0.04) 0%, transparent 40%);
 }
