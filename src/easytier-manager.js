@@ -340,7 +340,17 @@ class EasyTierManager extends EventEmitter {
         await this._delay(500);
       }
     }
-    throw new Error(`等待虚拟 IP ${virtualIp} 可绑定超时。请依次检查：1) 是否以管理员身份运行（虚拟网卡需要权限） 2) Windows 防火墙/杀软是否拦截 3) 端口 25565 是否被系统保留（管理员运行: netsh int ipv4 show excludedportrange protocol=tcp）`);
+    /* 虚拟 IP 绑定持续失败（非管理员/杀软拦截等）：回退绑定 0.0.0.0。
+       Windows 上监听 0.0.0.0 同样能收到发往虚拟 IP 的隧道流量（EasyTier 会把包投递到本机）。 */
+    try {
+      const server = await this._listenProxy('0.0.0.0', mcPort, proxyPort);
+      this._proxyServer = server;
+      this._proxyPort = proxyPort;
+      this._log('警告：虚拟 IP ' + virtualIp + ' 绑定失败，已回退监听 0.0.0.0:' + proxyPort + '（建议以管理员身份运行以获得完整的虚拟网卡监听）');
+      return;
+    } catch (fallbackError) {
+      throw new Error('等待虚拟 IP ' + virtualIp + ' 可绑定超时。请依次检查：1) 是否以管理员身份运行（虚拟网卡需要权限） 2) Windows 防火墙/杀软是否拦截 3) 端口 25565 是否被系统保留（管理员运行: netsh int ipv4 show excludedportrange protocol=tcp）');
+    }
   }
 
   _probeTcp(host, port, timeout = 800) {
