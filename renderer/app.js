@@ -1289,8 +1289,9 @@ async function pingStartNode(node) {
   if (!el) return;
   try {
     const t0 = performance.now();
-    await window.electronAPI.pingNode({ host: node.host || node.addr, port: Number(node.port || 443) });
-    const ms = Math.round(performance.now() - t0);
+    const res = await window.mclink.pingNode({ host: node.host || node.addr, port: Number(node.port || 443) });
+    if (!res || !res.ok) { el.textContent = '本机不可达'; el.className = 'frp-node-latency bad'; return; }
+    const ms = Number(res.latency) || Math.round(performance.now() - t0);
     el.textContent = ms + ' ms';
     el.className = 'frp-node-latency ' + (ms < 80 ? 'good' : ms < 200 ? 'mid' : 'bad');
   } catch (e) {
@@ -2456,8 +2457,8 @@ setInterval(updateWelcomeText, 60000);
 /* ====== PowerShell 呼出日志 ====== */
 async function openLogInPowerShell() {
   try {
-    if (window.electronAPI?.openLogExternal) {
-      await window.electronAPI.openLogExternal();
+    if (window.mclink?.openLogExternal) {
+      await window.mclink.openLogExternal();
       toast('已在 PowerShell 中打开日志', 'success');
     } else {
       // 回退：复制日志内容

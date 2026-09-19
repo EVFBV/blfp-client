@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('mclink', {
+const blfpApi = {
   // 端口相关
   scanPorts: () => ipcRenderer.invoke('scan-ports'),
   checkPort: (port) => ipcRenderer.invoke('check-port', port),
@@ -53,4 +53,8 @@ contextBridge.exposeInMainWorld('mclink', {
   openLogExternal: () => ipcRenderer.invoke('open-log-external'),
   setCustomTitlebar: (opts) => ipcRenderer.invoke('set-custom-titlebar', opts),
   setCustomBackground: (opts) => ipcRenderer.invoke('set-custom-background', opts)
-});
+};
+
+/* 同时以 mclink 和 electronAPI 两个名字暴露（历史代码两种写法都有） */
+contextBridge.exposeInMainWorld('mclink', blfpApi);
+contextBridge.exposeInMainWorld('electronAPI', blfpApi);
