@@ -2240,6 +2240,16 @@ function initLGControls() {
 }
 
 /* ============ 首页公告（新）============ */
+/* 公告渲染：标题第一行，正文往下排 */
+function announcementHtml(a) {
+  const title = String((a && a.title) || '').trim();
+  const content = String((a && a.content) || '').trim();
+  return '<div class="announcement-item">' +
+    (title ? '<div class="announcement-title">' + escapeHtml(title) + '</div>' : '') +
+    (content ? '<div class="announcement-content">' + escapeHtml(content) + '</div>' : '') +
+    '</div>';
+}
+
 async function loadAnnouncements() {
   if (!state.token) return;
   try {
@@ -2247,11 +2257,9 @@ async function loadAnnouncements() {
     const container = $('home-announcements');
     if (!container) return;
     if (Array.isArray(data) && data.length > 0) {
-      container.innerHTML = data.map((a) =>
-        `<div class="announcement-item">${escapeHtml(a.content || a.title || '')}</div>`
-      ).join('');
-    } else if (data && data.content) {
-      container.innerHTML = '<div class="announcement-item">' + escapeHtml(data.content) + '</div>';
+      container.innerHTML = data.map(announcementHtml).join('');
+    } else if (data && (data.content || data.title)) {
+      container.innerHTML = announcementHtml(data);
     } else {
       container.innerHTML = '<div class="announcement-item" style="opacity:.7">暂无公告。BLFP 联机助手——与好友畅玩 Minecraft，局域网穿透，零门槛联机。</div>';
     }

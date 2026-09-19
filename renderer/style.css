@@ -2150,3 +2150,23 @@ html, body { height: 100%; }
 [data-theme="light"] .window-titlebar {
   background: hsla(220, 50%, 92%, calc(var(--glass-opacity) * 0.45)) !important;
 }
+
+
+/* ====== 公告：标题 + 正文 ====== */
+.announcement-content {
+  font-size: .85rem;
+  line-height: 1.65;
+  color: var(--text2);
+  white-space: pre-wrap;      /* 正文换行保留 */
+  word-break: break-word;
+}
+.announcement-item .announcement-title {
+  font-size: .95rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+/* 弹窗里的公告正文同样保留换行 */
+.announcement-text { white-space: pre-wrap; word-break: break-word; }
+[data-theme="light"] .announcement-content { color: #4a5266; }
