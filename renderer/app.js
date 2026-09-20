@@ -95,6 +95,39 @@ async function probeServer(url, timeoutMs) {
   } catch (e) { return false; }
 }
 
+/* ====== 登录过期统一处理（JWT 7天到期 / 服务器换密钥 / 改密码 → 所有请求 401）====== */
+let sessionExpiredHandling = false;
+async function handleSessionExpired(message) {
+  if (sessionExpiredHandling) return;
+  sessionExpiredHandling = true;
+  try {
+    notify(message || '登录已过期，请重新登录', 'error');
+    /* 清理房间与隧道，避免留下孤儿进程 */
+    try { if (state.role === 'guest') await leaveRoom(); else if (state.role === 'host') await closeRoom(); } catch (e) {}
+    try { await stopEasyTier(); } catch (e) {}
+    try { await window.mclink.frpcStop(); } catch (e) {}
+    if (state.presenceTimer) { clearInterval(state.presenceTimer); state.presenceTimer = null; }
+    if (state.joinTimer) { clearTimeout(state.joinTimer); state.joinTimer = null; }
+    try { if (state.ws) { state.closingSignaling = true; state.ws.onclose = null; state.ws.close(); } } catch (e) {}
+    try { if (state.chatWs) { state.chatWs.onclose = null; state.chatWs.close(); } } catch (e) {}
+    state.ws = null;
+    state.chatWs = null;
+    state.token = null;
+    state.user = null;
+    state.signingKey = null;
+    state.signingKeyToken = null;
+    state.role = null;
+    state.roomCode = null;
+    state.roomInfo = null;
+    try { localStorage.removeItem('mclink_token'); } catch (e) {}
+    const main = $('main-app'); if (main) main.classList.add('hidden');
+    const auth = $('auth-page'); if (auth) auth.classList.remove('hidden');
+    showAuthErr(message || '登录已过期，请重新登录');
+  } finally {
+    setTimeout(() => { sessionExpiredHandling = false; }, 3000);
+  }
+}
+
 /* 聊天/公告专用请求：走 chatServer，失败自动回退主服务器 */
 async function apiChat(path, opts) {
   try {
@@ -168,6 +201,10 @@ async function getSigningKey() {
   return data.key;
 }
 
+function isAuthEndpoint(path) {
+  return /^\/auth\/(login|register|send-code|tfa)/.test(String(path || ''));
+}
+
 async function api(path, opts = {}, baseServer) {
   const base = baseServer || state.server;
   assertSecureServer(base);
@@ -192,6 +229,10 @@ async function api(path, opts = {}, baseServer) {
   try {
     const res = await fetch(base + '/api' + path, { ...opts, method, headers, signal: controller.signal });
     const data = await res.json().catch(() => ({}));
+    if (res.status === 401 && state.token && !isAuthEndpoint(path)) {
+      /* token 失效：统一退回登录页，而不是让用户面对"点什么都没反应" */
+      handleSessionExpired(data.error || '登录已过期，请重新登录');
+    }
     if (!res.ok) throw new Error(data.error || '请求失败 (' + res.status + ')');
     return data;
   } catch (e) {
