@@ -1193,15 +1193,13 @@ function quickHostKey(event, mode) {
     openQuickHost(mode);
   }
 }
+/* 快捷创建：直接打开真实起始弹窗并预选模式（旧的 quick-host-modal 是空 div，会弹出黑遮罩） */
 function openQuickHost(mode) {
   quickHostMode = mode;
-  $('quick-host-mode').textContent = mode === 'frp' ? 'frp 中转' : 'EasyTier 智能组网';
-  $('quick-frp-section').classList.toggle('hidden', mode !== 'frp');
-  $('quick-mc-port').value = $('mc-port').value || 25565;
-  if (state.frpNodeId) $('quick-frp-node-select').value = String(state.frpNodeId);
-  if (mode === 'frp') loadFrpNodes({ force: true, preserveSelection: true, silent: true });
-  $('quick-host-confirm').disabled = false;
-  $('quick-host-modal').classList.remove('hidden');
+  try { selectStartMode(mode === 'frp' ? 'frp' : 'easytier'); } catch (e) {}
+  const modal = $('start-host-modal');
+  if (modal) modal.classList.remove('hidden');
+  else navTo('host');
 }
 async function confirmQuickHost() {
   const button = $('quick-host-confirm');
@@ -1341,10 +1339,15 @@ function confirmStartHost() {
   }
   state.mcPort = port;
   closeModal('start-host-modal');
-  // Navigate to host page after closing modal
+  // 直接创建房间（原来调 openQuickHost() 会弹出一个空的 quick-host-modal，
+  // 那是个遗留空 div → 全屏黑遮罩盖住界面，看起来像卡死）
   navTo('host');
-  // Trigger quick host
-  openQuickHost(startHostDialogMode);
+  const mode = startHostDialogMode || state.mode || 'easytier';
+  if (mode === 'frp') {
+    createRoom({ inputId: 'mc-port', mode: 'frp', buttonId: 'btn-create', isPublic: !!($('host-public') && $('host-public').checked) });
+  } else {
+    createRoom({ inputId: 'mc-port', mode: 'easytier', buttonId: 'btn-create', isPublic: !!($('host-public') && $('host-public').checked) });
+  }
 }
 
 /* ============ 加入房间对话框（从房间列表弹出） ============ */
@@ -1696,6 +1699,18 @@ function doExitApp() {
 /* ============ 设置 ============ */
 const SETTINGS_KEY = 'blfp_settings';
 
+/* 安全读取设置（localStorage 损坏时不崩） */
+function readSettingsSafe() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+  } catch (e) {
+    try { localStorage.removeItem(SETTINGS_KEY); } catch (e2) {}
+    return {};
+  }
+}
+
 function loadSettings() {
   let s = {};
   try { s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch { localStorage.removeItem(SETTINGS_KEY); }
@@ -1752,7 +1767,7 @@ function saveSettings() {
 
 function setDebugMode(on) {
   state.debugMode = !!on;
-  const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+  const s = readSettingsSafe();
   s.debugMode = state.debugMode;
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   logLine(state.debugMode ? '开发者调试模式已开启，底层日志不再过滤' : '开发者调试模式已关闭');
@@ -1765,7 +1780,7 @@ function applySidebarMode(mode, save) {
   document.body.classList.add('sidebar-' + value);
   if ($('sidebar-mode')) $('sidebar-mode').value = value;
   if (save) {
-    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    const s = readSettingsSafe();
     s.sidebarMode = value;
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   }
@@ -1784,7 +1799,7 @@ function applyTheme(t, save) {
     window.mclink.setTitlebarOverlay(theme).catch(() => {});
   }
   if (save) {
-    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    const s = readSettingsSafe();
     s.theme = t; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   }
 }
@@ -1801,14 +1816,14 @@ function applyPerfLevel(level, save) {
     else { if (!particleEnabled) enableCursorTrail(); else resetParticles(); }
   }
   if (save) {
-    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    const s = readSettingsSafe();
     s.perf = value; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   }
 }
 
 function setCursorTrail(on) {
   if (on) enableCursorTrail(); else disableCursorTrail();
-  const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+  const s = readSettingsSafe();
   s.cursorTrail = on; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
 }
 
@@ -1962,11 +1977,13 @@ function renderPublicRooms(rooms) {
   }).join('');
 }
 async function quickJoinRoom(code) {
-  const roomCode = String(code ?? '').trim();
+  const roomCode = String(code ?? '').replace(/\D/g, '').slice(0, 6);
   if (!/^\d{6}$/.test(roomCode)) return toast('房间号无效', 'error');
   if (state.role) return toast('当前已在房间中，请先退出当前房间', 'warn');
-  navTo('join');
-  $('room-input').value = roomCode;
+  const modalInput = $('join-room-input');
+  if (modalInput) modalInput.value = roomCode;
+  const compat = $('room-input');
+  if (compat) compat.value = roomCode;
   await joinRoom();
 }
 
@@ -2297,10 +2314,29 @@ function renderChatMessage(msg) {
     el.innerHTML = '<div class="chat-msg-header"><span class="chat-msg-author">' + escapeHtml(msg.username || '用户') + '</span><span class="chat-msg-time">' + time + '</span></div><div class="chat-msg-text">' + escapeHtml(msg.text) + '</div>';
   }
   container.appendChild(el);
+  /* 上限 400 条：长时间挂机不会无限增长 */
+  const MAX_CHAT_NODES = 400;
+  while (container.childElementCount > MAX_CHAT_NODES) {
+    container.removeChild(container.firstElementChild);
+  }
   container.scrollTop = container.scrollHeight;
 }
 
 /* ============ 初始化 ============ */
+/* ====== 全局兜底：未处理的 Promise 拒绝不再静默失败 ======
+   界面上有 15 处 onclick 直接调用 async 函数，任何一处抛错都会变成"点了没反应" */
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event && event.reason;
+  const msg = (reason && (reason.message || reason.toString())) || '未知错误';
+  try { logLine('未处理的错误: ' + msg); } catch (e) {}
+  try { toast('操作失败: ' + msg, 'error'); } catch (e) {}
+  if (event && event.preventDefault) event.preventDefault();
+});
+window.addEventListener('error', (event) => {
+  const msg = (event && event.message) || '未知脚本错误';
+  try { logLine('脚本错误: ' + msg); } catch (e) {}
+});
+
 document.addEventListener('DOMContentLoaded', async () => {
   $('auth-page').classList.remove('hidden');
   $('main-app').classList.add('hidden');
