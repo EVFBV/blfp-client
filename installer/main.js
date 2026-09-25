@@ -49,10 +49,11 @@ function taskkill(imageName) {
 let win;
 function createWindow() {
   win = new BrowserWindow({
-    width: 620,
-    height: 480,
+    width: 430,
+    height: 300,
     resizable: false,
     maximizable: false,
+    minimizable: false,
     autoHideMenuBar: true,
     title: 'BLFP 安装程序',
     webPreferences: {
@@ -96,12 +97,32 @@ ipcMain.handle('install', async (evt, opts) => {
     send(2, '准备安装目录...');
     fs.mkdirSync(targetDir, { recursive: true });
 
-    if (fs.existsSync(path.join(targetDir, EXE_NAME))) {
+    /* 目录可写性检查（免管理员安装：目录必须在用户可写范围内） */
+    try {
+      const probe = path.join(targetDir, '.write-test');
+      fs.writeFileSync(probe, 'ok');
+      fs.unlinkSync(probe);
+    } catch (e) {
+      throw new Error('安装目录不可写：' + targetDir + '\n请改用默认目录（%LOCALAPPDATA%\\Programs\\BLFP），或选择你有权限的目录。');
+    }
+
+    const exeTarget = path.join(targetDir, EXE_NAME);
+    if (fs.existsSync(exeTarget)) {
       send(5, '正在关闭已运行的客户端...');
       await Promise.all([
         taskkill(EXE_NAME),
         taskkill('easytier-core.exe'),
       ]);
+      /* 客户端以管理员权限运行，普通权限的安装器杀不掉它 → 给出明确指引而不是丢文件占用错误 */
+      await new Promise((r) => setTimeout(r, 800));
+      let locked = false;
+      try {
+        const fd = fs.openSync(exeTarget, 'r+');
+        fs.closeSync(fd);
+      } catch (e) { locked = true; }
+      if (locked) {
+        throw new Error('BLFP 正在运行且无法自动关闭（它需要管理员权限）。\n请先手动退出 BLFP 客户端，再重新运行安装程序。');
+      }
     }
 
     // 关闭 Electron 的 asar 拦截：主程序内含 resources/app.asar，

@@ -31,8 +31,8 @@
     "win": {
       "target": "portable",
       "artifactName": "BLFP-Setup-v${version}.exe",
-      "requestedExecutionLevel": "requireAdministrator",
-      "icon": "icon.png"
+      "icon": "icon.png",
+      "requestedExecutionLevel": "asInvoker"
     },
     "extraResources": [
       "payload/**"

@@ -27,8 +27,8 @@
     "win": {
       "target": "portable",
       "artifactName": "BLFP-Uninstall.exe",
-      "requestedExecutionLevel": "requireAdministrator",
-      "icon": "icon.png"
+      "icon": "icon.png",
+      "requestedExecutionLevel": "asInvoker"
     },
     "asar": false
   }

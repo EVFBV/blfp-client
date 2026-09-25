@@ -1,36 +1,60 @@
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%}
-body{font-family:'Segoe UI Variable Display','Inter','Microsoft YaHei',sans-serif;background:#08080f;color:#eaeaf0;user-select:none;overflow:hidden}
-.win{display:grid;grid-template-columns:220px 1fr;height:100vh;background:#08080f}
-.logo{margin:0 auto;display:block;width:112px;height:auto;filter:drop-shadow(0 4px 24px rgba(59,110,255,0.25))}
-.hero{padding:38px 28px;background:rgba(12,13,24,0.5);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);border-right:1px solid rgba(255,255,255,0.04);color:#fff;display:flex;flex-direction:column;position:relative}
-.hero::before{content:'';position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 20% 30%,rgba(59,110,255,0.05),transparent 60%)}
-.hero .tagline{font-size:13px;line-height:1.7;color:#8a8fa8;margin-top:26px;position:relative;z-index:1}
-.hero::after{content:'安装程序';font-size:22px;font-weight:700;margin-top:12px;position:relative;z-index:1}
-.hero .logo-wrap{position:relative;z-index:1}
-.step{display:none;flex-direction:column;padding:46px;min-width:0}
-.step.active{display:flex;animation:enter .3s cubic-bezier(0.16,1,0.3,1)}
-.desc{font-size:14px;line-height:1.75;color:#8a8fa8;margin-bottom:24px}
-.field-label{font-size:13px;font-weight:600;margin-bottom:8px;color:#eaeaf0}
-.path-row{display:flex;gap:8px;margin-bottom:18px}
-.path-row input{flex:1;min-width:0;padding:11px 14px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;font-size:13px;background:rgba(255,255,255,0.03);color:#eaeaf0;outline:none;transition:all .18s;font-family:inherit}
-.path-row input:focus{border-color:#3b6eff;box-shadow:0 0 0 3px rgba(59,110,255,0.08)}
-.checkbox{display:flex;align-items:center;gap:8px;font-size:13px;color:#8a8fa8;cursor:pointer}
-.checkbox input{width:15px;height:15px;accent-color:#3b6eff}
-.actions{margin-top:auto;display:flex;justify-content:flex-end;gap:10px}
-.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 20px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);font-size:13px;cursor:pointer;font-family:inherit;background:rgba(255,255,255,0.06);color:#eaeaf0;transition:all .18s;user-select:none}
-.btn:active{transform:scale(.96)}
-.btn-primary{background:linear-gradient(135deg,#3b6eff,#5580ff);color:#fff;border:none;box-shadow:0 2px 12px rgba(59,110,255,0.25)}
-.btn-primary:hover{background:linear-gradient(135deg,#5580ff,#7a9dff);box-shadow:0 4px 20px rgba(59,110,255,0.35);transform:translateY(-1px)}
-.btn-outline{background:transparent;border:1px solid rgba(255,255,255,0.1);color:#eaeaf0}
-.btn-outline:hover{border-color:rgba(59,110,255,0.3);color:#7a9dff;background:rgba(59,110,255,0.04)}
-.btn-ghost{background:transparent;border-color:transparent;color:#8a8fa8}
-.btn-ghost:hover{color:#eaeaf0}
-.btn:disabled{opacity:.4;cursor:not-allowed}
-.progress-bar{width:100%;height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;margin-bottom:12px}
-.progress-fill{height:100%;width:0;background:linear-gradient(90deg,#3b6eff,#7a9dff);border-radius:4px;transition:width .3s cubic-bezier(0.34,1.56,0.64,1);box-shadow:0 0 12px rgba(59,110,255,0.2)}
-.progress-pct{text-align:right;font-size:13px;color:#7a9dff;font-weight:600}
-.done-icon,.error-icon{width:56px;height:56px;border-radius:14px;display:grid;place-items:center;font-size:30px;color:#fff;font-weight:700;margin-bottom:18px}
-.done-icon{background:rgba(74,222,128,0.1);color:#4ade80;border:1px solid rgba(74,222,128,0.15)}
-.error-icon{background:rgba(248,113,113,0.1);color:#f87171;border:1px solid rgba(248,113,113,0.15)}
-@keyframes enter{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: "Segoe UI Variable Display", "Microsoft YaHei", system-ui, sans-serif;
+  background: radial-gradient(ellipse at 50% 0%, #1a2138 0%, #0b0d16 60%, #07080f 100%);
+  color: #e8ecf6;
+  height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  user-select: none; overflow: hidden;
+}
+.wrap { width: 100%; padding: 26px 30px; text-align: center; }
+.logo { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 22px; }
+.logo img { width: 42px; height: 42px; }
+.logo-text { text-align: left; }
+.app-name { font-size: 1.25rem; font-weight: 700; letter-spacing: .5px; }
+.app-sub { font-size: .74rem; color: #8d97b5; margin-top: 2px; }
+
+.state.hidden, .hidden { display: none !important; }
+
+.spinner {
+  width: 34px; height: 34px; margin: 0 auto 16px;
+  border: 3px solid rgba(255,255,255,.12);
+  border-top-color: #4d7bff;
+  border-radius: 50%;
+  animation: spin .85s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.status { font-size: .92rem; color: #dfe5f5; margin-bottom: 12px; }
+.bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.09); overflow: hidden; }
+.bar-fill { height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, #4d7bff, #7aa2ff); transition: width .25s ease; }
+.percent { font-size: .74rem; color: #8d97b5; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.hint { font-size: .7rem; color: #6b7592; margin-top: 6px; word-break: break-all; }
+.hint span { color: #9aa6c4; }
+
+.tick {
+  width: 42px; height: 42px; margin: 6px auto 14px;
+  border-radius: 50%; background: rgba(74,222,128,.16); color: #4ade80;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem; font-weight: 700;
+}
+.cross {
+  width: 42px; height: 42px; margin: 6px auto 14px;
+  border-radius: 50%; background: rgba(248,113,113,.16); color: #f87171;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem; font-weight: 700;
+}
+.error {
+  font-size: .76rem; color: #f0a6a6; background: rgba(248,113,113,.08);
+  border: 1px solid rgba(248,113,113,.2); border-radius: 8px;
+  padding: 10px 12px; margin-bottom: 14px; word-break: break-all; text-align: left;
+  max-height: 90px; overflow-y: auto;
+}
+.actions { display: flex; gap: 10px; justify-content: center; }
+.btn {
+  padding: 8px 20px; border-radius: 8px; border: 1px solid transparent;
+  background: #4d7bff; color: #fff; font-size: .84rem; font-family: inherit;
+  cursor: pointer; transition: opacity .15s;
+}
+.btn:hover { opacity: .88; }
+.btn.ghost { background: transparent; border-color: rgba(255,255,255,.16); color: #cfd6e8; }

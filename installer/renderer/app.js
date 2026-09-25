@@ -1,63 +1,41 @@
+/* 安装程序：打开即自动安装，只显示加载进度，完成后自动启动客户端 */
 const $ = (id) => document.getElementById(id);
+const show = (which) => {
+  ['state-loading', 'state-done', 'state-error'].forEach((id) => {
+    $(id).classList.toggle('hidden', id !== which);
+  });
+};
 
-let installedExe = null;
-
-function showStep(id) {
-  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
-  $(id).classList.add('active');
+function setProgress(percent, text) {
+  const p = Math.max(0, Math.min(100, Math.round(percent || 0)));
+  $('bar-fill').style.width = p + '%';
+  $('percent-text').textContent = p + '%';
+  if (text) $('status-text').textContent = text;
 }
 
-// 初始化默认安装目录
-(async () => {
-  $('install-dir').value = await window.installer.getDefaultDir();
-})();
-
-// 浏览目录
-$('btn-browse').addEventListener('click', async () => {
-  const dir = await window.installer.chooseDir();
-  if (dir) $('install-dir').value = dir;
-});
-
-// 取消
-$('btn-cancel').addEventListener('click', () => window.installer.quit());
-
-// 开始安装
-$('btn-install').addEventListener('click', async () => {
-  const dir = $('install-dir').value.trim();
-  if (!dir) return;
-  showStep('step-progress');
-
-  const res = await window.installer.install({
-    dir,
-    desktopShortcut: $('opt-desktop').checked,
-  });
-
-  if (res.ok) {
-    installedExe = res.exePath;
-    $('done-text').textContent = 'BLFP 已成功安装到：' + dir;
-    showStep('step-done');
-  } else {
-    $('error-text').textContent = '安装失败：' + (res.error || '未知错误');
-    showStep('step-error');
+async function runInstall() {
+  show('state-loading');
+  setProgress(0, '正在准备安装…');
+  try {
+    const dir = await window.installer.getDefaultDir();
+    $('dir-text').textContent = dir;
+    const result = await window.installer.install({ dir, desktopShortcut: true });
+    if (!result || !result.ok) throw new Error((result && result.error) || '未知错误');
+    setProgress(100, '安装完成');
+    show('state-done');
+    setTimeout(() => { window.installer.launch(result.exePath); }, 800);
+  } catch (e) {
+    $('error-text').textContent = e && e.message ? e.message : String(e);
+    show('state-error');
   }
+}
+
+window.installer.onProgress((data) => {
+  if (data) setProgress(data.percent, data.text);
 });
 
-// 进度更新
-window.installer.onProgress(({ percent, text }) => {
-  $('progress-fill').style.width = percent + '%';
-  $('progress-pct').textContent = percent + '%';
-  if (text) $('progress-text').textContent = text;
+document.addEventListener('DOMContentLoaded', () => {
+  $('btn-retry').addEventListener('click', runInstall);
+  $('btn-quit').addEventListener('click', () => window.installer.quit());
+  runInstall();
 });
-
-// 完成
-$('btn-finish').addEventListener('click', async () => {
-  if ($('opt-launch').checked && installedExe) {
-    await window.installer.launch(installedExe);
-  } else {
-    window.installer.quit();
-  }
-});
-
-// 错误：返回 / 关闭
-$('btn-retry').addEventListener('click', () => showStep('step-setup'));
-$('btn-close-err').addEventListener('click', () => window.installer.quit());

@@ -1,65 +1,44 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BLFP 安装程序</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <title>BLFP 安装程序</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="win">
-  <!-- 顶部品牌区 -->
-  <div class="hero">
-    <img class="logo" src="BLFP-Logo.svg" alt="BLFP" draggable="false">
-    <div class="tagline">我的世界 Java 版联机客户端</div>
-  </div>
-
-  <!-- 步骤1：欢迎 + 选择路径 -->
-  <div id="step-setup" class="step active">
-    <p class="desc">欢迎安装 BLFP 客户端。支持 EasyTier 智能组网与 frp 中转联机，免公网 IP。</p>
-    <label class="field-label">安装位置</label>
-    <div class="path-row">
-      <input id="install-dir" type="text" readonly>
-      <button class="btn btn-outline" id="btn-browse">浏览...</button>
+  <div class="wrap">
+    <div class="logo">
+      <img src="BLFP-Logo.svg" alt="BLFP" draggable="false">
+      <div class="logo-text">
+        <div class="app-name">BLFP</div>
+        <div class="app-sub">我的世界联机助手</div>
+      </div>
     </div>
-    <label class="checkbox">
-      <input id="opt-desktop" type="checkbox" checked> 创建桌面快捷方式
-    </label>
-    <div class="actions">
-      <button class="btn btn-ghost" id="btn-cancel">取消</button>
-      <button class="btn btn-primary" id="btn-install">开始安装</button>
+
+    <div class="state" id="state-loading">
+      <div class="spinner"></div>
+      <div class="status" id="status-text">正在准备安装…</div>
+      <div class="bar"><div class="bar-fill" id="bar-fill"></div></div>
+      <div class="percent" id="percent-text">0%</div>
+      <div class="hint" id="hint-text">安装在：<span id="dir-text">--</span></div>
     </div>
-  </div>
 
-  <!-- 步骤2：安装进度 -->
-  <div id="step-progress" class="step">
-    <p class="desc" id="progress-text">正在准备安装...</p>
-    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
-    <div class="progress-pct" id="progress-pct">0%</div>
-  </div>
+    <div class="state hidden" id="state-done">
+      <div class="tick">✓</div>
+      <div class="status">安装完成，正在启动…</div>
+    </div>
 
-  <!-- 步骤3：完成 -->
-  <div id="step-done" class="step">
-    <div class="done-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
-    <p class="desc" id="done-text">BLFP 已成功安装到您的电脑。</p>
-    <label class="checkbox">
-      <input id="opt-launch" type="checkbox" checked> 立即启动 BLFP
-    </label>
-    <div class="actions">
-      <button class="btn btn-primary" id="btn-finish">完成</button>
+    <div class="state hidden" id="state-error">
+      <div class="cross">!</div>
+      <div class="status">安装失败</div>
+      <div class="error" id="error-text"></div>
+      <div class="actions">
+        <button class="btn" id="btn-retry">重试</button>
+        <button class="btn ghost" id="btn-quit">关闭</button>
+      </div>
     </div>
   </div>
-
-  <!-- 错误 -->
-  <div id="step-error" class="step">
-    <div class="error-icon">!</div>
-    <p class="desc" id="error-text">安装失败</p>
-    <div class="actions">
-      <button class="btn btn-outline" id="btn-retry">返回</button>
-      <button class="btn btn-ghost" id="btn-close-err">关闭</button>
-    </div>
-  </div>
-</div>
-<script src="app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
