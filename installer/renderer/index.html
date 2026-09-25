@@ -1,44 +1,128 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
-  <title>BLFP 安装程序</title>
-  <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'">
+<title>BLFP 安装程序</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="wrap">
-    <div class="logo">
-      <img src="BLFP-Logo.svg" alt="BLFP" draggable="false">
-      <div class="logo-text">
-        <div class="app-name">BLFP</div>
-        <div class="app-sub">我的世界联机助手</div>
-      </div>
-    </div>
+<div class="win">
+  <div class="hero">
+    <div class="logo-wrap"><img class="logo" src="BLFP-Logo.svg" alt="BLFP" draggable="false"></div>
+    <div class="tagline">我的世界 Java 版联机客户端<br>EasyTier 智能组网 / frp 中转<br>免公网 IP，房间号直连</div>
+  </div>
 
-    <div class="state" id="state-loading">
+  <!-- ① 加载中 -->
+  <div id="step-loading" class="step active">
+    <div class="loading-wrap">
       <div class="spinner"></div>
-      <div class="status" id="status-text">正在准备安装…</div>
-      <div class="bar"><div class="bar-fill" id="bar-fill"></div></div>
-      <div class="percent" id="percent-text">0%</div>
-      <div class="hint" id="hint-text">安装在：<span id="dir-text">--</span></div>
-    </div>
-
-    <div class="state hidden" id="state-done">
-      <div class="tick">✓</div>
-      <div class="status">安装完成，正在启动…</div>
-    </div>
-
-    <div class="state hidden" id="state-error">
-      <div class="cross">!</div>
-      <div class="status">安装失败</div>
-      <div class="error" id="error-text"></div>
-      <div class="actions">
-        <button class="btn" id="btn-retry">重试</button>
-        <button class="btn ghost" id="btn-quit">关闭</button>
-      </div>
+      <div class="loading-title">正在加载安装程序…</div>
+      <div class="loading-sub" id="loading-text">初始化…</div>
+      <div class="progress-bar"><div class="progress-fill" id="loading-fill"></div></div>
+      <div class="progress-pct" id="loading-pct">0%</div>
     </div>
   </div>
-  <script src="app.js"></script>
+
+  <!-- ② 用户手册 / 用户守则 / 声明 -->
+  <div id="step-doc" class="step">
+    <div class="doc-head">用户手册与声明</div>
+    <div class="doc-scroll">
+      <h3>一、用户手册</h3>
+      <ol class="doc-list">
+        <li><b>注册登录</b>：首次使用请在登录页注册账号，支持邮箱验证码登录。</li>
+        <li><b>创建房间</b>：进入「创建房间」，选择 <b>EasyTier 智能组网</b>（推荐，自动优先直连）或 <b>frp 中转</b>（延迟略高），设置 Minecraft 端口后点击创建。</li>
+        <li><b>加入房间</b>：在「房间列表」点「加入房间」输入 6 位房间号，或直接点公开房间卡片的「加入」。</li>
+        <li><b>连接游戏</b>：进入房间后，把软件显示的连接地址（形如 <code>10.200.x.1:25565</code>）填进 Minecraft 的「多人游戏 → 直接连接」。</li>
+        <li><b>权限说明</b>：EasyTier 需要创建虚拟网卡，因此客户端<b>必须以管理员身份运行</b>；若组网失败请检查杀毒软件是否拦截。</li>
+        <li><b>常见问题</b>：连不上时先确认双方均为最新版本，再检查 Windows 防火墙是否放行 BLFP，必要时改用 frp 模式。</li>
+      </ol>
+
+      <h3>二、用户守则</h3>
+      <ol class="doc-list">
+        <li>本软件仅供个人学习与游戏联机使用，禁止用于任何商业用途或二次售卖。</li>
+        <li>禁止利用本软件传播违法违规内容、外挂、病毒或从事任何攻击、扫描、入侵行为。</li>
+        <li>禁止恶意占用服务器资源、刷接口、伪造他人身份或干扰其他用户正常联机。</li>
+        <li>请自行保管账号与密码，因个人保管不当造成的损失由用户自行承担。</li>
+        <li>违反上述守则的账号，我们有权限制或封禁其使用权限。</li>
+      </ol>
+      <div class="code-line">
+        本守则末尾验证码：<span class="verify-code" id="verify-code">------</span>
+        <br><span class="code-note">（下一步需要输入此验证码，以确认你已阅读用户守则）</span>
+      </div>
+
+      <h3>三、声明</h3>
+      <ul class="doc-list">
+        <li>BLFP 是<b>非官方</b>的第三方联机辅助工具，与 Mojang Studios、Microsoft 无任何隶属或合作关系。</li>
+        <li>本软件<b>不包含也不分发</b> Minecraft 游戏本体，使用前请自行购买并安装正版游戏。</li>
+        <li>联机功能依赖 EasyTier / frp 等第三方组网与中继服务，其可用性与延迟可能随网络环境变化。</li>
+        <li>本软件不会收集你的游戏存档、账号密码等敏感信息；房间号与在线状态仅用于联机配对。</li>
+        <li>因网络环境、系统权限、第三方服务中断等原因导致的功能异常，我们不承担赔偿责任，但会尽力修复。</li>
+      </ul>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" id="btn-quit-doc">退出</button>
+      <button class="btn btn-primary" id="btn-next">下一步</button>
+    </div>
+  </div>
+
+  <!-- ③ 安装选项 -->
+  <div id="step-setup" class="step">
+    <p class="desc">欢迎安装 BLFP 客户端。支持 EasyTier 智能组网与 frp 中转联机，免公网 IP。</p>
+    <label class="field-label">安装位置</label>
+    <div class="path-row">
+      <input id="install-dir" type="text" readonly>
+      <button class="btn btn-outline" id="btn-browse">浏览…</button>
+    </div>
+    <label class="checkbox"><input id="opt-desktop" type="checkbox" checked> 创建桌面快捷方式</label>
+    <label class="checkbox" style="margin-top:8px"><input id="opt-startmenu" type="checkbox" checked> 创建开始菜单快捷方式</label>
+    <div class="actions">
+      <button class="btn btn-ghost" id="btn-cancel">取消</button>
+      <button class="btn btn-primary" id="btn-install">开始安装</button>
+    </div>
+  </div>
+
+  <!-- ④ 安装进度 -->
+  <div id="step-progress" class="step">
+    <p class="desc" id="progress-text">正在准备安装…</p>
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    <div class="progress-pct" id="progress-pct">0%</div>
+  </div>
+
+  <!-- ⑤ 完成 -->
+  <div id="step-done" class="step">
+    <div class="done-icon">✓</div>
+    <p class="desc" id="done-text">BLFP 已成功安装到您的电脑。</p>
+    <label class="checkbox"><input id="opt-launch" type="checkbox" checked> 立即启动 BLFP</label>
+    <div class="actions"><button class="btn btn-primary" id="btn-finish">完成</button></div>
+  </div>
+
+  <!-- 错误 -->
+  <div id="step-error" class="step">
+    <div class="error-icon">!</div>
+    <p class="desc" id="error-text">安装失败</p>
+    <div class="actions">
+      <button class="btn btn-outline" id="btn-retry">返回</button>
+      <button class="btn btn-ghost" id="btn-close-err">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 验证码弹窗 -->
+<div class="modal-mask hidden" id="verify-modal">
+  <div class="modal-box">
+    <div class="modal-title">请确认你已阅读用户守则</div>
+    <div class="modal-desc">请输入「用户守则」末尾显示的验证码：</div>
+    <input id="verify-input" class="modal-input" type="text" inputmode="numeric" maxlength="6" placeholder="6 位数字">
+    <div class="modal-error" id="verify-error"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="btn-verify-cancel">再看看</button>
+      <button class="btn btn-primary" id="btn-verify-ok">确认</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
 </body>
 </html>

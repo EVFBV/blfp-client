@@ -1,41 +1,141 @@
-/* 安装程序：打开即自动安装，只显示加载进度，完成后自动启动客户端 */
+/* BLFP 安装程序：加载 → 用户手册/守则/声明 → 验证码校验 → 安装 */
 const $ = (id) => document.getElementById(id);
-const show = (which) => {
-  ['state-loading', 'state-done', 'state-error'].forEach((id) => {
-    $(id).classList.toggle('hidden', id !== which);
-  });
-};
+let installedExe = null;
+let verifyCode = '';
 
-function setProgress(percent, text) {
-  const p = Math.max(0, Math.min(100, Math.round(percent || 0)));
-  $('bar-fill').style.width = p + '%';
-  $('percent-text').textContent = p + '%';
-  if (text) $('status-text').textContent = text;
+function showStep(id) {
+  document.querySelectorAll('.step').forEach((s) => s.classList.remove('active'));
+  $(id).classList.add('active');
 }
 
-async function runInstall() {
-  show('state-loading');
-  setProgress(0, '正在准备安装…');
-  try {
-    const dir = await window.installer.getDefaultDir();
-    $('dir-text').textContent = dir;
-    const result = await window.installer.install({ dir, desktopShortcut: true });
-    if (!result || !result.ok) throw new Error((result && result.error) || '未知错误');
-    setProgress(100, '安装完成');
-    show('state-done');
-    setTimeout(() => { window.installer.launch(result.exePath); }, 800);
-  } catch (e) {
-    $('error-text').textContent = e && e.message ? e.message : String(e);
-    show('state-error');
+/* ---------- ① 加载：按真实自检项推进 ---------- */
+async function runLoading() {
+  const steps = [
+    { text: '正在校验安装包数据…', to: 25 },
+    { text: '正在检查安装目录…', to: 50 },
+    { text: '正在读取用户手册与声明…', to: 75 },
+    { text: '正在准备安装组件…', to: 100 },
+  ];
+  let percent = 0;
+  const setLoading = (p, text) => {
+    percent = p;
+    $('loading-fill').style.width = p + '%';
+    $('loading-pct').textContent = Math.round(p) + '%';
+    if (text) $('loading-text').textContent = text;
+  };
+  setLoading(5, '正在启动安装程序…');
+
+  let info = null;
+  try { info = await window.installer.selfCheck(); } catch (e) { info = null; }
+
+  for (const step of steps) {
+    /* 平滑推进到目标百分比 */
+    while (percent < step.to) {
+      setLoading(Math.min(step.to, percent + 4), percent < step.to - 4 ? step.text : null);
+      await new Promise((r) => setTimeout(r, 45));
+    }
+    setLoading(step.to, step.text);
+    await new Promise((r) => setTimeout(r, 160));
   }
+
+  /* 安装包异常时直接给出可读错误，而不是等安装到 80% 才失败 */
+  if (info && !info.payloadOk) {
+    $('error-text').textContent = '安装包数据不完整（payload 缺失），请重新下载安装程序。';
+    showStep('step-error');
+    return;
+  }
+  $('loading-text').textContent = '加载完成';
+  await new Promise((r) => setTimeout(r, 250));
+  showStep('step-doc');
 }
 
-window.installer.onProgress((data) => {
-  if (data) setProgress(data.percent, data.text);
+/* ---------- ② 用户手册页 ---------- */
+async function initDoc() {
+  try { verifyCode = await window.installer.getVerifyCode(); } catch (e) { verifyCode = ''; }
+  $('verify-code').textContent = verifyCode || '------';
+}
+
+$('btn-quit-doc').addEventListener('click', () => window.installer.quit());
+
+$('btn-next').addEventListener('click', () => {
+  $('verify-error').textContent = '';
+  $('verify-input').value = '';
+  $('verify-modal').classList.remove('hidden');
+  $('verify-input').focus();
 });
 
-document.addEventListener('DOMContentLoaded', () => {
-  $('btn-retry').addEventListener('click', runInstall);
-  $('btn-quit').addEventListener('click', () => window.installer.quit());
-  runInstall();
+/* ---------- 验证码弹窗 ---------- */
+function closeVerify() { $('verify-modal').classList.add('hidden'); }
+
+$('btn-verify-cancel').addEventListener('click', closeVerify);
+
+async function submitVerify() {
+  const value = ($('verify-input').value || '').trim();
+  if (!/^\d{6}$/.test(value)) {
+    $('verify-error').textContent = '请输入守则末尾的 6 位数字验证码';
+    return;
+  }
+  let res;
+  try { res = await window.installer.verifyCode(value); } catch (e) { res = { ok: false }; }
+  if (res && res.ok) {
+    closeVerify();
+    showStep('step-setup');
+  } else {
+    $('verify-error').textContent = '验证码不正确，请重新查看「用户守则」末尾的数字';
+    $('verify-input').value = '';
+    $('verify-input').focus();
+  }
+}
+$('btn-verify-ok').addEventListener('click', submitVerify);
+$('verify-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitVerify(); });
+
+/* ---------- ③ 安装选项 ---------- */
+(async () => {
+  try { $('install-dir').value = await window.installer.getDefaultDir(); } catch (e) {}
+})();
+$('btn-browse').addEventListener('click', async () => {
+  const d = await window.installer.chooseDir();
+  if (d) $('install-dir').value = d;
+});
+$('btn-cancel').addEventListener('click', () => window.installer.quit());
+
+$('btn-install').addEventListener('click', async () => {
+  const dir = $('install-dir').value.trim();
+  if (!dir) return;
+  showStep('step-progress');
+  $('progress-fill').style.width = '0%';
+  $('progress-pct').textContent = '0%';
+  const res = await window.installer.install({
+    dir,
+    desktopShortcut: $('opt-desktop').checked,
+    startMenuShortcut: $('opt-startmenu').checked,
+  });
+  if (res && res.ok) {
+    installedExe = res.exePath;
+    $('done-text').textContent = 'BLFP 已成功安装到：' + dir;
+    showStep('step-done');
+  } else {
+    $('error-text').textContent = '安装失败：' + ((res && res.error) || '未知错误');
+    showStep('step-error');
+  }
+});
+
+window.installer.onProgress(({ percent, text }) => {
+  $('progress-fill').style.width = percent + '%';
+  $('progress-pct').textContent = percent + '%';
+  if (text) $('progress-text').textContent = text;
+});
+
+/* ---------- ④ 完成 ---------- */
+$('btn-finish').addEventListener('click', async () => {
+  if ($('opt-launch').checked && installedExe) await window.installer.launch(installedExe);
+  else window.installer.quit();
+});
+$('btn-retry').addEventListener('click', () => showStep('step-setup'));
+$('btn-close-err').addEventListener('click', () => window.installer.quit());
+
+/* ---------- 启动 ---------- */
+document.addEventListener('DOMContentLoaded', async () => {
+  await initDoc();
+  runLoading();
 });

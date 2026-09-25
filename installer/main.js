@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const os = require('os');
 const { spawn } = require('child_process');
 const AdmZip = require('adm-zip');
@@ -15,6 +16,10 @@ function payloadPath() {
   ];
   return candidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).size > 0);
 }
+
+/* 用户守则验证码：每次运行安装程序随机生成（6 位数字），仅主进程持有，
+   渲染进程只能取到用于显示的值，校验在主进程完成，无法通过改页面绕过 */
+const verificationCode = String(crypto.randomInt(100000, 1000000));
 
 const APP_NAME = 'BLFP';
 const EXE_NAME = 'BLFP.exe';
@@ -49,11 +54,12 @@ function taskkill(imageName) {
 let win;
 function createWindow() {
   win = new BrowserWindow({
-    width: 430,
-    height: 300,
-    resizable: false,
+    width: 760,
+    height: 620,
+    minWidth: 700,
+    minHeight: 560,
+    resizable: true,
     maximizable: false,
-    minimizable: false,
     autoHideMenuBar: true,
     title: 'BLFP 安装程序',
     webPreferences: {
@@ -77,6 +83,38 @@ app.on('window-all-closed', () => app.quit());
 // ---------- IPC ----------
 ipcMain.handle('get-default-dir', () => defaultInstallDir());
 
+/* 供界面显示（"用户守则末尾验证码"） */
+ipcMain.handle('get-verify-code', () => verificationCode);
+
+/* 校验用户输入的验证码 */
+ipcMain.handle('verify-code', (evt, input) => {
+  const value = String(input == null ? '' : input).trim();
+  return { ok: value === verificationCode };
+});
+
+/* 安装前自检：让"加载中"页面显示真实检查结果 */
+ipcMain.handle('self-check', async () => {
+  const zipFile = payloadPath();
+  let sizeMB = 0;
+  try { if (zipFile) sizeMB = Math.round(fs.statSync(zipFile).size / 1048576); } catch (e) {}
+  const targetDir = defaultInstallDir();
+  let writable = false;
+  try {
+    fs.mkdirSync(targetDir, { recursive: true });
+    const probe = path.join(targetDir, '.write-test');
+    fs.writeFileSync(probe, 'ok');
+    fs.unlinkSync(probe);
+    writable = true;
+  } catch (e) { writable = false; }
+  return {
+    payloadOk: !!zipFile && sizeMB >= 50,
+    payloadSizeMB: sizeMB,
+    targetDir,
+    writable,
+    defaultDir: targetDir,
+  };
+});
+
 ipcMain.handle('choose-dir', async () => {
   const r = await dialog.showOpenDialog(win, {
     properties: ['openDirectory', 'createDirectory'],
@@ -89,6 +127,7 @@ ipcMain.handle('choose-dir', async () => {
 ipcMain.handle('install', async (evt, opts) => {
   const targetDir = typeof opts === 'string' ? opts : opts.dir;
   const desktopShortcut = typeof opts === 'string' ? true : opts.desktopShortcut !== false;
+  const startMenuShortcut = typeof opts === 'string' ? true : opts.startMenuShortcut !== false;
   const send = (percent, text) => win.webContents.send('install-progress', { percent, text });
   try {
     const zipFile = payloadPath();
@@ -170,7 +209,7 @@ ipcMain.handle('install', async (evt, opts) => {
     }
 
     // 开始菜单快捷方式
-    try {
+    if (startMenuShortcut) try {
       const startMenu = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs');
       fs.mkdirSync(startMenu, { recursive: true });
       shell.writeShortcutLink(path.join(startMenu, APP_NAME + '.lnk'), 'create', {
@@ -187,7 +226,7 @@ ipcMain.handle('install', async (evt, opts) => {
     } catch (e) {}
 
     const uninstallerPath = path.join(targetDir, '卸载 BLFP.exe');
-    if (fs.existsSync(uninstallerPath)) {
+    if (startMenuShortcut && fs.existsSync(uninstallerPath)) {
       try {
         const startMenu = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs');
         shell.writeShortcutLink(path.join(startMenu, '卸载 BLFP.lnk'), 'create', {
