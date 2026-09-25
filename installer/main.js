@@ -15,14 +15,66 @@ const { spawn } = require('child_process');
 const AdmZip = require('adm-zip');
 
 // payload.zip 内含主程序全部文件（win-unpacked 内容）
+let lastPayloadDiagnostic = '';
 function payloadPath() {
+  const path = require('path');
+  const fsx = require('fs');
   const candidates = [
-    path.join(process.resourcesPath, 'payload', 'payload.zip'),
-    path.join(process.resourcesPath, 'app.asar.unpacked', 'payload', 'payload.zip'),
+    path.join(process.resourcesPath || '', 'payload', 'payload.zip'),
+    path.join(process.resourcesPath || '', 'app.asar.unpacked', 'payload', 'payload.zip'),
     path.join(app.getAppPath(), 'payload', 'payload.zip'),
     path.join(__dirname, 'payload', 'payload.zip'),
+    path.join(__dirname, '..', 'payload', 'payload.zip'),
+    path.join(process.resourcesPath || '', 'app', 'payload', 'payload.zip'),
   ];
-  return candidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).size > 0);
+  const hit = candidates.find((c) => { try { return fsx.existsSync(c) && fsx.statSync(c).size > 0; } catch (e) { return false; } });
+  if (hit) { lastPayloadDiagnostic = '命中候选路径: ' + hit; return hit; }
+
+  /* 兜底：在 resources 与程序目录下递归查找 payload.zip（2 层深度内） */
+  const roots = [process.resourcesPath, app.getAppPath(), __dirname].filter(Boolean);
+  for (const root of roots) {
+    try {
+      const found = findFileDeep(root, 'payload.zip', 3);
+      if (found) { lastPayloadDiagnostic = '递归搜索命中: ' + found; return found; }
+    } catch (e) {}
+  }
+
+  /* 全部失败：记录实际目录结构，便于定位 */
+  const describe = (p) => {
+    try { return p + ' → ' + (fsx.existsSync(p) ? fsx.readdirSync(p).slice(0, 30).join(', ') : '(不存在)'); }
+    catch (e) { return p + ' → (读取失败)'; }
+  };
+  lastPayloadDiagnostic = [
+    '未找到 payload.zip。候选路径检查结果：',
+    ...candidates.map((c) => '  ' + c + (fsx.existsSync(c) ? ' [存在但为空]' : ' [不存在]')),
+    '目录结构：',
+    '  ' + describe(process.resourcesPath || ''),
+    '  ' + describe(path.join(process.resourcesPath || '', 'payload')),
+    '  ' + describe(__dirname),
+    '  ' + describe(app.getAppPath()),
+  ].join('\n');
+  return undefined;
+}
+
+function findFileDeep(root, fileName, depth) {
+  const path = require('path');
+  const fsx = require('fs');
+  if (depth < 0) return null;
+  let entries = [];
+  try { entries = fsx.readdirSync(root, { withFileTypes: true }); } catch (e) { return null; }
+  for (const entry of entries) {
+    const full = path.join(root, entry.name);
+    if (entry.isFile() && entry.name === fileName) {
+      try { if (fsx.statSync(full).size > 0) return full; } catch (e) {}
+    }
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name === 'node_modules' || entry.name === 'locales') continue;
+    const found = findFileDeep(path.join(root, entry.name), fileName, depth - 1);
+    if (found) return found;
+  }
+  return null;
 }
 
 /* 用户守则验证码：每次运行安装程序随机生成（6 位数字），仅主进程持有，
@@ -148,6 +200,7 @@ ipcMain.handle('self-check', async () => {
   } catch (e) { writable = false; }
   return {
     payloadOk: !!zipFile && sizeMB >= 50,
+    diagnostic: lastPayloadDiagnostic,
     payloadSizeMB: sizeMB,
     targetDir,
     writable,
@@ -171,7 +224,7 @@ ipcMain.handle('install', async (evt, opts) => {
   const send = (percent, text) => win.webContents.send('install-progress', { percent, text });
   try {
     const zipFile = payloadPath();
-    if (!zipFile) throw new Error('安装包数据缺失（payload.zip 未找到）');
+    if (!zipFile) throw new Error('安装包数据缺失（payload.zip 未找到）\n' + lastPayloadDiagnostic);
 
     send(2, '准备安装目录...');
     fs.mkdirSync(targetDir, { recursive: true });
