@@ -22,6 +22,9 @@ const blfpApi = {
   close: () => ipcRenderer.invoke('window-close'),
   isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
 
+  // 后台黑屏自愈
+  onForceRepaint: (cb) => ipcRenderer.on('force-repaint', () => cb()),
+
   // 应用内日志窗口 / 打开日志文件夹
   readLog: (lines) => ipcRenderer.invoke('read-log', lines),
   openLogFolder: () => ipcRenderer.invoke('open-log-folder'),

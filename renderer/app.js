@@ -2478,6 +2478,24 @@ function renderChatMessage(msg) {
 }
 
 /* ============ 初始化 ============ */
+/* ====== 后台久了黑屏的自愈：主进程通知时强制重排重绘 ====== */
+if (window.mclink && window.mclink.onForceRepaint) {
+  window.mclink.onForceRepaint(() => {
+    try {
+      /* 触发一次强制重排，清除合成层的黑帧 */
+      const body = document.body;
+      body.style.transform = 'translateZ(0)';
+      void body.offsetHeight;
+      body.style.transform = '';
+      /* 恢复可能被暂停的视觉效果 */
+      if (typeof particleEnabled !== 'undefined' && particleEnabled && !particleFrame && typeof drawParticles === 'function') {
+        try { drawParticles(); } catch (e) {}
+      }
+      document.querySelectorAll('.page.active').forEach((p) => { void p.offsetHeight; });
+    } catch (e) {}
+  });
+}
+
 /* ====== 全局兜底：未处理的 Promise 拒绝不再静默失败 ======
    界面上有 15 处 onclick 直接调用 async 函数，任何一处抛错都会变成"点了没反应" */
 window.addEventListener('unhandledrejection', (event) => {

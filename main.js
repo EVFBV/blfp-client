@@ -7,6 +7,9 @@ const FrpcManager = require('./src/frpc-manager');
 const MotdBroadcaster = require('./src/motd-broadcast');
 const EasyTierManager = require('./src/easytier-manager');
 
+/* 后台/遮挡时不挂起渲染，避免恢复窗口后出现黑屏 */
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('high-dpi-support', '1');
 app.commandLine.appendSwitch('force-color-profile', 'srgb');
 
@@ -72,6 +75,27 @@ function createWindow() {
     icon: path.join(__dirname, 'assets', 'icon.png'),
     autoHideMenuBar: true,
   });
+  /* 后台久了黑屏的自愈：恢复/聚焦/显示时强制重绘并通知渲染进程 */
+  let lastHiddenAt = 0;
+  function repaintWindow(force) {
+    try {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (mainWindow.isMinimized()) return;
+      mainWindow.webContents.invalidate();
+      mainWindow.webContents.send('force-repaint');
+      /* 长时间后台（>2 分钟）后仅靠 invalidate 有时仍留黑帧，
+         做一次肉眼不可见的 1px 尺寸抖动强制重建合成层 */
+      const hiddenFor = lastHiddenAt ? Date.now() - lastHiddenAt : 0;
+      if (force || hiddenFor > 120000) {
+        const [w, h] = mainWindow.getSize();
+        mainWindow.setSize(w, h + 1);
+        setTimeout(() => {
+          try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setSize(w, h); } catch (e) {}
+        }, 60);
+      }
+      lastHiddenAt = 0;
+    } catch (e) {}
+  }
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
   /* 后台自动降进程优先级（防止挂在后台时抢占鼠标/UI 响应） */
@@ -82,16 +106,21 @@ function createWindow() {
   function normalPriority() {
     try { os.setPriority(process.pid, os.constants.priority.PRIORITY_NORMAL); } catch (e) {}
   }
-  mainWindow.on('hide', lowerPriority);
-  mainWindow.on('minimize', lowerPriority);
-  mainWindow.on('show', normalPriority);
-  mainWindow.on('restore', normalPriority);
-  mainWindow.on('focus', normalPriority);
+  mainWindow.on('hide', () => { lastHiddenAt = Date.now(); lowerPriority(); });
+  mainWindow.on('minimize', () => { lastHiddenAt = Date.now(); lowerPriority(); });
+  mainWindow.on('show', () => { normalPriority(); repaintWindow(true); setTimeout(() => repaintWindow(true), 300); });
+  mainWindow.on('restore', () => { normalPriority(); repaintWindow(true); setTimeout(() => repaintWindow(true), 300); });
+  mainWindow.on('focus', () => { normalPriority(); repaintWindow(); });
   mainWindow.on('blur', () => {
     // 失焦且被遮挡时也降（Electron occlusion 检测）
     if (!mainWindow.isVisible() || mainWindow.isMinimized()) lowerPriority();
   });
   mainWindow.webContents.setVisualZoomLevelLimits(1, 1);
+  mainWindow.on('unresponsive', () => {
+    console.error('[BLFP] 界面无响应，尝试重绘');
+    repaintWindow();
+  });
+  /* 长时间后台后 GPU 进程可能被回收，重新载入界面即可恢复（登录态在 localStorage，不会丢） */
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error('Renderer process exited:', details.reason);
   });
@@ -110,6 +139,13 @@ function createWindow() {
   });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
+
+/* 从睡眠/休眠恢复后同样可能黑屏 */
+try {
+  require('electron').powerMonitor.on('resume', () => {
+    try { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.webContents.invalidate(); mainWindow.webContents.send('force-repaint'); } } catch (e) {}
+  });
+} catch (e) {}
 
 app.whenReady().then(() => {
   createWindow();
