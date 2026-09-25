@@ -95,6 +95,39 @@ async function probeServer(url, timeoutMs) {
   } catch (e) { return false; }
 }
 
+/* ====== EasyTier 需要管理员权限：不再默认提权，需要时提示用户以管理员重启 ====== */
+async function isElevated() {
+  try {
+    if (!window.mclink || !window.mclink.isElevated) return true;
+    return !!(await window.mclink.isElevated());
+  } catch (e) { return false; }
+}
+
+function askElevation(what) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
+    $('confirm-title').textContent = '需要管理员权限';
+    $('confirm-msg').textContent = what + ' 需要创建虚拟网卡，必须以管理员身份运行。\n\n点「确定」以管理员身份重启客户端（重启后请重新操作）；点「取消」则保持当前权限（EasyTier 无法使用，可改用 frp 中转模式）。';
+    $('confirm-modal').classList.remove('hidden');
+    $('confirm-ok').__handler = () => finish('elevate');
+    $('confirm-cancel').__handler = () => finish('cancel');
+  });
+}
+
+/* 返回 true 表示可以继续启动 EasyTier；false 表示已中断（正在提权重启或用户取消） */
+async function ensureElevatedForEasyTier(what) {
+  if (await isElevated()) return true;
+  const choice = await askElevation(what);
+  if (choice === 'elevate') {
+    notify('正在以管理员身份重启客户端…');
+    try { await window.mclink.relaunchElevated(); } catch (e) { notify('提权重启失败：' + e.message, 'error'); }
+    return false;
+  }
+  notify('已取消：EasyTier 需要管理员权限，可改用 frp 中转模式', 'warn');
+  return false;
+}
+
 /* ====== 登录过期统一处理（JWT 7天到期 / 服务器换密钥 / 改密码 → 所有请求 401）====== */
 let sessionExpiredHandling = false;
 async function handleSessionExpired(message) {
@@ -476,11 +509,17 @@ function showConfirm(title, msg, onConfirm) {
 }
 function confirmOk() {
   const handler = $('confirm-ok').__handler;
+  $('confirm-ok').__handler = null;
+  $('confirm-cancel').__handler = null;
   $('confirm-modal').classList.add('hidden');
   if (handler) handler();
 }
 function confirmCancel() {
   $('confirm-modal').classList.add('hidden');
+  const handler = $('confirm-cancel').__handler;
+  $('confirm-cancel').__handler = null;
+  $('confirm-ok').__handler = null;
+  if (handler) handler();
 }
 
 function syncPresence(online = true) {
@@ -974,6 +1013,9 @@ async function createRoom(options = {}) {
   selectMode(mode);
 
   if (mode === 'frp') return createFrpRoom(button);
+
+  /* EasyTier 需要管理员权限（虚拟网卡） */
+  if (!(await ensureElevatedForEasyTier('创建 EasyTier 房间'))) return;
 
   try {
     button.disabled = true;
@@ -1482,6 +1524,11 @@ async function onRoomJoined(msg) {
   }
 
   if (!msg.easytier?.hostVirtualIp) throw new Error('服务端未返回 EasyTier 房主地址');
+  /* 访客接入 EasyTier 同样需要管理员权限 */
+  if (!(await ensureElevatedForEasyTier('加入 EasyTier 房间'))) {
+    await failGuestConnection('EasyTier 需要管理员权限，请以管理员身份重启客户端后重试（或让房主改用 frp 模式）');
+    return;
+  }
   const address = msg.easytier.hostVirtualIp + ':' + (msg.easytier.port || 25565);
   notify('正在启动 EasyTier...');
   const etConfig = { ...msg.easytier, mode: 'guest' };

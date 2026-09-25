@@ -1988,3 +1988,7 @@ html, body { height: 100%; }
   word-break: break-all;
 }
 [data-theme="light"] .diag-pre { background: rgba(0,0,0,0.05); }
+
+
+/* 确认弹窗正文支持换行 */
+#confirm-msg { white-space: pre-line; line-height: 1.7; }

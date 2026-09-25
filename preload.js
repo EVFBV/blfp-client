@@ -25,6 +25,7 @@ const blfpApi = {
   // 诊断信息
   collectDiagnostics: () => ipcRenderer.invoke('collect-diagnostics'),
   isElevated: () => ipcRenderer.invoke('is-elevated'),
+  relaunchElevated: () => ipcRenderer.invoke('relaunch-elevated'),
 
   // 退出软件
   exitApp: () => ipcRenderer.invoke('exit-app'),

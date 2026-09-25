@@ -457,6 +457,22 @@ ipcMain.handle('collect-diagnostics', async () => {
   return lines.join('\n');
 });
 
+/* 以管理员身份重启（仅在用户确认后调用，不再默认提权） */
+ipcMain.handle('relaunch-elevated', async () => {
+  try {
+    const { execFile } = require('child_process');
+    const exe = process.execPath.replace(/"/g, '""');
+    const cmd = 'Start-Process -FilePath "' + exe + '" -Verb RunAs';
+    execFile('powershell.exe', ['-NoProfile', '-Command', cmd], { windowsHide: true }, (err) => {
+      if (err) console.error('[BLFP] 提权重启失败:', err.message);
+    });
+    setTimeout(() => app.quit(), 900);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
 ipcMain.handle('is-elevated', async () => {
   const r = await runCapture('net', ['session']);
   return r.ok;
