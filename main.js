@@ -269,37 +269,69 @@ ipcMain.handle('set-custom-titlebar', async (_e, opts) => {
   });
 
   ipcMain.handle('open-log-external', async () => {
-    ensureLogDir();
-    // 在 PowerShell 中打开日志文件
-    const logPath = require('path').join(process.env.APPDATA || process.env.HOME || '.', 'BLFP', 'logs', 'blfp.log');
-    const fs = require('fs');
-    // 确保日志目录存在
-    require('fs').mkdirSync(require('path').dirname(logPath), { recursive: true });
-    if (!require('fs').existsSync(logPath)) {
-      require('fs').writeFileSync(logPath, 'BLFP 日志\r\n===\r\n');
-    }
-    if (process.platform === 'win32') {
-      /* 用 cmd start 打开独立 PowerShell 窗口实时跟随日志；
-         spawn 传参数组，避免字符串拼接导致的引号/转义问题 */
-      const script = '$host.UI.RawUI.WindowTitle = "BLFP 实时日志"; '
-        + 'Write-Host "=== BLFP 实时日志（按 Ctrl+C 停止跟随）===" -ForegroundColor Cyan; '
-        + 'Get-Content -LiteralPath "' + logPath + '" -Tail 200 -Wait -Encoding UTF8';
-      try {
-        require('child_process').spawn('cmd.exe', ['/c', 'start', 'BLFP 日志', 'powershell.exe', '-NoExit', '-NoProfile', '-Command', script], {
-          detached: true,
-          stdio: 'ignore',
-          windowsHide: false,
-        }).unref();
-      } catch (e) {
-        require('child_process').spawn('powershell.exe', ['-NoExit', '-NoProfile', '-Command', script], { detached: true, stdio: 'ignore' }).unref();
+    try {
+      ensureLogDir();
+      const path = require('path');
+      const childProcess = require('child_process');
+
+      if (process.platform !== 'win32') {
+        /* 非 Windows：直接调系统终端 */
+        if (process.platform === 'darwin') childProcess.spawn('open', ['-a', 'Terminal', LOG_PATH], { detached: true }).unref();
+        else childProcess.spawn('x-terminal-emulator', ['-e', 'tail', '-f', LOG_PATH], { detached: true }).unref();
+        return { ok: true, logPath: LOG_PATH };
       }
-    } else if (process.platform === 'darwin') {
-      require('child_process').spawn('open', ['-a', 'Terminal', logPath], { detached: true }).unref();
-    } else {
-      require('child_process').spawn('x-terminal-emulator', ['-e', 'tail', '-f', logPath], { detached: true }).unref();
+
+      /* 关键：把脚本写入 .ps1 文件再用 -File 调用。
+         之前用 -Command 传内联脚本（含中文/引号/$/分号）会被参数转义破坏，
+         PowerShell 一闪即退，表现为"根本打不开 PS"。 */
+      const scriptPath = path.join(path.dirname(LOG_PATH), 'view-log.ps1');
+      const script = [
+        '$OutputEncoding = [System.Text.Encoding]::UTF8',
+        '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+        '$host.UI.RawUI.WindowTitle = "BLFP 实时日志"',
+        'Write-Host "=== BLFP 实时日志 ===" -ForegroundColor Cyan',
+        'Write-Host ("日志文件: ' + LOG_PATH.replace(/\\/g, '\\\\') + '") -ForegroundColor DarkGray',
+        'Write-Host "按 Ctrl+C 停止跟随，关闭窗口即可退出。" -ForegroundColor DarkGray',
+        'Write-Host ""',
+        'Get-Content -LiteralPath "' + LOG_PATH.replace(/\\/g, '\\\\') + '" -Tail 200 -Wait -Encoding UTF8',
+      ].join('\r\n');
+      require('fs').writeFileSync(scriptPath, '\ufeff' + script, 'utf8');
+
+      const args = ['/c', 'start', '', 'powershell.exe', '-NoExit', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath];
+      const child = childProcess.spawn('cmd.exe', args, { detached: true, stdio: 'ignore', windowsHide: false });
+      child.on('error', (e) => console.error('[BLFP] 启动 PowerShell 失败:', e.message));
+      child.unref();
+      return { ok: true, logPath: LOG_PATH, scriptPath };
+    } catch (e) {
+      console.error('[BLFP] 打开日志失败:', e && e.message);
+      return { ok: false, error: (e && e.message) || '未知错误', logPath: LOG_PATH };
     }
-    return logPath;
   });
+
+  /* 读取日志尾部（应用内日志窗口用，不依赖任何外部程序） */
+  ipcMain.handle('read-log', async (_e, lines) => {
+    try {
+      ensureLogDir();
+      const max = Math.max(20, Math.min(2000, Number(lines) || 300));
+      const content = require('fs').readFileSync(LOG_PATH, 'utf8');
+      const all = content.split(/\r?\n/).filter(Boolean);
+      return { ok: true, text: all.slice(-max).join('\n'), logPath: LOG_PATH, size: content.length };
+    } catch (e) {
+      return { ok: false, error: e.message, logPath: LOG_PATH };
+    }
+  });
+
+  /* 在资源管理器中定位日志文件（PowerShell 被组策略禁用时的兜底） */
+  ipcMain.handle('open-log-folder', async () => {
+    try {
+      ensureLogDir();
+      require('electron').shell.showItemInFolder(LOG_PATH);
+      return { ok: true, logPath: LOG_PATH };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
   ipcMain.handle('exit-app', async () => {
   await stopServices();
   quitting = true;

@@ -116,6 +116,52 @@ async function probeServer(url, timeoutMs) {
   } catch (e) { return false; }
 }
 
+/* ====== 应用内日志窗口（始终可用，不依赖 PowerShell）====== */
+let logViewerTimer = null;
+async function refreshLogViewer() {
+  const pre = document.querySelector('.log-viewer-pre');
+  if (!pre) return;
+  try {
+    const res = await window.mclink.readLog(500);
+    if (res && res.ok) {
+      pre.textContent = res.text || '（日志为空）';
+      pre.scrollTop = pre.scrollHeight;
+    } else {
+      pre.textContent = '读取日志失败：' + ((res && res.error) || '未知错误');
+    }
+  } catch (e) {
+    pre.textContent = '读取日志失败：' + e.message;
+  }
+}
+async function openLogViewer() {
+  let res = null;
+  try { res = await window.mclink.readLog(500); } catch (e) {}
+  showModal('log-viewer-modal',
+    '<h3>运行日志</h3>' +
+    '<p style="font-size:.75rem;color:var(--text2);margin-bottom:8px">' +
+      escapeHtml((res && res.logPath) || '') +
+    '</p>' +
+    '<pre class="log-viewer-pre diag-pre" style="max-height:52vh">正在读取…</pre>' +
+    '<div class="modal-actions">' +
+      '<button class="btn btn-outline btn-sm" onclick="openLogFolder()">打开日志文件夹</button>' +
+      '<button class="btn btn-outline btn-sm" onclick="exportDiagnostics()">导出诊断</button>' +
+      '<button class="btn btn-primary btn-sm" onclick="closeModal(\'log-viewer-modal\')">关闭</button>' +
+    '</div>');
+  refreshLogViewer();
+  if (logViewerTimer) clearInterval(logViewerTimer);
+  logViewerTimer = setInterval(() => {
+    if (!document.querySelector('.log-viewer-pre')) { clearInterval(logViewerTimer); logViewerTimer = null; return; }
+    refreshLogViewer();
+  }, 2000);
+}
+async function openLogFolder() {
+  try {
+    const res = await window.mclink.openLogFolder();
+    if (res && res.ok) toast('已打开日志文件夹', 'success');
+    else notify('打开失败：' + ((res && res.error) || '未知错误'), 'error');
+  } catch (e) { notify('打开失败：' + e.message, 'error'); }
+}
+
 /* ====== EasyTier 需要管理员权限：不再默认提权，需要时提示用户以管理员重启 ====== */
 async function isElevated() {
   try {
@@ -2583,15 +2629,16 @@ setInterval(updateWelcomeText, 60000);
 
 /* ====== 设置页「实时日志(PowerShell)」按钮 ====== */
 async function toggleLiveLog() {
+  /* 优先应用内日志（一定可用），并尝试同时呼出 PowerShell */
+  openLogViewer();
   try {
-    if (window.mclink && window.mclink.openLogExternal) {
-      await window.mclink.openLogExternal();
-      toast('已在 PowerShell 中打开日志', 'success');
-      return;
-    }
-  } catch (e) { /* 落到下面的提示 */ }
-  toast('无法打开外部日志窗口，请在用户面板点「在 PowerShell 中打开日志」', 'error');
+    const res = await window.mclink.openLogExternal();
+    if (res && res.ok === false) notify('PowerShell 不可用（' + (res.error || '未知') + '），已使用应用内日志', 'warn');
+  } catch (e) {
+    notify('PowerShell 不可用，已使用应用内日志', 'warn');
+  }
 }
+
 
 /* ====== 按钮点击水波纹定位（CSS 的 .btn::after 使用 --ripple-x/y）====== */
 document.addEventListener('mousedown', (e) => {
@@ -2662,22 +2709,25 @@ async function copyText(text) {
 /* ====== PowerShell 呼出日志 ====== */
 async function openLogInPowerShell() {
   try {
-    if (window.mclink?.openLogExternal) {
-      await window.mclink.openLogExternal();
-      toast('已在 PowerShell 中打开日志', 'success');
-    } else {
-      // 回退：复制日志内容
-      const logBox = document.querySelector('.log-box');
-      if (logBox) {
-        const text = logBox.innerText;
-        await navigator.clipboard.writeText(text);
-        toast('已复制日志到剪贴板（当前版本不支持直接呼出 PS）', 'info');
-      }
+    if (!window.mclink || !window.mclink.openLogExternal) {
+      notify('当前版本不支持直接呼出 PowerShell，已改为应用内查看', 'warn');
+      return openLogViewer();
     }
+    const res = await window.mclink.openLogExternal();
+    if (res && res.ok === false) {
+      /* PowerShell 被组策略/AppLocker 禁用，或启动失败 → 自动降级 */
+      notify('无法启动 PowerShell（' + (res.error || '未知原因') + '），已为你打开应用内日志', 'warn');
+      openLogViewer();
+      await openLogFolder();
+      return;
+    }
+    toast('已打开 PowerShell 日志窗口；若没看到窗口，可用「查看日志」', 'success');
   } catch (e) {
-    toast('打开日志失败: ' + e.message, 'error');
+    notify('打开日志失败：' + e.message + '，已改为应用内查看', 'error');
+    openLogViewer();
   }
 }
+
 
 /* ====== 房间详情（点房间卡片显示详情弹窗） ====== */
 async function showRoomDetail(code) {

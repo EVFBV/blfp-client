@@ -22,6 +22,10 @@ const blfpApi = {
   close: () => ipcRenderer.invoke('window-close'),
   isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
 
+  // 应用内日志窗口 / 打开日志文件夹
+  readLog: (lines) => ipcRenderer.invoke('read-log', lines),
+  openLogFolder: () => ipcRenderer.invoke('open-log-folder'),
+
   // 日志写入文件（供 PowerShell 实时查看）
   appendLog: (lines) => ipcRenderer.invoke('append-log', lines),
 
