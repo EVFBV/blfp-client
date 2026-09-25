@@ -1,14 +1,14 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{font-family:'Segoe UI Variable Display','Inter','Microsoft YaHei',sans-serif;background:#08080f;color:#eaeaf0;user-select:none;overflow:hidden}
-.win{display:grid;grid-template-columns:220px 1fr;height:100vh;background:#08080f}
+.win{display:grid;grid-template-columns:220px 1fr;grid-template-rows:100%;height:100vh;overflow:hidden;background:#08080f}
 .logo{margin:0 auto;display:block;width:112px;height:auto;filter:drop-shadow(0 4px 24px rgba(59,110,255,0.25))}
 .hero{padding:38px 28px;background:rgba(12,13,24,0.5);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);border-right:1px solid rgba(255,255,255,0.04);color:#fff;display:flex;flex-direction:column;position:relative}
 .hero::before{content:'';position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 20% 30%,rgba(59,110,255,0.05),transparent 60%)}
 .hero .tagline{font-size:13px;line-height:1.7;color:#8a8fa8;margin-top:26px;position:relative;z-index:1}
 .hero::after{content:'安装程序';font-size:22px;font-weight:700;margin-top:12px;position:relative;z-index:1}
 .hero .logo-wrap{position:relative;z-index:1}
-.step{display:none;flex-direction:column;padding:46px;min-width:0}
+.step{display:none;flex-direction:column;padding:38px 42px;min-width:0;height:100%;overflow:hidden}
 .step.active{display:flex;animation:enter .3s cubic-bezier(0.16,1,0.3,1)}
 .desc{font-size:14px;line-height:1.75;color:#8a8fa8;margin-bottom:24px}
 .field-label{font-size:13px;font-weight:600;margin-bottom:8px;color:#eaeaf0}
@@ -17,7 +17,7 @@ body{font-family:'Segoe UI Variable Display','Inter','Microsoft YaHei',sans-seri
 .path-row input:focus{border-color:#3b6eff;box-shadow:0 0 0 3px rgba(59,110,255,0.08)}
 .checkbox{display:flex;align-items:center;gap:8px;font-size:13px;color:#8a8fa8;cursor:pointer}
 .checkbox input{width:15px;height:15px;accent-color:#3b6eff}
-.actions{margin-top:auto;display:flex;justify-content:flex-end;gap:10px}
+.actions{margin-top:auto;flex:0 0 auto;display:flex;justify-content:flex-end;gap:10px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.05)}
 .btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 20px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);font-size:13px;cursor:pointer;font-family:inherit;background:rgba(255,255,255,0.06);color:#eaeaf0;transition:all .18s;user-select:none}
 .btn:active{transform:scale(.96)}
 .btn-primary{background:linear-gradient(135deg,#3b6eff,#5580ff);color:#fff;border:none;box-shadow:0 2px 12px rgba(59,110,255,0.25)}
@@ -45,9 +45,11 @@ body{font-family:'Segoe UI Variable Display','Inter','Microsoft YaHei',sans-seri
 
 /* ===== 用户手册 / 守则 / 声明 ===== */
 .doc-head{font-size:16px;font-weight:700;margin-bottom:14px}
-.doc-scroll{flex:1;min-height:0;overflow-y:auto;padding-right:10px;margin-bottom:18px;user-select:text}
+.doc-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding-right:10px;margin-bottom:16px;user-select:text}
+.doc-scroll{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 26px),transparent 100%);mask-image:linear-gradient(to bottom,#000 calc(100% - 26px),transparent 100%)}
 .doc-scroll::-webkit-scrollbar{width:6px}
-.doc-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:3px}
+.doc-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:3px}
+.doc-scroll::-webkit-scrollbar-track{background:transparent}
 .doc-scroll h3{font-size:13px;font-weight:700;color:#7a9dff;margin:16px 0 8px}
 .doc-scroll h3:first-child{margin-top:0}
 .doc-list{font-size:12.5px;line-height:1.85;color:#9aa0b8;padding-left:20px}
