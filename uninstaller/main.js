@@ -1,3 +1,11 @@
+/* 全局异常兜底：避免任何未捕获异常弹出 "A JavaScript error occurred in the main process" 对话框 */
+process.on('uncaughtException', (err) => {
+  console.error('[卸载器] 未捕获异常（已拦截）:', err && err.stack ? err.stack : err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[卸载器] 未处理的 Promise 拒绝（已拦截）:', reason && reason.message ? reason.message : reason);
+});
+
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -114,6 +122,23 @@ function taskkill(imageName) {
   });
 }
 
+/* 客户端以管理员权限运行，普通权限的卸载器杀不掉它 —— 提权弹出 cmd 窗口执行 taskkill */
+function taskkillElevated() {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') return resolve();
+    const cmd = 'taskkill /F /IM BLFP.exe & taskkill /F /IM easytier-core.exe & taskkill /F /IM frpc.exe';
+    try {
+      const child = spawn('powershell.exe', [
+        '-NoProfile',
+        '-Command',
+        "Start-Process cmd.exe -ArgumentList '/k " + cmd + "' -Verb RunAs",
+      ], { windowsHide: false, stdio: 'ignore' });
+      child.on('error', () => resolve());
+      child.on('close', () => resolve());
+    } catch (e) { resolve(); }
+  });
+}
+
 function scheduleDeletion() {
   if (!uninstallPrepared || deleteScheduled || !installDir) return false;
   try {
@@ -215,6 +240,21 @@ ipcMain.handle('uninstall', async () => {
       taskkill('easytier-core.exe'),
       taskkill('frpc.exe'),
     ]);
+    /* 主程序可能仍以管理员权限运行 → 提权关闭（会弹 UAC） */
+    try {
+      const exe = path.join(installDir, 'BLFP.exe');
+      let locked = false;
+      if (fs.existsSync(exe)) {
+        try { const fd = fs.openSync(exe, 'r+'); fs.closeSync(fd); } catch (e) { locked = true; }
+      }
+      if (locked) {
+        await taskkillElevated();
+        for (let i = 0; i < 20; i++) {
+          await new Promise((r) => setTimeout(r, 600));
+          try { const fd = fs.openSync(exe, 'r+'); fs.closeSync(fd); break; } catch (e) {}
+        }
+      }
+    } catch (e) { /* 继续卸载流程 */ }
 
     uninstallPrepared = true;
     return { ok: true, installDir };

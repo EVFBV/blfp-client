@@ -1,3 +1,11 @@
+/* 全局异常兜底：避免任何未捕获异常弹出 "A JavaScript error occurred in the main process" 对话框 */
+process.on('uncaughtException', (err) => {
+  console.error('[安装器] 未捕获异常（已拦截）:', err && err.stack ? err.stack : err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[安装器] 未处理的 Promise 拒绝（已拦截）:', reason && reason.message ? reason.message : reason);
+});
+
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -278,14 +286,31 @@ ipcMain.handle('install', async (evt, opts) => {
   }
 });
 
-ipcMain.handle('launch', (evt, exePath) => {
+ipcMain.handle('launch', async (evt, exePath) => {
   try {
-    const child = spawn(exePath, [], { detached: true, stdio: 'ignore', cwd: path.dirname(exePath) });
-    child.unref();
-    setTimeout(() => app.quit(), 600);
-    return { ok: true };
+    const { shell } = require('electron');
+    const fsx = require('fs');
+    if (!exePath || !fsx.existsSync(exePath)) return { ok: false, error: '未找到主程序：' + exePath };
+
+    /* 关键：BLFP.exe 带 requireAdministrator 清单，普通权限的安装器用 spawn 启动它会 EACCES。
+       必须走 ShellExecute（shell.openPath / cmd start），由系统弹出 UAC 让用户确认提权。 */
+    let launched = false;
+    const openErr = await shell.openPath(exePath);
+    if (!openErr) {
+      launched = true;
+    } else {
+      await new Promise((resolve) => {
+        const child = spawn('cmd.exe', ['/c', 'start', '', exePath], { detached: true, stdio: 'ignore', windowsHide: false });
+        child.on('error', (e) => { console.error('[Installer] 启动客户端失败:', e.message); resolve(); });
+        child.on('close', () => resolve());
+        launched = true;
+        setTimeout(resolve, 1500);
+      });
+    }
+    setTimeout(() => app.quit(), 1200);
+    return { ok: launched };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: (e && e.message) || '未知错误' };
   }
 });
 

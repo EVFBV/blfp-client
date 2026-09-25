@@ -128,8 +128,22 @@ window.installer.onProgress(({ percent, text }) => {
 
 /* ---------- ④ 完成 ---------- */
 $('btn-finish').addEventListener('click', async () => {
-  if ($('opt-launch').checked && installedExe) await window.installer.launch(installedExe);
-  else window.installer.quit();
+  if ($('opt-launch').checked && installedExe) {
+    /* 客户端需要管理员权限，启动时系统会弹 UAC，这里先说明 */
+    $('done-text').textContent = '正在启动 BLFP 客户端…（若弹出「用户账户控制」，请点「是」）';
+    try {
+      const res = await window.installer.launch(installedExe);
+      if (res && res.ok === false) {
+        $('error-text').textContent = '启动客户端失败：' + (res.error || '未知错误') + '\n请手动双击桌面上的 BLFP 快捷方式启动。';
+        showStep('step-error');
+      }
+    } catch (e) {
+      $('error-text').textContent = '启动客户端失败：' + e.message + '\n请手动双击桌面上的 BLFP 快捷方式启动。';
+      showStep('step-error');
+    }
+  } else {
+    window.installer.quit();
+  }
 });
 $('btn-retry').addEventListener('click', () => showStep('step-setup'));
 $('btn-close-err').addEventListener('click', () => window.installer.quit());
