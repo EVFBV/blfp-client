@@ -131,7 +131,7 @@ function taskkillElevated() {
       const child = spawn('powershell.exe', [
         '-NoProfile',
         '-Command',
-        "Start-Process cmd.exe -ArgumentList '/k " + cmd + "' -Verb RunAs",
+        "Start-Process cmd.exe -ArgumentList '/c " + cmd + " & timeout /t 1 >nul' -Verb RunAs",
       ], { windowsHide: false, stdio: 'ignore' });
       child.on('error', () => resolve());
       child.on('close', () => resolve());
