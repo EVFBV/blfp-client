@@ -340,28 +340,59 @@ ipcMain.handle('install', async (evt, opts) => {
 });
 
 ipcMain.handle('launch', async (evt, exePath) => {
+  const fsx = require('fs');
+  const childProcess = require('child_process');
   try {
-    const { shell } = require('electron');
-    const fsx = require('fs');
     if (!exePath || !fsx.existsSync(exePath)) return { ok: false, error: '未找到主程序：' + exePath };
 
-    /* 关键：BLFP.exe 带 requireAdministrator 清单，普通权限的安装器用 spawn 启动它会 EACCES。
-       必须走 ShellExecute（shell.openPath / cmd start），由系统弹出 UAC 让用户确认提权。 */
-    let launched = false;
-    const openErr = await shell.openPath(exePath);
-    if (!openErr) {
-      launched = true;
-    } else {
-      await new Promise((resolve) => {
-        const child = spawn('cmd.exe', ['/c', 'start', '', exePath], { detached: true, stdio: 'ignore', windowsHide: false });
-        child.on('error', (e) => { console.error('[Installer] 启动客户端失败:', e.message); resolve(); });
-        child.on('close', () => resolve());
-        launched = true;
-        setTimeout(resolve, 1500);
+    /* BLFP.exe 带 requireAdministrator 清单：普通权限的安装器不能直接用 spawn 启动它（EACCES）。
+       依次尝试三种 ShellExecute 语义的方式，第一种（-Verb RunAs）会明确弹 UAC。 */
+    const attempts = [];
+
+    /* ① PowerShell Start-Process -Verb RunAs：显式请求提权，必定弹 UAC */
+    try {
+      const psCode = 'Start-Process -FilePath "' + exePath.replace(/"/g, '""') + '" -Verb RunAs';
+      const child = childProcess.spawn('powershell.exe', ['-NoProfile', '-Command', psCode], { detached: true, stdio: 'ignore', windowsHide: false });
+      child.on('error', (e) => console.error('[Installer] Start-Process 失败:', e.message));
+      child.unref();
+      attempts.push('Start-Process -Verb RunAs');
+      await new Promise((r) => setTimeout(r, 1500));
+      /* 判断是否已经起来了：进程名匹配 */
+      const running = await new Promise((resolve) => {
+        childProcess.execFile('tasklist.exe', ['/FI', 'IMAGENAME eq BLFP.exe', '/NH'], { windowsHide: true, timeout: 4000 }, (err, stdout) => {
+          resolve(!err && /BLFP\.exe/i.test(String(stdout || '')));
+        });
       });
-    }
-    setTimeout(() => app.quit(), 1200);
-    return { ok: launched };
+      if (running) {
+        setTimeout(() => app.quit(), 900);
+        return { ok: true, via: attempts[0] };
+      }
+    } catch (e) { console.error('[Installer] 提权启动异常:', e.message); }
+
+    /* ② shell.openPath（ShellExecuteEx） */
+    try {
+      const { shell } = require('electron');
+      const openErr = await shell.openPath(exePath);
+      if (!openErr) {
+        attempts.push('shell.openPath');
+        setTimeout(() => app.quit(), 1200);
+        return { ok: true, via: attempts[attempts.length - 1] };
+      }
+      console.error('[Installer] shell.openPath 返回错误:', openErr);
+    } catch (e) { console.error('[Installer] shell.openPath 异常:', e.message); }
+
+    /* ③ cmd start（同样是 ShellExecute 语义） */
+    try {
+      const child = childProcess.spawn('cmd.exe', ['/c', 'start', '', exePath], { detached: true, stdio: 'ignore', windowsHide: false });
+      child.on('error', (e) => console.error('[Installer] cmd start 失败:', e.message));
+      child.unref();
+      attempts.push('cmd start');
+      await new Promise((r) => setTimeout(r, 1200));
+      setTimeout(() => app.quit(), 800);
+      return { ok: true, via: attempts[attempts.length - 1] };
+    } catch (e) { console.error('[Installer] cmd start 异常:', e.message); }
+
+    return { ok: false, error: '三种启动方式均失败（' + attempts.join(' / ') + '），请手动双击桌面快捷方式启动' };
   } catch (e) {
     return { ok: false, error: (e && e.message) || '未知错误' };
   }
