@@ -240,7 +240,36 @@ ipcMain.handle('set-custom-titlebar', async (_e, opts) => {
     });
     return true;
   });
+  /* 渲染进程的日志写入文件（此前日志只在界面里，PS 打开的是空文件） */
+  const LOG_PATH = require('path').join(process.env.APPDATA || process.env.HOME || '.', 'BLFP', 'logs', 'blfp.log');
+  const MAX_LOG_BYTES = 2 * 1024 * 1024;
+  function ensureLogDir() {
+    const dir = require('path').dirname(LOG_PATH);
+    require('fs').mkdirSync(dir, { recursive: true });
+    if (!require('fs').existsSync(LOG_PATH)) {
+      require('fs').writeFileSync(LOG_PATH, '=== BLFP 运行日志 ===\r\n');
+    }
+  }
+  ipcMain.handle('append-log', async (_e, lines) => {
+    try {
+      ensureLogDir();
+      const text = Array.isArray(lines) ? lines.join('\r\n') : String(lines == null ? '' : lines);
+      if (!text) return { ok: true };
+      /* 超过 2MB 时轮转，避免无限增长 */
+      try {
+        if (require('fs').statSync(LOG_PATH).size > MAX_LOG_BYTES) {
+          require('fs').writeFileSync(LOG_PATH, '=== BLFP 运行日志（已轮转）===\r\n');
+        }
+      } catch (e) {}
+      require('fs').appendFileSync(LOG_PATH, text + '\r\n');
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
   ipcMain.handle('open-log-external', async () => {
+    ensureLogDir();
     // 在 PowerShell 中打开日志文件
     const logPath = require('path').join(process.env.APPDATA || process.env.HOME || '.', 'BLFP', 'logs', 'blfp.log');
     const fs = require('fs');
@@ -250,9 +279,20 @@ ipcMain.handle('set-custom-titlebar', async (_e, opts) => {
       require('fs').writeFileSync(logPath, 'BLFP 日志\r\n===\r\n');
     }
     if (process.platform === 'win32') {
-      // 用 start 命令确保弹出独立 PowerShell 窗口
-      const script = 'Write-Host "=== BLFP 实时日志 ===" -ForegroundColor Cyan; Get-Content -Path "' + logPath.replace(/\//g, '\\\\') + '" -Tail 200 -Wait';
-      require('child_process').exec('start "BLFP 日志" powershell -NoExit -Command "' + script + '"', { windowsHide: false });
+      /* 用 cmd start 打开独立 PowerShell 窗口实时跟随日志；
+         spawn 传参数组，避免字符串拼接导致的引号/转义问题 */
+      const script = '$host.UI.RawUI.WindowTitle = "BLFP 实时日志"; '
+        + 'Write-Host "=== BLFP 实时日志（按 Ctrl+C 停止跟随）===" -ForegroundColor Cyan; '
+        + 'Get-Content -LiteralPath "' + logPath + '" -Tail 200 -Wait -Encoding UTF8';
+      try {
+        require('child_process').spawn('cmd.exe', ['/c', 'start', 'BLFP 日志', 'powershell.exe', '-NoExit', '-NoProfile', '-Command', script], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: false,
+        }).unref();
+      } catch (e) {
+        require('child_process').spawn('powershell.exe', ['-NoExit', '-NoProfile', '-Command', script], { detached: true, stdio: 'ignore' }).unref();
+      }
     } else if (process.platform === 'darwin') {
       require('child_process').spawn('open', ['-a', 'Terminal', logPath], { detached: true }).unref();
     } else {

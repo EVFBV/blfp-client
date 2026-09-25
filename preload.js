@@ -22,6 +22,9 @@ const blfpApi = {
   close: () => ipcRenderer.invoke('window-close'),
   isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
 
+  // 日志写入文件（供 PowerShell 实时查看）
+  appendLog: (lines) => ipcRenderer.invoke('append-log', lines),
+
   // 诊断信息
   collectDiagnostics: () => ipcRenderer.invoke('collect-diagnostics'),
   isElevated: () => ipcRenderer.invoke('is-elevated'),

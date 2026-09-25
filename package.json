@@ -34,7 +34,7 @@
     ],
     "win": {
       "target": "dir",
-      "requestedExecutionLevel": "asInvoker",
+      "requestedExecutionLevel": "requireAdministrator",
       "icon": "assets/icon.png"
     },
     "asar": false,

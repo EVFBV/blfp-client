@@ -63,10 +63,12 @@ function toast(msg, type = '') {
 }
 
 function logLine(msg) {
+  const time = new Date().toLocaleTimeString();
+  /* 先写日志文件（界面日志框不存在时也不丢日志，PowerShell 才能看到内容） */
+  writeLogFile('[' + time + '] ' + msg);
   const box = $('log-box');
   if (!box) return;
   const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-  const time = new Date().toLocaleTimeString();
   const line = document.createElement('div');
   line.className = 'log-line';
   line.textContent = `[${time}] ${msg}`;
@@ -75,6 +77,25 @@ function logLine(msg) {
   while (box.childElementCount > maxLines) box.firstElementChild.remove();
   if (nearBottom) box.scrollTop = box.scrollHeight;
 }
+/* 日志同时写入文件（%APPDATA%\\BLFP\\logs\\blfp.log），供"在 PowerShell 中查看日志"实时跟随 */
+let logFileBuffer = [];
+let logFileFlushTimer = null;
+function flushLogFile() {
+  logFileFlushTimer = null;
+  if (!logFileBuffer.length) return;
+  const lines = logFileBuffer;
+  logFileBuffer = [];
+  try {
+    if (window.mclink && window.mclink.appendLog) window.mclink.appendLog(lines);
+  } catch (e) {}
+}
+function writeLogFile(line) {
+  logFileBuffer.push(line);
+  if (logFileBuffer.length >= 20) { flushLogFile(); return; }
+  if (!logFileFlushTimer) logFileFlushTimer = setTimeout(flushLogFile, 400);
+}
+window.addEventListener('beforeunload', flushLogFile);
+
 
 function debugLog(msg) {
   if (state.debugMode) logLine('[调试] ' + msg);

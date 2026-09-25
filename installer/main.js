@@ -51,6 +51,38 @@ function taskkill(imageName) {
   });
 }
 
+/* 客户端以管理员权限运行，普通权限的安装器杀不掉它 —— 提权并弹出 cmd 窗口执行 taskkill */
+function taskkillElevated() {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') return resolve();
+    const cmd = 'taskkill /F /IM ' + EXE_NAME + ' & taskkill /F /IM easytier-core.exe & taskkill /F /IM frpc.exe';
+    try {
+      const child = spawn('powershell.exe', [
+        '-NoProfile',
+        '-Command',
+        "Start-Process cmd.exe -ArgumentList '/k " + cmd + "' -Verb RunAs",
+      ], { windowsHide: false, stdio: 'ignore' });
+      child.on('error', () => resolve());
+      child.on('close', () => resolve());
+    } catch (e) { resolve(); }
+  });
+}
+
+/* 等待主程序文件解锁（提权窗口里的 taskkill 执行完才能覆盖） */
+async function waitForUnlock(exePath, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const fd = fs.openSync(exePath, 'r+');
+      fs.closeSync(fd);
+      return true;
+    } catch (e) {
+      await new Promise((r) => setTimeout(r, 600));
+    }
+  }
+  return false;
+}
+
 let win;
 function createWindow() {
   win = new BrowserWindow({
@@ -147,20 +179,22 @@ ipcMain.handle('install', async (evt, opts) => {
 
     const exeTarget = path.join(targetDir, EXE_NAME);
     if (fs.existsSync(exeTarget)) {
-      send(5, '正在关闭已运行的客户端...');
-      await Promise.all([
-        taskkill(EXE_NAME),
-        taskkill('easytier-core.exe'),
-      ]);
-      /* 客户端以管理员权限运行，普通权限的安装器杀不掉它 → 给出明确指引而不是丢文件占用错误 */
-      await new Promise((r) => setTimeout(r, 800));
-      let locked = false;
-      try {
-        const fd = fs.openSync(exeTarget, 'r+');
-        fs.closeSync(fd);
-      } catch (e) { locked = true; }
+      /* 先按普通权限关闭（普通权限运行的客户端可以直接杀掉） */
+      send(5, '正在关闭已运行的客户端…');
+      await Promise.all([taskkill(EXE_NAME), taskkill('easytier-core.exe'), taskkill('frpc.exe')]);
+      await new Promise((r) => setTimeout(r, 600));
+      let locked = true;
+      try { const fd = fs.openSync(exeTarget, 'r+'); fs.closeSync(fd); locked = false; } catch (e) { locked = true; }
+
       if (locked) {
-        throw new Error('BLFP 正在运行且无法自动关闭（它需要管理员权限）。\n请先手动退出 BLFP 客户端，再重新运行安装程序。');
+        /* 客户端以管理员权限运行 → 提权并弹出 cmd 窗口执行 taskkill */
+        send(6, '客户端以管理员权限运行，需要提权关闭，请在弹窗点「是」…');
+        await taskkillElevated();
+        const unlocked = await waitForUnlock(exeTarget, 20000);
+        if (!unlocked) {
+          throw new Error('BLFP 仍在运行，无法覆盖安装。\n请手动退出 BLFP 客户端，或重试安装。');
+        }
+        send(7, '已关闭客户端，继续安装…');
       }
     }
 
