@@ -274,11 +274,13 @@ async function resolveServer() {
   return DEFAULT_SERVER;
 }
 
+/* 已提醒过的明文服务器地址（每个 origin 只提醒一次） */
+let insecureServerWarned = '';
 function assertSecureServer(server) {
   const url = new URL(server);
   const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
-  if (url.protocol !== 'https:' && !local) {
-    /* 允许 http（自建服务器无证书场景），仅在日志中提醒 */
+  if (url.protocol !== 'https:' && !local && insecureServerWarned !== url.origin) {
+    insecureServerWarned = url.origin;
     logLine('警告：服务器使用 HTTP 明文传输，登录密码未加密，建议尽快配置 HTTPS');
   }
   return url;
@@ -962,6 +964,16 @@ function pickPort(port) {
 }
 
 function closeModal(id) { $(id).classList.add('hidden'); }
+
+// 通用弹窗打开：把内容写进 .modal 容器再显示遮罩。
+// 此前 showModal 被调用三处却从未定义，导致「收集诊断信息失败: showModal is not defined」
+function showModal(id, html) {
+  const el = $(id);
+  if (!el) return;
+  const box = el.querySelector('.modal') || el;
+  if (html != null) box.innerHTML = html;
+  el.classList.remove('hidden');
+}
 
 /* ============ 信令 WebSocket ============ */
 function connectSignaling() {
@@ -2158,7 +2170,7 @@ async function searchFriends() {
     const users = await api('/friends/search?q=' + encodeURIComponent(q));
     if (!users.length) { el.innerHTML = '<div class="empty-state">未找到用户</div>'; return; }
     el.innerHTML = users.map(u => `
-      <div class="friend-item" data-friend-id="${f.id}">
+      <div class="friend-item" data-friend-id="${u.id}">
         <div class="fi-avatar">${escapeHtml(u.username.charAt(0).toUpperCase())}</div>
         <div class="fi-info">
           <div class="fi-name">${escapeHtml(u.username)}${u.title ? ` <span class="user-title theme-${escapeHtml(u.theme||'dark')}">${escapeHtml(u.title)}</span>` : ''}</div>
