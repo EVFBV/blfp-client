@@ -2014,3 +2014,33 @@ html, body { height: 100%; }
 
 /* 确认弹窗正文支持换行 */
 #confirm-msg { white-space: pre-line; line-height: 1.7; }
+
+/* ============================================================================
+ * 布局微调 —— 来自可视化布局调试器的导出（窗口 1100x741）
+ *
+ * 全部使用 CSS 独立 translate 属性：不参与布局流、不影响相邻元素，
+ * 也不与元素自身的 transform 互相覆盖，随时删掉对应行即可回退。
+ *
+ * 调试器导出的原始选择器大量依赖 :nth-of-type，增删一个卡片就会错位；
+ * 这里全部换成了带 id / 语义类名的稳定选择器。
+ * ========================================================================= */
+
+/* 侧边栏整体下移 14px */
+#app-sidebar { translate: 0 14px; }
+
+/* 开关控件相对标签文字下移 4px
+   调试器导出的是 3 个开关各自的 3 / 4 / 5px —— 它们是同一个组件，
+   逐个微调只会在不同页面之间产生肉眼可见的不一致，这里合并成一条统一规则。 */
+.toggle-label .switch { translate: 0 4px; }
+
+/* EasyTier 测速：延迟徽标右移 10px、下移 4px */
+#s-et-latency { translate: 10px 4px; }
+
+/* EasyTier 测速：「测速」按钮右移 1px、下移 4px */
+#page-settings .et-node-actions > .btn { translate: 1px 4px; }
+
+/* EasyTier 测速结果行：节点名下移 14px */
+#s-et-results .et-result-row > span:first-child { translate: 0 14px; }
+
+/* 房间已开启：关闭房间按钮下移 9px */
+#host-active .host-room-actions > .btn { translate: 0 9px; }
