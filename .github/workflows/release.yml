@@ -114,4 +114,16 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: installer/out_v${{ steps.ver.outputs.v }}-final/BLFP-Setup-v${{ steps.ver.outputs.v }}.exe
-          generate_release_notes: true
+          # tag 名含 '-'（如 v2.3.1-pre）一律标为预发布，避免被 /releases/latest 返回而推送给正式用户
+          prerelease: ${{ contains(steps.ver.outputs.v, '-') }}
+          body: |
+            ## BLFP v${{ steps.ver.outputs.v }}
+
+            ### 修复
+            - 预发布版本不再弹出更新提示：客户端按 semver 语义识别 tag 的预发布后缀，命中即跳过更新弹窗
+
+            ### 构建信息
+            - 构建 commit：`${{ github.sha }}`
+            - 详细构建时间见包内 `renderer/build-info.js`
+
+            > 本版本为预发布版本，不会推送给正式用户。
