@@ -345,54 +345,29 @@ ipcMain.handle('launch', async (evt, exePath) => {
   try {
     if (!exePath || !fsx.existsSync(exePath)) return { ok: false, error: '未找到主程序：' + exePath };
 
-    /* BLFP.exe 带 requireAdministrator 清单：普通权限的安装器不能直接用 spawn 启动它（EACCES）。
-       依次尝试三种 ShellExecute 语义的方式，第一种（-Verb RunAs）会明确弹 UAC。 */
-    const attempts = [];
-
-    /* ① PowerShell Start-Process -Verb RunAs：显式请求提权，必定弹 UAC */
+    /* 立刻启动，不等、不校验（UAC 已关闭时提权是静默的）：
+       BLFP.exe 带 requireAdministrator 清单，普通权限的安装器不能直接 spawn 它（EACCES），
+       所以走 ShellExecute 语义。Start-Process -Verb RunAs 在 UAC 关闭时立刻生效，
+       UAC 开启时也会正常弹窗，两种情况都能起来。 */
     try {
-      const psCode = 'Start-Process -FilePath "' + exePath.replace(/"/g, '""') + '" -Verb RunAs';
-      const child = childProcess.spawn('powershell.exe', ['-NoProfile', '-Command', psCode], { detached: true, stdio: 'ignore', windowsHide: false });
-      child.on('error', (e) => console.error('[Installer] Start-Process 失败:', e.message));
-      child.unref();
-      attempts.push('Start-Process -Verb RunAs');
-      await new Promise((r) => setTimeout(r, 1500));
-      /* 判断是否已经起来了：进程名匹配 */
-      const running = await new Promise((resolve) => {
-        childProcess.execFile('tasklist.exe', ['/FI', 'IMAGENAME eq BLFP.exe', '/NH'], { windowsHide: true, timeout: 4000 }, (err, stdout) => {
-          resolve(!err && /BLFP\.exe/i.test(String(stdout || '')));
-        });
-      });
-      if (running) {
-        setTimeout(() => app.quit(), 900);
-        return { ok: true, via: attempts[0] };
-      }
-    } catch (e) { console.error('[Installer] 提权启动异常:', e.message); }
+      childProcess.spawn('powershell.exe', [
+        '-NoProfile',
+        '-WindowStyle', 'Hidden',
+        '-Command',
+        'Start-Process -FilePath "' + exePath.replace(/"/g, '""') + '" -Verb RunAs',
+      ], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    } catch (e) {
+      console.error('[Installer] Start-Process 启动失败:', e.message);
+      /* 仅在提权启动"同步失败"时才走兜底，避免安装器退出后兜底来不及执行 */
+      try {
+        const { shell } = require('electron');
+        await shell.openPath(exePath);
+      } catch (e2) { console.error('[Installer] 兜底启动也失败:', e2.message); }
+    }
 
-    /* ② shell.openPath（ShellExecuteEx） */
-    try {
-      const { shell } = require('electron');
-      const openErr = await shell.openPath(exePath);
-      if (!openErr) {
-        attempts.push('shell.openPath');
-        setTimeout(() => app.quit(), 1200);
-        return { ok: true, via: attempts[attempts.length - 1] };
-      }
-      console.error('[Installer] shell.openPath 返回错误:', openErr);
-    } catch (e) { console.error('[Installer] shell.openPath 异常:', e.message); }
-
-    /* ③ cmd start（同样是 ShellExecute 语义） */
-    try {
-      const child = childProcess.spawn('cmd.exe', ['/c', 'start', '', exePath], { detached: true, stdio: 'ignore', windowsHide: false });
-      child.on('error', (e) => console.error('[Installer] cmd start 失败:', e.message));
-      child.unref();
-      attempts.push('cmd start');
-      await new Promise((r) => setTimeout(r, 1200));
-      setTimeout(() => app.quit(), 800);
-      return { ok: true, via: attempts[attempts.length - 1] };
-    } catch (e) { console.error('[Installer] cmd start 异常:', e.message); }
-
-    return { ok: false, error: '三种启动方式均失败（' + attempts.join(' / ') + '），请手动双击桌面快捷方式启动' };
+    /* 不等客户端起来，安装器立即退出 */
+    setTimeout(() => app.quit(), 300);
+    return { ok: true };
   } catch (e) {
     return { ok: false, error: (e && e.message) || '未知错误' };
   }

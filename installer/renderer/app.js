@@ -130,7 +130,7 @@ window.installer.onProgress(({ percent, text }) => {
 $('btn-finish').addEventListener('click', async () => {
   if ($('opt-launch').checked && installedExe) {
     /* 客户端需要管理员权限，启动时系统会弹 UAC，这里先说明 */
-    $('done-text').textContent = '正在启动 BLFP 客户端…（若弹出「用户账户控制」，请点「是」）';
+    $('done-text').textContent = '正在启动 BLFP…';
     try {
       const res = await window.installer.launch(installedExe);
       if (res && res.ok === false) {
