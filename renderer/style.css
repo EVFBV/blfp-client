@@ -2039,8 +2039,35 @@ html, body { height: 100%; }
 /* EasyTier 测速：「测速」按钮右移 1px、下移 4px */
 #page-settings .et-node-actions > .btn { translate: 1px 4px; }
 
-/* EasyTier 测速结果行：节点名下移 14px */
-#s-et-results .et-result-row > span:first-child { translate: 0 14px; }
+/* EasyTier 测速结果行的正式排版见下一节（调试器导出的节点名 14px 下移是
+   无样式布局上的权宜，已由 flex 排版取代，避免名字与延迟错位） */
 
 /* 房间已开启：关闭房间按钮下移 9px */
 #host-active .host-room-actions > .btn { translate: 0 9px; }
+
+/* ============================================================================
+ * EasyTier 测速结果 —— 源码里 .et-results / .et-result-row / .et-node-good|bad
+ * 原本一个样式都没有，测速结果是纯文本。这里补上正式排版：
+ * 每行节点名靠左、延迟靠右，正常绿色、不可达红色。
+ * ========================================================================= */
+.et-results {
+  margin-top: 10px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.et-result-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: .85rem;
+}
+.et-result-row > span:first-child {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.et-node-good { color: var(--success); font-weight: 600; flex-shrink: 0; }
+.et-node-bad { color: var(--danger); font-weight: 600; flex-shrink: 0; }
+[data-theme="light"] .et-result-row {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.08);
+}
