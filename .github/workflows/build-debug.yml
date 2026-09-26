@@ -1,6 +1,8 @@
 name: Build Debug (含布局调试器)
 
-# 手动触发。产物只作为 Actions artifact 上传：不创建 release、不打 tag、不推送更新。
+# 手动触发。产物发到 Releases 的固定标签 debug-tuner 下，方便直接下载：
+#   https://github.com/EVFBV/blfp-client/releases/tag/debug-tuner
+# 标记为 prerelease，所以 /releases/latest 永远不会返回它，不会推送给正式用户。
 # 正式发布走 release.yml，那一条会在打包前剔除布局调试器。
 on:
   workflow_dispatch:
@@ -8,10 +10,10 @@ on:
       label:
         description: 产物名后缀
         required: false
-        default: debug
+        default: tuner
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   NODE_VERSION: 20
@@ -20,8 +22,8 @@ jobs:
   debug-build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -49,6 +51,7 @@ jobs:
         shell: bash
         run: |
           test -f renderer/layout-tuner.js || { echo '::error::布局调试器缺失'; exit 1; }
+          test -f renderer/layout-tuner.css || { echo '::error::布局调试器样式缺失'; exit 1; }
           grep -q 'layout-tuner' renderer/index.html || { echo '::error::index.html 未引用布局调试器'; exit 1; }
           echo '布局调试器存在，继续构建'
 
@@ -88,10 +91,39 @@ jobs:
           if (-not (Test-Path $tuner)) { throw "布局调试器没有进客户端产物: $tuner" }
           Write-Host "OK - 布局调试器已在产物内"
 
-      - name: Upload debug installer
-        uses: actions/upload-artifact@v4
+      - name: Delete previous debug assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 固定标签复用同一个 release，先把上一轮的产物删掉，避免旧版本堆积
+          gh release view debug-tuner >/dev/null 2>&1 || exit 0
+          for a in $(gh release view debug-tuner --json assets --jq '.assets[].name'); do
+            [ -n "$a" ] && gh release delete-asset debug-tuner "$a" -y || true
+          done
+
+      - name: Publish debug release
+        uses: softprops/action-gh-release@v3
         with:
-          name: BLFP-Setup-${{ steps.ver.outputs.v }}-${{ github.event.inputs.label }}
-          path: installer/out_v${{ steps.ver.outputs.v }}-final/BLFP-Setup-v${{ steps.ver.outputs.v }}.exe
-          if-no-files-found: error
-          retention-days: 14
+          tag_name: debug-tuner
+          name: 调试构建（含布局调试器）
+          prerelease: true
+          files: installer/out_v${{ steps.ver.outputs.v }}-final/BLFP-Setup-v${{ steps.ver.outputs.v }}.exe
+          body: |
+            ## 调试构建 —— 含布局调试器
+
+            版本：`${{ steps.ver.outputs.v }}`　构建 commit：`${{ github.sha }}`
+
+            这个包**仅供开发调试**，比正式发布版多一个可视化布局调试器。标记为 prerelease，不会推送给正式用户。
+
+            ### 用法
+
+            1. 安装后启动 BLFP
+            2. 按 **Ctrl+Shift+D** 打开布局调试器面板
+            3. 点「选择元素」，再点页面上任意部件即可选中（带高亮框）
+            4. 用**方向键**微调位置（1px；按住 Shift 为 10px），也可以直接填 X / Y 数字框
+            5. 点「导出」，把生成的 JSON 发给开发者
+
+            调整结果存在 localStorage，刷新不丢。面板左上角可拖动，避免挡住要调的部件。
+
+            > 正式发布版（release.yml）会在打包前用 rm + sed 剔除调试器，并 grep 断言必须找不到。
