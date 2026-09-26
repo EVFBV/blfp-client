@@ -30,7 +30,12 @@ jobs:
       - name: Extract version
         id: ver
         shell: bash
-        run: echo "v=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: |
+          # 必须用块标量：单行 plain scalar 里转义的双引号在写成 .sh 之后会丢转义，
+          # bash 直接报 syntax error near unexpected token '('
+          V=$(node -p "require('./package.json').version")
+          echo "v=$V" >> "$GITHUB_OUTPUT"
+          echo "version=$V"
 
       - name: Write build info
         shell: bash
