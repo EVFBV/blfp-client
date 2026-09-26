@@ -117,10 +117,12 @@ function taskkillElevated() {
     if (process.platform !== 'win32') return resolve();
     const cmd = 'taskkill /F /IM ' + EXE_NAME + ' & taskkill /F /IM easytier-core.exe & taskkill /F /IM frpc.exe';
     try {
+      /* -Wait 不能省：没有它 powershell 一发出请求就退出，child.on('close')
+         在 UAC 弹窗还没点「是」时就触发，安装器会在客户端仍被占用时继续解压，必然 EBUSY */
       const child = spawn('powershell.exe', [
         '-NoProfile',
         '-Command',
-        "Start-Process cmd.exe -ArgumentList '/c " + cmd + " & timeout /t 1 >nul' -Verb RunAs",
+        "Start-Process cmd.exe -ArgumentList '/c " + cmd + " & timeout /t 1 >nul' -Verb RunAs -Wait",
       ], { windowsHide: false, stdio: 'ignore' });
       child.on('error', () => resolve());
       child.on('close', () => resolve());
@@ -128,19 +130,60 @@ function taskkillElevated() {
   });
 }
 
-/* 等待主程序文件解锁（提权窗口里的 taskkill 执行完才能覆盖） */
-async function waitForUnlock(exePath, timeoutMs = 20000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const fd = fs.openSync(exePath, 'r+');
-      fs.closeSync(fd);
-      return true;
-    } catch (e) {
-      await new Promise((r) => setTimeout(r, 600));
-    }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* Windows 上被占用的文件抛 EBUSY / EPERM / EACCES；进程刚退出时句柄释放还有延迟 */
+function isBusyError(err) {
+  const code = err && err.code;
+  return code === 'EBUSY' || code === 'EPERM' || code === 'EACCES' || code === 'ENOTEMPTY';
+}
+
+/* 能否独占打开目标文件（文件不存在也算已解锁） */
+function isUnlocked(filePath) {
+  try { const fd = fs.openSync(filePath, 'r+'); fs.closeSync(fd); return true; }
+  catch (e) { return !isBusyError(e); }
+}
+
+function taskkillAll() {
+  return Promise.all([taskkill(EXE_NAME), taskkill('easytier-core.exe'), taskkill('frpc.exe')]);
+}
+
+/* 等待主程序文件解锁；期间周期性重发 taskkill —— 提权窗口可能还在等用户点「是」 */
+async function waitForUnlock(exePath, timeoutMs = 120000, onTick) {
+  const start = Date.now();
+  let lastKill = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (isUnlocked(exePath)) return true;
+    if (Date.now() - lastKill > 8000) { lastKill = Date.now(); await taskkillAll(); }
+    if (onTick) onTick(Math.round((Date.now() - start) / 1000));
+    await sleep(500);
   }
   return false;
+}
+
+/* 解压写入带重试：文件被占用时等待后重写，必要时再杀一次客户端。
+   旧实现是一次性 writeFileSync —— 只要此刻 BLFP.exe 还被占用就整次安装失败，
+   用户必须手动重试第二次才能装上（EBUSY: resource busy or locked）。 */
+async function writeFileWithRetry(outPath, data, onRetry) {
+  const deadline = Date.now() + 60000;
+  let attempt = 0;
+  let lastErr;
+  for (;;) {
+    try { fs.writeFileSync(outPath, data); return; }
+    catch (e) {
+      lastErr = e;
+      if (!isBusyError(e)) throw e;
+      attempt++;
+      if (Date.now() >= deadline) break;
+      if (attempt % 4 === 0) await taskkillAll();
+      if (onRetry) onRetry(attempt);
+      await sleep(Math.min(300 * attempt, 2000));
+    }
+  }
+  throw new Error(
+    '文件被占用，无法写入：' + outPath + '\n' +
+    '请手动退出 BLFP 客户端（含托盘图标）后重试安装。\n（' + (lastErr && lastErr.code) + '）'
+  );
 }
 
 let win;
@@ -239,23 +282,25 @@ ipcMain.handle('install', async (evt, opts) => {
     }
 
     const exeTarget = path.join(targetDir, EXE_NAME);
-    if (fs.existsSync(exeTarget)) {
+    if (fs.existsSync(exeTarget) && !isUnlocked(exeTarget)) {
       /* 先按普通权限关闭（普通权限运行的客户端可以直接杀掉） */
       send(5, '正在关闭已运行的客户端…');
-      await Promise.all([taskkill(EXE_NAME), taskkill('easytier-core.exe'), taskkill('frpc.exe')]);
-      await new Promise((r) => setTimeout(r, 600));
-      let locked = true;
-      try { const fd = fs.openSync(exeTarget, 'r+'); fs.closeSync(fd); locked = false; } catch (e) { locked = true; }
+      await taskkillAll();
 
-      if (locked) {
+      /* 普通权限的 taskkill 杀不掉管理员权限运行的客户端；先给它几秒自然退出，
+         免得为了一个马上就会退出的进程白弹一次 UAC */
+      let unlocked = await waitForUnlock(exeTarget, 5000);
+
+      if (!unlocked) {
         /* 客户端以管理员权限运行 → 提权并弹出 cmd 窗口执行 taskkill */
         send(6, '客户端以管理员权限运行，需要提权关闭，请在弹窗点「是」…');
         await taskkillElevated();
-        const unlocked = await waitForUnlock(exeTarget, 20000);
-        if (!unlocked) {
-          throw new Error('BLFP 仍在运行，无法覆盖安装。\n请手动退出 BLFP 客户端，或重试安装。');
-        }
-        send(7, '已关闭客户端，继续安装…');
+        unlocked = await waitForUnlock(exeTarget, 120000, (sec) => {
+          send(6, `正在等待客户端退出（已等待 ${sec} 秒）…`);
+        });
+        if (unlocked) send(7, '已关闭客户端，继续安装…');
+        /* 仍未解锁也不再直接判失败：交给下面解压时的逐文件重试兜底 */
+        else send(7, '客户端似乎仍在运行，继续尝试覆盖安装…');
       }
     }
 
@@ -278,7 +323,10 @@ ipcMain.handle('install', async (evt, opts) => {
         fs.mkdirSync(outPath, { recursive: true });
       } else {
         fs.mkdirSync(path.dirname(outPath), { recursive: true });
-        fs.writeFileSync(outPath, entry.getData());
+        await writeFileWithRetry(outPath, entry.getData(), (attempt) => {
+          const pct = 10 + Math.floor(((done + 1) / total) * 80);
+          send(pct, `正在解压文件 ${done + 1}/${total}（${path.basename(outPath)} 被占用，第 ${attempt} 次重试）...`);
+        });
       }
       done++;
       const percent = 10 + Math.floor((done / total) * 80);

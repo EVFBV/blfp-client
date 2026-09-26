@@ -128,10 +128,11 @@ function taskkillElevated() {
     if (process.platform !== 'win32') return resolve();
     const cmd = 'taskkill /F /IM BLFP.exe & taskkill /F /IM easytier-core.exe & taskkill /F /IM frpc.exe';
     try {
+      /* -Wait：等提权 cmd 真正执行完再返回，避免 UAC 还没点「是」就继续往下走 */
       const child = spawn('powershell.exe', [
         '-NoProfile',
         '-Command',
-        "Start-Process cmd.exe -ArgumentList '/c " + cmd + " & timeout /t 1 >nul' -Verb RunAs",
+        "Start-Process cmd.exe -ArgumentList '/c " + cmd + " & timeout /t 1 >nul' -Verb RunAs -Wait",
       ], { windowsHide: false, stdio: 'ignore' });
       child.on('error', () => resolve());
       child.on('close', () => resolve());
