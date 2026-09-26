@@ -2101,19 +2101,25 @@ function loadPublicRooms(initial = false) {
   if (!state.token) return;
   // 性能优化：仅在房间列表页可见时轮询，间隔30秒，失败静默（最多提示一次）
   let pollFailCount = 0;
+  // initial 是闭包变量，不能直接拿来判断「首次」——它恒为 true，会让每 30 秒的轮询
+  // 都写一行「已加载公开房间列表」，同时把「只在房间列表页轮询」的优化一并失效。
+  // 改用只消费一次的 firstRun。
+  let firstRun = initial;
   const fetchRooms = async () => {
     // 页面不可见时跳过请求
     if (document.hidden) return;
-    // 不在房间列表页且非首次时跳过
-    if (!initial && currentPage !== 'rooms') return;
+    // 首次无论如何拉一次；之后只在房间列表页轮询
+    if (!firstRun && currentPage !== 'rooms') return;
+    const isFirst = firstRun;
+    firstRun = false;
     try {
       const rooms = await api('/rooms/public');
       renderPublicRooms(rooms);
-      if (initial) logLine('已加载公开房间列表');
+      if (isFirst) logLine('已加载公开房间列表');
       pollFailCount = 0;
     } catch (e) {
       pollFailCount++;
-      if (initial || pollFailCount === 1) logLine('加载公开房间失败: ' + e.message);
+      if (isFirst || pollFailCount === 1) logLine('加载公开房间失败: ' + e.message);
     }
   };
   fetchRooms();
