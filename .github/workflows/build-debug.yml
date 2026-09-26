@@ -1,9 +1,9 @@
 name: Build Debug (含布局调试器)
 
-# 手动触发。产物发到 Releases 的固定标签 debug-tuner 下，方便直接下载：
-#   https://github.com/EVFBV/blfp-client/releases/tag/debug-tuner
-# 标记为 prerelease，所以 /releases/latest 永远不会返回它，不会推送给正式用户。
-# 正式发布走 release.yml，那一条会在打包前剔除布局调试器。
+# 手动触发。两个用途：
+#   1) 填 label + 留空 tag → 发到固定 debug-tuner 标签（老用法）
+#   2) 填 tag（如 v2.3.3-pre）→ 发布为版本化 pre-release，供「测试版」更新渠道拉取
+# 正式发布仍走 release.yml（那边打包前剔除调试器）。
 on:
   workflow_dispatch:
     inputs:
@@ -11,6 +11,9 @@ on:
         description: 产物名后缀
         required: false
         default: tuner
+      tag:
+        description: 填写则发布为该 tag 的 pre-release（如 v2.3.3-pre）；留空发到 debug-tuner
+        required: false
 
 permissions:
   contents: write
@@ -29,15 +32,20 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Resolve tag
+        id: reltag
+        shell: bash
+        run: |
+          T=${{ github.event.inputs.tag }}
+          if [ -z "$T" ]; then T=debug-tuner; fi
+          echo "tag=$T" >> "$GITHUB_OUTPUT"
+
       - name: Extract version
         id: ver
         shell: bash
         run: |
-          # 必须用块标量：单行 plain scalar 里转义的双引号在写成 .sh 之后会丢转义，
-          # bash 直接报 syntax error near unexpected token '('
           V=$(node -p "require('./package.json').version")
           echo "v=$V" >> "$GITHUB_OUTPUT"
-          echo "version=$V"
 
       - name: Write build info
         shell: bash
@@ -91,67 +99,32 @@ jobs:
           if (-not (Test-Path $tuner)) { throw "布局调试器没有进客户端产物: $tuner" }
           Write-Host "OK - 布局调试器已在产物内"
 
-      - name: Delete previous debug assets
+      - name: Clear stale assets on reused tag
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # 固定标签复用同一个 release，先把上一轮的产物删掉，避免旧版本堆积
-          gh release view debug-tuner >/dev/null 2>&1 || exit 0
-          for a in $(gh release view debug-tuner --json assets --jq '.assets[].name'); do
-            [ -n "$a" ] && gh release delete-asset debug-tuner "$a" -y || true
+          T=${{ steps.reltag.outputs.tag }}
+          gh release view "$T" >/dev/null 2>&1 || exit 0
+          for a in $(gh release view "$T" --json assets --jq '.assets[].name'); do
+            [ -n "$a" ] && gh release delete-asset "$T" "$a" -y || true
           done
 
       - name: Publish debug release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: debug-tuner
-          name: 调试构建（含布局调试器）
+          tag_name: ${{ steps.reltag.outputs.tag }}
+          name: 调试构建（含布局调试器）v${{ steps.ver.outputs.v }}
+          # 版本化(以 v 开头)标记为 prerelease，供测试渠道；debug-tuner 也标 prerelease
           prerelease: true
           files: installer/out_v${{ steps.ver.outputs.v }}-final/BLFP-Setup-v${{ steps.ver.outputs.v }}.exe
           body: |
-            ## 调试构建 —— 含布局调试器
+            ## BLFP 调试构建 v${{ steps.ver.outputs.v }}
 
-            版本：`${{ steps.ver.outputs.v }}`　构建 commit：`${{ github.sha }}`
+            本包**仅供开发调试**，含可视化布局调试器（比正式版多这个组件）。
 
-            这个包**仅供开发调试**，比正式发布版多一个可视化布局调试器。标记为 prerelease，不会推送给正式用户。
-
-            ### 用法
-
-            1. 安装后启动 BLFP
-            2. 按 **Ctrl+Shift+D** 打开布局调试器面板
-            3. 点「选择元素」，再点页面上任意部件即可选中（带高亮框 + 选择器气泡）
-            4. 随便调，实时生效
-            5. 点「导出」，把生成的 JSON 发给开发者
-
-            ### 能调什么
-
-            | 分组 | 内容 |
-            |---|---|
-            | 位置 | X / Y 位移、层级 z-index、定位方式 |
-            | 尺寸 | 宽高、最小/最大宽高 |
-            | 间距 | 四边外边距、四边内边距、子元素间距 gap |
-            | 排版 | 字号、字重、行高、字间距、对齐、文字颜色 |
-            | 外观 | 背景色、边框宽/样式/色、圆角、不透明度、阴影 |
-            | 变换 | 缩放、旋转 |
-            | 显示 | display、可见性、溢出 |
-
-            **外加一个自由 CSS 输入框**——任何 CSS 声明都能直接写，不受上面分组限制，例如：
-
-            ```css
-            backdrop-filter: blur(8px);
-            text-shadow: 0 0 8px #3b6eff;
-            grid-template-columns: repeat(3, 1fr);
-            ```
-
-            ### 快捷操作
-
-            - **Alt + 拖动**部件 = 直接拖着改位置（不用切模式）
-            - **方向键** 微调 1px，**Shift + 方向键** 10px
-            - 顶部搜索框可按名字筛选属性
-            - 每个属性右边的 **×** 清除单项；「重置此元素」「全部重置」批量撤销
-            - 面板左上角可拖动，避免挡住要调的部件
-
-            调整结果存在 localStorage，刷新不丢。
+            - 构建 commit：`${{ github.sha }}`
+            - 布局调试器用法：Ctrl+Shift+D 打开面板
+            - 设置页可选择「测试版」更新渠道自动拉取这类 pre-release
 
             > 正式发布版（release.yml）会在打包前用 rm + sed 剔除调试器，并 grep 断言必须找不到。

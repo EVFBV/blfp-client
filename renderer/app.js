@@ -47,6 +47,7 @@ const state = {
   closingSignaling: false,
   announcement: null,
   announcementTimer: null,
+  updateChannel: 'stable',  /* stable: 正式版(忽略pre) | test: 测试版(含最新pre) */
 };
 
 /* ============ 工具函数 ============ */
@@ -979,7 +980,7 @@ function showPortModal(ports) {
       <span class="po-info">PID ${p.pid} · ${p.process}${p.port === 25565 ? ' · 默认端口' : ''}</span>
     </div>`
   ).join('');
-  $('port-modal').classList.remove('hidden');
+  openModal('port-modal');
 }
 
 function pickPort(port) {
@@ -989,7 +990,35 @@ function pickPort(port) {
   logLine('用户选择映射端口: ' + port);
 }
 
-function closeModal(id) { $(id).classList.add('hidden'); }
+let _modalCloseSeq = 0;
+function openModal(id) {
+  const el = $(id);
+  if (!el) return;
+  /* 取消任何挂起的关闭 */
+  el._ltClosing = 0;
+  el.classList.remove('modal-leaving');
+  void el.offsetWidth; /* 强制 reflow，保证进场动画重播 */
+  el.classList.remove('hidden');
+}
+function closeModal(id) {
+  const el = $(id);
+  if (!el || el.classList.contains('hidden') || el._ltClosing) return;
+  const seq = ++_modalCloseSeq;
+  el._ltClosing = seq;
+  /* 先播退场动画，动画结束（或超时兜底）后再真正隐藏 */
+  el.classList.add('modal-leaving');
+  const finish = () => {
+    if (el._ltClosing !== seq) return;
+    el.classList.remove('modal-leaving');
+    el.classList.add('hidden');
+    el._ltClosing = 0;
+  };
+  el.addEventListener('animationend', function ltEnd(e) {
+    if (e.animationName === 'backdropOut') { el.removeEventListener('animationend', ltEnd); finish(); }
+  });
+  /* 动画被禁用（性能低档/系统减弱动态效果）时兜底 */
+  setTimeout(finish, 320);
+}
 
 // 通用弹窗打开：把内容写进 .modal 容器再显示遮罩。
 // 此前 showModal 被调用三处却从未定义，导致「收集诊断信息失败: showModal is not defined」
@@ -998,7 +1027,7 @@ function showModal(id, html) {
   if (!el) return;
   const box = el.querySelector('.modal') || el;
   if (html != null) box.innerHTML = html;
-  el.classList.remove('hidden');
+  openModal(id);
 }
 
 /* ============ 信令 WebSocket ============ */
@@ -1843,7 +1872,7 @@ async function loadAnnouncement() {
     let remaining = Math.max(0, Number(announcement.forceSeconds) || 0);
     button.disabled = remaining > 0;
     button.textContent = remaining > 0 ? `请阅读（${remaining}s）` : '我知道了';
-    $('announcement-modal').classList.remove('hidden');
+    openModal('announcement-modal');
     if (state.announcementTimer) clearInterval(state.announcementTimer);
     if (remaining > 0) {
       state.announcementTimer = setInterval(() => {
@@ -1864,7 +1893,7 @@ function closeAnnouncement() {
   if ($('announcement-today').checked && state.announcement) localStorage.setItem(announcementStorageKey(state.announcement), '1');
   if (state.announcementTimer) clearInterval(state.announcementTimer);
   state.announcementTimer = null;
-  $('announcement-modal').classList.add('hidden');
+  closeModal('announcement-modal');
   checkForUpdates(true);
 }
 
@@ -1872,21 +1901,23 @@ async function checkForUpdates(silent = false) {
   try {
     if (!state.appInfo) await loadAppInfo();
     if (!silent) notify('正在检查更新…');
-    const info = await window.mclink.checkGithubUpdate();
+    const channel = state.updateChannel === 'test' ? 'test' : 'stable';
+    const info = await window.mclink.checkGithubUpdate(channel);
     state.updateInfo = info;
-    if (info.prerelease) {
-      /* 预发布版本不弹更新提示 */
+    if (channel !== 'test' && info.prerelease) {
+      /* 正式版渠道：忽略预发布版本。测试版渠道用户就是要拉最新 pre，不再拦。 */
       state.updateInfo = null;
       notify('已忽略预发布版本 ' + (info.latestVersion || ''));
       if (!silent) toast('当前已是最新版本', 'success');
       return;
     }
     if (info.latestVersion && compareVersions(info.latestVersion, state.appInfo.version) > 0) {
-      notify(`GitHub Releases 发现新版本 ${info.latestVersion}`);
-      $('update-title').textContent = `发现新版本 ${info.latestVersion}`;
+      const tag = info.prerelease && channel === 'test' ? '（测试版）' : '';
+      notify(`GitHub Releases 发现新版本 ${info.latestVersion}${tag}`);
+      $('update-title').textContent = `发现新版本 ${info.latestVersion}${tag}`;
       $('update-notes').textContent = info.releaseNotes || '暂无更新说明';
       $('update-download').textContent = info.downloadUrl ? `下载 ${info.assetName || '安装程序'}` : '打开发布页';
-      $('update-modal').classList.remove('hidden');
+      openModal('update-modal');
     } else {
       notify('当前已是最新版本');
       if (!silent) toast('当前已是最新版本', 'success');
@@ -1942,6 +1973,7 @@ function loadSettings() {
   applyTheme(s.theme || 'dark', false);
   applySidebarMode(s.sidebarMode || 'normal', false);
   applyPerfLevel(s.perf || 'medium', false);
+  state.updateChannel = s.updateChannel === 'test' ? 'test' : 'stable';
   if (s.cursorTrail) enableCursorTrail();
   if ($('s-server')) $('s-server').value = server;
   if ($('a-server')) $('a-server').value = server;
@@ -1951,6 +1983,7 @@ function loadSettings() {
   if ($('s-launch-behavior')) $('s-launch-behavior').value = s.launchBehavior || 'ask';
   if ($('sidebar-mode')) $('sidebar-mode').value = s.sidebarMode || 'normal';
   if ($('perf-level')) $('perf-level').value = s.perf || 'medium';
+  if ($('s-update-channel')) $('s-update-channel').value = state.updateChannel;
   if ($('cursor-trail-toggle')) $('cursor-trail-toggle').checked = !!s.cursorTrail;
   if ($('debug-mode-toggle')) $('debug-mode-toggle').checked = state.debugMode;
   return s;
@@ -1966,14 +1999,16 @@ function saveSettings() {
   const debugMode = $('debug-mode-toggle').checked;
   const theme = document.documentElement.getAttribute('data-theme') || 'dark';
   const etNodeMode = $('s-et-node') ? $('s-et-node').value : 'auto';
+  const updateChannel = $('s-update-channel') ? $('s-update-channel').value : 'stable';
 
-  const s = { server, mcPort, launchBehavior, sidebarMode, perf, cursorTrail, debugMode, theme, etNodeMode };
+  const s = { server, mcPort, launchBehavior, sidebarMode, perf, cursorTrail, debugMode, theme, etNodeMode, updateChannel };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   localStorage.setItem('mclink_server', server);
   state.server = server;
   state.mcPort = mcPort;
   state.debugMode = debugMode;
   state.etNodeMode = etNodeMode;
+  state.updateChannel = updateChannel;
   $('a-server').value = server;
   $('mc-port').value = mcPort;
   $('quick-mc-port').value = mcPort;
@@ -2344,8 +2379,8 @@ function appConfirm(message, onOk, opts) {
   const okBtn = dlg.querySelector('.app-confirm-ok');
   const cancelBtn = dlg.querySelector('.app-confirm-cancel');
   if (okBtn && opts && opts.okText) okBtn.textContent = opts.okText;
-  dlg.classList.remove('hidden');
-  const close = () => { dlg.classList.add('hidden'); };
+  openModal('app-confirm-modal');
+  const close = () => { closeModal('app-confirm-modal'); };
   const okHandler = () => { close(); onOk && onOk(); };
   okBtn.onclick = okHandler;
   cancelBtn.onclick = close;

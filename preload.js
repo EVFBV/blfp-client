@@ -7,7 +7,7 @@ const blfpApi = {
 
   // 应用信息与安全外链
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),
-  checkGithubUpdate: () => ipcRenderer.invoke('check-github-update'),
+  checkGithubUpdate: (channel) => ipcRenderer.invoke('check-github-update', channel),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
 
   // 本机局域网 IP

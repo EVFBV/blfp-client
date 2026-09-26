@@ -185,11 +185,17 @@ ipcMain.handle('open-external', async (_e, url) => {
   await shell.openExternal(url);
   return { ok: true };
 });
-ipcMain.handle('check-github-update', async () => {
+ipcMain.handle('check-github-update', async (_e, channel) => {
+  /* 更新渠道：'stable'（正式版，只拉最新正式 release）| 'test'（测试版，拉最新 release，含 pre 测试版）
+     GitHub 的 /releases/latest 永远不会返回 pre-release，所以测试渠道必须列全量再挑。 */
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), 12000);
   try {
-    const response = await fetch(GITHUB_RELEASE_API, {
+    const wantBeta = channel === 'test';
+    const url = wantBeta
+      ? 'https://api.github.com/repos/EVFBV/BLFP-client/releases?per_page=30'
+      : GITHUB_RELEASE_API;
+    const response = await fetch(url, {
       signal: controller.signal,
       headers: {
         Accept: 'application/vnd.github+json',
@@ -200,7 +206,17 @@ ipcMain.handle('check-github-update', async () => {
     if (response.status === 404) throw new Error('仓库尚未发布 Release');
     if (response.status === 403 || response.status === 429) throw new Error('GitHub API 请求受限，请稍后再试');
     if (!response.ok) throw new Error(`GitHub 更新检查失败 (${response.status})`);
-    const release = await response.json();
+    const body = await response.json();
+    let release;
+    if (wantBeta) {
+      const list = (Array.isArray(body) ? body : []).filter((r) => !r.draft);
+      if (!list.length) throw new Error('仓库尚未发布 Release');
+      /* 按版本号取最高（含 pre-release），与客户端 compareVersions 语义一致 */
+      release = list.reduce((best, r) =>
+        (compareVersions(String(r.tag_name || '').replace(/^v/i, ''), String(best.tag_name || '').replace(/^v/i, '')) > 0 ? r : best));
+    } else {
+      release = body;
+    }
     const assets = Array.isArray(release.assets) ? release.assets : [];
     const candidates = assets.filter((asset) => {
       const name = String(asset.name || '');
@@ -213,6 +229,7 @@ ipcMain.handle('check-github-update', async () => {
     });
     const isPrerelease = release.prerelease === true || /-[0-9A-Za-z]/.test(String(release.tag_name || '').replace(/^v/i, ''));
     return {
+      channel: wantBeta ? 'test' : 'stable',
       prerelease: isPrerelease,
       latestVersion: String(release.tag_name || '').replace(/^v/i, ''),
       releaseName: release.name || release.tag_name || '',
@@ -230,7 +247,27 @@ ipcMain.handle('check-github-update', async () => {
   }
 });
 
-// ====== IPC: 本机局域网 IP ======
+/* 与 renderer/app.js 的 compareVersions 同一语义：用于测试渠道挑最高版本（含 pre） */
+function compareVersions(a, b) {
+  const parse = (value) => {
+    const [core, pre = ''] = String(value || '').trim().replace(/^v/i, '').split('-', 2);
+    return { core: core.split('.').map((n) => parseInt(n, 10) || 0), pre: pre.split('.').filter(Boolean) };
+  };
+  const pa = parse(a), pb = parse(b);
+  for (let i = 0; i < Math.max(pa.core.length, pb.core.length); i++) {
+    if ((pa.core[i] || 0) !== (pb.core[i] || 0)) return (pa.core[i] || 0) > (pb.core[i] || 0) ? 1 : -1;
+  }
+  if (!pa.pre.length || !pb.pre.length) return pa.pre.length === pb.pre.length ? 0 : pa.pre.length ? -1 : 1;
+  for (let i = 0; i < Math.max(pa.pre.length, pb.pre.length); i++) {
+    if (pa.pre[i] === undefined || pb.pre[i] === undefined) return pa.pre[i] === undefined ? -1 : 1;
+    if (pa.pre[i] === pb.pre[i]) continue;
+    const an = /^\d+$/.test(pa.pre[i]), bn = /^\d+$/.test(pb.pre[i]);
+    if (an && bn) return Number(pa.pre[i]) > Number(pb.pre[i]) ? 1 : -1;
+    if (an !== bn) return an ? -1 : 1;
+    return pa.pre[i].localeCompare(pb.pre[i]) > 0 ? 1 : -1;
+  }
+  return 0;
+}// ====== IPC: 本机局域网 IP ======
 ipcMain.handle('get-lan-ip', async () => getLanIp());
 
 // ====== IPC: 自定义标题栏窗口控制 ======

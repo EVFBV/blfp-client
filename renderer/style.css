@@ -2071,3 +2071,20 @@ html, body { height: 100%; }
   background: rgba(0, 0, 0, 0.03);
   border-color: rgba(0, 0, 0, 0.08);
 }
+
+/* ====== 弹窗退场动画（配合 openModal/closeModal 统一开关）======
+.modal-backdrop.modal-leaving {
+  animation: backdropOut calc(0.22s * var(--anim-speed)) ease forwards;
+  pointer-events: none;
+}
+.modal-backdrop.modal-leaving .modal {
+  animation: modalOut calc(0.24s * var(--anim-speed)) cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes backdropOut { from { opacity: 1; } to { opacity: 0; } }
+@keyframes modalOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(14px) scale(0.97); }
+}
+[data-theme="light"] .modal-backdrop.modal-leaving .modal {
+  box-shadow: none;
+}
