@@ -1,59 +1,90 @@
 /* ============================================================================
- * BLFP 布局调试器（开发用）—— 正式发布版会被 CI 删除，见 .github/workflows/release.yml
+ * BLFP 布局调试器（开发用）—— 正式发布版会被 CI 删除
+ * 见 .github/workflows/release.yml 的 "Strip dev-only files" 步骤
  * ========================================================================= */
 
 #lt-panel {
-  position: fixed; left: 16px; bottom: 16px; z-index: 2147483000;
-  width: 312px; display: none;
-  background: rgba(10, 11, 20, 0.97);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  position: fixed; left: 16px; top: 16px; z-index: 2147483000;
+  width: 356px; display: none; flex-direction: column;
+  max-height: calc(100vh - 32px);
+  background: rgba(10, 11, 20, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
   font: 12px/1.5 ui-monospace, Consolas, "Courier New", monospace;
   color: #e6e8f0;
 }
-#lt-panel.lt-open { display: block; }
+#lt-panel.lt-open { display: flex; }
 #lt-panel header {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 8px; flex: 0 0 auto;
   padding: 8px 10px; cursor: move; user-select: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.05);
   border-radius: 10px 10px 0 0;
 }
-#lt-panel header b { flex: 1; font-size: 12px; }
+#lt-panel header b { flex: 1; font-size: 12px; letter-spacing: .02em; }
 #lt-panel .lt-body {
-  padding: 10px; display: flex; flex-direction: column; gap: 8px;
-  max-height: 64vh; overflow: auto;
+  padding: 10px; display: flex; flex-direction: column; gap: 9px;
+  overflow: auto; flex: 1 1 auto; min-height: 0;
 }
 #lt-panel button {
   font: inherit; padding: 4px 9px; border-radius: 6px; cursor: pointer;
   background: rgba(255, 255, 255, 0.08); color: inherit;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.14); white-space: nowrap;
 }
 #lt-panel button:hover { background: rgba(255, 255, 255, 0.18); }
 #lt-panel button.lt-on { background: #3b6eff; border-color: #3b6eff; color: #fff; }
-#lt-panel input[type=number] {
-  width: 76px; font: inherit; padding: 3px 6px; border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06); color: inherit;
+#lt-panel button.lt-mini { padding: 1px 6px; font-size: 11px; line-height: 1.3; }
+#lt-panel .lt-row2 { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+#lt-panel .lt-row3 { display: flex; align-items: center; gap: 6px; }
+#lt-panel .lt-row3 > label { flex: 0 0 84px; color: #9aa0bb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#lt-panel .lt-row3 > .lt-ctl { flex: 1 1 auto; display: flex; align-items: center; gap: 5px; min-width: 0; }
+#lt-panel input[type=number], #lt-panel input[type=text], #lt-panel select {
+  font: inherit; padding: 2px 5px; border-radius: 5px; min-width: 0;
+  background: rgba(255, 255, 255, 0.07); color: inherit;
   border: 1px solid rgba(255, 255, 255, 0.14);
 }
-#lt-panel .lt-row2 { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-#lt-sel {
-  padding: 6px 8px; border-radius: 6px; min-height: 30px;
-  background: rgba(59, 110, 255, 0.14); border: 1px solid rgba(59, 110, 255, 0.3);
-  word-break: break-all; color: #cfe3ff;
+#lt-panel input[type=number] { width: 62px; }
+#lt-panel input[type=text] { flex: 1 1 auto; }
+#lt-panel select { flex: 1 1 auto; }
+#lt-panel input[type=range] { flex: 1 1 auto; min-width: 0; accent-color: #3b6eff; height: 16px; }
+#lt-panel input[type=color] {
+  width: 26px; height: 22px; padding: 0; border-radius: 5px; flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.14);
 }
+#lt-sel {
+  padding: 6px 8px; border-radius: 6px; min-height: 28px;
+  background: rgba(59, 110, 255, 0.14); border: 1px solid rgba(59, 110, 255, 0.3);
+  word-break: break-all; color: #cfe3ff; font-size: 11px;
+}
+#lt-groups { display: flex; flex-direction: column; gap: 6px; }
+.lt-group { border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 7px; overflow: hidden; }
+.lt-group > summary {
+  padding: 5px 8px; cursor: pointer; user-select: none; list-style: none;
+  background: rgba(255, 255, 255, 0.05); color: #b9bfd8; font-size: 11px;
+}
+.lt-group > summary::-webkit-details-marker { display: none; }
+.lt-group > summary::before { content: '▸ '; }
+.lt-group[open] > summary::before { content: '▾ '; }
+.lt-group .lt-rows { padding: 7px 8px; display: flex; flex-direction: column; gap: 5px; }
+.lt-group.lt-dirty > summary { color: #7aa2ff; }
 #lt-list { display: flex; flex-direction: column; gap: 4px; }
 #lt-list .lt-item {
   display: flex; align-items: center; gap: 6px; padding: 3px 6px;
-  border-radius: 5px; background: rgba(255, 255, 255, 0.05);
+  border-radius: 5px; background: rgba(255, 255, 255, 0.05); font-size: 11px;
 }
 #lt-list .lt-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#lt-hint { color: #8a8fa8; font-size: 11px; }
-#lt-out {
-  width: 100%; height: 132px; resize: vertical; padding: 6px;
+#lt-hint { color: #7d8299; font-size: 11px; line-height: 1.45; }
+#lt-css {
+  width: 100%; height: 76px; resize: vertical; padding: 6px;
   font: 11px/1.45 ui-monospace, Consolas, monospace;
-  background: rgba(0, 0, 0, 0.45); color: #cfe3ff;
+  background: rgba(0, 0, 0, 0.5); color: #cfe3ff;
+  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 6px;
+}
+#lt-out {
+  width: 100%; height: 128px; resize: vertical; padding: 6px;
+  font: 11px/1.45 ui-monospace, Consolas, monospace;
+  background: rgba(0, 0, 0, 0.5); color: #cfe3ff;
   border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 6px;
 }
 #lt-hl {
@@ -67,3 +98,4 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 body.lt-picking, body.lt-picking * { cursor: crosshair !important; }
+body.lt-dragging, body.lt-dragging * { cursor: move !important; }
