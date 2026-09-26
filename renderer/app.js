@@ -1818,6 +1818,13 @@ async function checkForUpdates(silent = false) {
     if (!silent) notify('正在检查更新…');
     const info = await window.mclink.checkGithubUpdate();
     state.updateInfo = info;
+    if (info.prerelease) {
+      /* 预发布版本不弹更新提示 */
+      state.updateInfo = null;
+      notify('已忽略预发布版本 ' + (info.latestVersion || ''));
+      if (!silent) toast('当前已是最新版本', 'success');
+      return;
+    }
     if (info.latestVersion && compareVersions(info.latestVersion, state.appInfo.version) > 0) {
       notify(`GitHub Releases 发现新版本 ${info.latestVersion}`);
       $('update-title').textContent = `发现新版本 ${info.latestVersion}`;

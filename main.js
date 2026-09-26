@@ -211,7 +211,9 @@ ipcMain.handle('check-github-update', async () => {
       const score = (asset) => /blfp/i.test(asset.name) * 4 + /setup/i.test(asset.name) * 2 + /installer/i.test(asset.name);
       return score(b) - score(a);
     });
+    const isPrerelease = release.prerelease === true || /-[0-9A-Za-z]/.test(String(release.tag_name || '').replace(/^v/i, ''));
     return {
+      prerelease: isPrerelease,
       latestVersion: String(release.tag_name || '').replace(/^v/i, ''),
       releaseName: release.name || release.tag_name || '',
       releaseNotes: release.body || '',
