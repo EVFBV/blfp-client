@@ -134,7 +134,7 @@ body::before {
   height: 38px; flex: 0 0 38px;
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 12px 0 16px;
-  background: hsla(226, 50%, 16%, 0.55);
+  background: hsla(226, 55%, 12%, 0.88);
   user-select: none;
   -webkit-app-region: drag;
   z-index: 999;
@@ -156,7 +156,7 @@ body::before {
   background: linear-gradient(90deg, transparent, hsla(var(--lg-accent-h), 60%, 55%, calc(0.3 * 0.35)) 30%, hsla(var(--lg-accent-h), 60%, 55%, calc(0.3 * 0.35)) 70%, transparent);
 }
 [data-theme="light"] .window-titlebar {
-  background: hsla(220, 50%, 90%, 0.55);
+  background: hsla(220, 50%, 96%, 0.9);
 }
 .titlebar-title { 
   font-size: .78rem; color: var(--text2); letter-spacing: 2px;
@@ -1967,10 +1967,10 @@ html, body { height: 100%; }
 
 /* 标题栏：半透明玻璃浮层，覆盖在内容之上 */
 .window-titlebar {
-  background: hsla(226, 55%, 18%, 0.55) !important;
+  background: hsla(226, 55%, 12%, 0.88) !important;
 }
 [data-theme="light"] .window-titlebar {
-  background: hsla(220, 50%, 92%, 0.55) !important;
+  background: hsla(220, 50%, 96%, 0.9) !important;
 }
 
 
