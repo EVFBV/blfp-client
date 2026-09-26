@@ -1,0 +1,69 @@
+/* ============================================================================
+ * BLFP 布局调试器（开发用）—— 正式发布版会被 CI 删除，见 .github/workflows/release.yml
+ * ========================================================================= */
+
+#lt-panel {
+  position: fixed; left: 16px; bottom: 16px; z-index: 2147483000;
+  width: 312px; display: none;
+  background: rgba(10, 11, 20, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  font: 12px/1.5 ui-monospace, Consolas, "Courier New", monospace;
+  color: #e6e8f0;
+}
+#lt-panel.lt-open { display: block; }
+#lt-panel header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; cursor: move; user-select: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px 10px 0 0;
+}
+#lt-panel header b { flex: 1; font-size: 12px; }
+#lt-panel .lt-body {
+  padding: 10px; display: flex; flex-direction: column; gap: 8px;
+  max-height: 64vh; overflow: auto;
+}
+#lt-panel button {
+  font: inherit; padding: 4px 9px; border-radius: 6px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.08); color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+#lt-panel button:hover { background: rgba(255, 255, 255, 0.18); }
+#lt-panel button.lt-on { background: #3b6eff; border-color: #3b6eff; color: #fff; }
+#lt-panel input[type=number] {
+  width: 76px; font: inherit; padding: 3px 6px; border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06); color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+#lt-panel .lt-row2 { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+#lt-sel {
+  padding: 6px 8px; border-radius: 6px; min-height: 30px;
+  background: rgba(59, 110, 255, 0.14); border: 1px solid rgba(59, 110, 255, 0.3);
+  word-break: break-all; color: #cfe3ff;
+}
+#lt-list { display: flex; flex-direction: column; gap: 4px; }
+#lt-list .lt-item {
+  display: flex; align-items: center; gap: 6px; padding: 3px 6px;
+  border-radius: 5px; background: rgba(255, 255, 255, 0.05);
+}
+#lt-list .lt-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#lt-hint { color: #8a8fa8; font-size: 11px; }
+#lt-out {
+  width: 100%; height: 132px; resize: vertical; padding: 6px;
+  font: 11px/1.45 ui-monospace, Consolas, monospace;
+  background: rgba(0, 0, 0, 0.45); color: #cfe3ff;
+  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 6px;
+}
+#lt-hl {
+  position: fixed; z-index: 2147482999; pointer-events: none; display: none;
+  border: 2px solid #3b6eff; background: rgba(59, 110, 255, 0.14); border-radius: 3px;
+}
+#lt-badge {
+  position: fixed; z-index: 2147483001; pointer-events: none; display: none;
+  background: #3b6eff; color: #fff; padding: 2px 6px; border-radius: 4px;
+  font: 11px/1.4 ui-monospace, Consolas, monospace; max-width: 60vw;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+body.lt-picking, body.lt-picking * { cursor: crosshair !important; }

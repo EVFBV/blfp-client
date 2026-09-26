@@ -59,7 +59,17 @@ function toast(msg, type = '') {
   el.className = 'toast ' + type;
   el.textContent = msg;
   wrap.appendChild(el);
-  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
+  // 退场必须走 CSS 动画（滑回去）：.toast 没有 transition，直接改 opacity 会瞬间消失。
+  // 动画被禁用时（性能模式 / 系统减少动态效果）animationend 不会触发，用定时器兜底移除。
+  const dismiss = () => {
+    if (el.classList.contains('leaving')) return;
+    el.classList.add('leaving');
+    let removed = false;
+    const finish = () => { if (removed) return; removed = true; el.remove(); };
+    el.addEventListener('animationend', finish);
+    setTimeout(finish, 700);
+  };
+  setTimeout(dismiss, 3000);
 }
 
 function logLine(msg) {
@@ -552,20 +562,36 @@ async function doRegister() {
 function doLogout() {
   // 二次确认弹窗
   showConfirm('确认退出登录？', '退出后需重新登录才能使用联机功能。', async () => {
-    if (state.role === 'guest') await leaveRoom();
-    else if (state.role === 'host') await closeRoom();
-    await stopEasyTier();
-    try { await window.mclink.frpcStop(); } catch {}
-    try { await syncPresence(false); } catch {}
+    // 每一步单独兜底：任一环节抛错也必须完成退出。
+    // 原来的写法里 leaveRoom/closeRoom/stopEasyTier 一旦抛错，后面的清 token 全部不执行，
+    // 用户点了确认、弹窗也关了，却还停在已登录状态 —— 看起来就是「确认按钮没反应」。
+    const failed = [];
+    const step = async (name, fn) => {
+      try { await fn(); } catch (e) {
+        failed.push(name);
+        logLine('退出登录时「' + name + '」失败: ' + ((e && e.message) || e));
+      }
+    };
+    if (state.role === 'guest') await step('退出房间', () => leaveRoom());
+    else if (state.role === 'host') await step('关闭房间', () => closeRoom());
+    await step('停止 EasyTier', () => stopEasyTier());
+    await step('停止 frpc', () => window.mclink.frpcStop());
+    await step('同步离线状态', () => syncPresence(false));
+
     if (state.presenceTimer) clearInterval(state.presenceTimer);
     state.presenceTimer = null;
     state.token = null;
     state.user = null;
     state.signingKey = null;
     state.signingKeyToken = null;
+    // 房间状态也要清，否则重新登录后 createRoom 会以为「已在房间中」
+    state.role = null;
+    state.roomCode = null;
     localStorage.removeItem('mclink_token');
     $('main-app').classList.add('hidden');
     $('auth-page').classList.remove('hidden');
+    if (failed.length) toast('已退出登录（' + failed.join('、') + ' 未正常结束）', 'warn');
+    else toast('已退出登录', 'success');
   });
 }
 
@@ -1081,31 +1107,49 @@ function onSignal(msg) {
 }
 
 /* ============ Host 侧：创建房间 ============ */
+// 建房页三阶段：setup（选模式表单）/ creating（建房中）/ active（房间已开）。
+// 之前只有 setup 与 active 两块，建房期间一直停在 setup 上，看起来像卡在「创建房间」页。
+function setHostPhase(phase) {
+  const setup = $('host-setup');
+  const creating = $('host-creating');
+  const active = $('host-active');
+  if (setup) setup.classList.toggle('hidden', phase !== 'setup');
+  if (creating) creating.classList.toggle('hidden', phase !== 'creating');
+  if (active) active.classList.toggle('hidden', phase !== 'active');
+}
+function setHostCreatingText(text) {
+  const el = $('host-creating-text');
+  if (el) el.textContent = text;
+}
+
 async function createRoom(options = {}) {
-  if (state.role) return toast('当前已在房间中，请先退出当前房间', 'warn');
+  if (state.role) { setHostPhase('setup'); return toast('当前已在房间中，请先退出当前房间', 'warn'); }
   const inputId = options.inputId || 'mc-port';
   const mode = options.mode || state.mode;
   const button = $(options.buttonId || 'btn-create');
   const port = parseInt($(inputId).value, 10);
-  if (!port || port < 1 || port > 65535) return toast('端口无效', 'error');
+  if (!port || port < 1 || port > 65535) { setHostPhase('setup'); return toast('端口无效', 'error'); }
   state.mcPort = port;
   selectMode(mode);
 
   if (mode === 'frp') return createFrpRoom(button);
 
   /* EasyTier 需要管理员权限（虚拟网卡） */
-  if (!(await ensureElevatedForEasyTier('创建 EasyTier 房间'))) return;
+  if (!(await ensureElevatedForEasyTier('创建 EasyTier 房间'))) { setHostPhase('setup'); return; }
 
   try {
     button.disabled = true;
+    setHostCreatingText('正在连接信令服务器…');
     logLine('正在连接信令服务器...');
     await connectSignaling();
+    setHostCreatingText('正在创建房间…');
     state.role = 'host';
     state.isPublic = !!(options.isPublic ?? $('host-public')?.checked);
     sendSignal({ type: 'create', mode: 'easytier', username: state.user.username, userId: state.user.id, mcPort: port, isPublic: state.isPublic });
   } catch (e) {
     toast(e.message, 'error');
     button.disabled = false;
+    setHostPhase('setup');
   }
 }
 
@@ -1120,9 +1164,9 @@ async function onRoomCreated(msg) {
     quickHostPending = false;
     closeModal('quick-host-modal');
     navTo('host');
+    setHostPhase('active');
   }
-  $('host-setup').classList.add('hidden');
-  $('host-active').classList.remove('hidden');
+  setHostPhase('active');
   $('room-code-display').textContent = code;
   $('host-online-count').textContent = `1/${state.maxMembers}`;
 
@@ -1235,8 +1279,7 @@ async function resetHostRoom(reason = '房间已关闭', notify = false) {
     cleanupResults.forEach((result, index) => {
       if (result.status === 'rejected') debugLog(`停止 ${cleanupLabels[index]} 失败: ${result.reason?.message || result.reason}`);
     });
-    $('host-active').classList.add('hidden');
-    $('host-setup').classList.remove('hidden');
+    setHostPhase('setup');
     $('btn-create').disabled = false;
     $('quick-host-confirm').disabled = false;
     quickHostPending = false;
@@ -1344,6 +1387,7 @@ async function createFrpRoom(button = $('btn-create')) {
     state.role = null;
     state.frpNode = null;
     button.disabled = false;
+    setHostPhase('setup');
   }
 }
 
@@ -1503,13 +1547,13 @@ function confirmStartHost() {
   closeModal('start-host-modal');
   // 直接创建房间（原来调 openQuickHost() 会弹出一个空的 quick-host-modal，
   // 那是个遗留空 div → 全屏黑遮罩盖住界面，看起来像卡死）
-  navTo('host');
   const mode = startHostDialogMode || state.mode || 'easytier';
-  if (mode === 'frp') {
-    createRoom({ inputId: 'mc-port', mode: 'frp', buttonId: 'btn-create', isPublic: !!($('host-public') && $('host-public').checked) });
-  } else {
-    createRoom({ inputId: 'mc-port', mode: 'easytier', buttonId: 'btn-create', isPublic: !!($('host-public') && $('host-public').checked) });
-  }
+  // 先切页并进入 creating 阶段再建房：建房是异步的（EasyTier 还要等 UAC 授权），
+  // 原来先 navTo('host') 就停在了「创建房间」表单上，用户以为卡住了。
+  navTo('host');
+  setHostPhase('creating');
+  setHostCreatingText(mode === 'frp' ? '正在启动 frp 内网穿透…' : '正在准备 EasyTier 虚拟网卡…');
+  createRoom({ inputId: 'mc-port', mode, buttonId: 'btn-create', isPublic: !!($('host-public') && $('host-public').checked) });
 }
 
 /* ============ 加入房间对话框（从房间列表弹出） ============ */
@@ -1864,7 +1908,7 @@ function openSourceRepo() {
 /* ============ 退出软件 ============ */
 function doExitApp() {
   showConfirm('确认退出软件？', '将停止所有连接并关闭 BLFP。', async () => {
-    await stopEasyTier();
+    try { await stopEasyTier(); } catch (e) { logLine('退出前停止 EasyTier 失败: ' + ((e && e.message) || e)); }
     try { await window.mclink.frpcStop(); } catch {}
     try { await window.mclink.exitApp(); } catch { window.close(); }
   });
@@ -2285,7 +2329,7 @@ function appConfirm(message, onOk, opts) {
   if (!dlg) {
     dlg = document.createElement('div');
     dlg.id = 'app-confirm-modal';
-    dlg.className = 'modal-backdrop';
+    dlg.className = 'modal-backdrop hidden';
     dlg.innerHTML = '<div class="modal-card app-confirm-card" style="max-width:340px;padding:20px">' +
       '<div class="app-confirm-icon">⚠️</div>' +
       '<div class="app-confirm-text"></div>' +

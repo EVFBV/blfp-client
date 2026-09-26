@@ -41,6 +41,18 @@ jobs:
           cd uninstaller && npm ci && cd ..
           cd installer && npm ci && cd ..
 
+      - name: Strip dev-only files
+        shell: bash
+        run: |
+          # 布局调试器只用于开发期微调，正式发布版必须剔除
+          rm -f renderer/layout-tuner.js renderer/layout-tuner.css
+          sed -i '/layout-tuner/d' renderer/index.html
+          if grep -rn 'layout-tuner' renderer/ ; then
+            echo '::error::布局调试器未被完全剔除，发布版不应包含它'
+            exit 1
+          fi
+          echo '已剔除布局调试器'
+
       - name: Build uninstaller
         run: cd uninstaller && npm run dist -- --publish never
 

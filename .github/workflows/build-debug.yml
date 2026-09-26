@@ -1,0 +1,92 @@
+name: Build Debug (含布局调试器)
+
+# 手动触发。产物只作为 Actions artifact 上传：不创建 release、不打 tag、不推送更新。
+# 正式发布走 release.yml，那一条会在打包前剔除布局调试器。
+on:
+  workflow_dispatch:
+    inputs:
+      label:
+        description: 产物名后缀
+        required: false
+        default: debug
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 20
+
+jobs:
+  debug-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Extract version
+        id: ver
+        shell: bash
+        run: echo "v=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Write build info
+        shell: bash
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
+          printf 'window.__BLFP_BUILD__ = { sha: "%s", builtAt: "%s", debug: true };\n' "$SHA" "$DATE" > renderer/build-info.js
+          cat renderer/build-info.js
+
+      - name: Assert layout tuner is present
+        shell: bash
+        run: |
+          test -f renderer/layout-tuner.js || { echo '::error::布局调试器缺失'; exit 1; }
+          grep -q 'layout-tuner' renderer/index.html || { echo '::error::index.html 未引用布局调试器'; exit 1; }
+          echo '布局调试器存在，继续构建'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          cd uninstaller && npm ci && cd ..
+          cd installer && npm ci && cd ..
+
+      - name: Build uninstaller
+        run: cd uninstaller && npm run dist -- --publish never
+
+      - name: Build client directory
+        run: npm run dist -- --publish never
+
+      - name: Assemble payload
+        shell: powershell
+        run: |
+          $ver = "${{ steps.ver.outputs.v }}"
+          $clientOutput = Join-Path "build_v$ver" "win-unpacked"
+          $payloadDir = Join-Path "installer" "payload"
+          if (Test-Path $payloadDir) { Remove-Item -Recurse -Force $payloadDir }
+          New-Item -ItemType Directory -Path $payloadDir -Force | Out-Null
+          Compress-Archive -Path "$clientOutput/*" -DestinationPath (Join-Path $payloadDir "payload.zip") -Force
+          $uninstallerExe = Join-Path (Join-Path "uninstaller" "out_v$ver") "BLFP-Uninstall.exe"
+          if (-not (Test-Path $uninstallerExe)) { throw "uninstaller exe not found: $uninstallerExe" }
+          Copy-Item -Path $uninstallerExe -Destination (Join-Path $payloadDir "BLFP-Uninstaller.exe") -Force
+
+      - name: Build installer
+        run: cd installer && npm run dist -- --publish never
+
+      - name: Verify tuner is inside the client build
+        shell: powershell
+        run: |
+          $ver = "${{ steps.ver.outputs.v }}"
+          $tuner = Join-Path (Join-Path "build_v$ver" "win-unpacked") "resources\app\renderer\layout-tuner.js"
+          if (-not (Test-Path $tuner)) { throw "布局调试器没有进客户端产物: $tuner" }
+          Write-Host "OK - 布局调试器已在产物内"
+
+      - name: Upload debug installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLFP-Setup-${{ steps.ver.outputs.v }}-${{ github.event.inputs.label }}
+          path: installer/out_v${{ steps.ver.outputs.v }}-final/BLFP-Setup-v${{ steps.ver.outputs.v }}.exe
+          if-no-files-found: error
+          retention-days: 14

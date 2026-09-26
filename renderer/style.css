@@ -1000,8 +1000,8 @@ input[type="range"]::-webkit-slider-thumb:active {
 }
 .toast {
   padding: 10px 22px; border-radius: var(--radius-sm);
-  background: rgba(12, 13, 24, 0.6);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(16, 17, 30, 0.94);
+  border: 1px solid rgba(255,255,255,0.09);
   color: var(--text); font-size: .84rem;
   box-shadow: 0 8px 32px rgba(0,0,0,0.3);
   animation: toastSlideIn calc(0.3s * var(--anim-speed)) cubic-bezier(0.16, 1, 0.3, 1);
@@ -1011,6 +1011,16 @@ input[type="range"]::-webkit-slider-thumb:active {
 .toast.error { border-color: rgba(248, 113, 113, 0.2); color: var(--danger); }
 .toast.warn { border-color: rgba(251, 191, 36, 0.2); color: var(--warn); }
 
+/* 退场：沿进入的反方向滑回去，而不是直接消失 */
+@keyframes toastSlideOut {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(28px); }
+}
+.toast.leaving {
+  animation: toastSlideOut calc(0.28s * var(--anim-speed)) cubic-bezier(0.4, 0, 0.6, 1) forwards;
+  pointer-events: none;
+}
+
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 1000;
   background: rgba(8, 8, 15, 0.65);
@@ -1018,7 +1028,7 @@ input[type="range"]::-webkit-slider-thumb:active {
   animation: backdropIn calc(0.2s * var(--anim-speed)) ease;
 }
 .modal {
-  background: rgba(12, 13, 24, 0.55);
+  background: rgba(16, 17, 30, 0.97);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--radius-lg);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 16px 48px rgba(0,0,0,0.4), 0 0 30px hsla(var(--lg-accent-h), 50%, 50%, 0.03);
@@ -1040,6 +1050,13 @@ input[type="range"]::-webkit-slider-thumb:active {
 .modal > * { position: relative; z-index: 1; }
 .modal h3 { margin-bottom: 16px; font-size: 1rem; font-weight: 600; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+/* 建房中面板 */
+.host-creating-body {
+  display: flex; align-items: center; gap: 14px;
+  padding: 18px 0 4px;
+  color: var(--text2); font-size: .9rem;
+}
 
 .port-option {
   display: flex; align-items: center; gap: 14px;
@@ -1816,7 +1833,8 @@ body.sidebar-collapsed .sidebar-bottom {
 [data-theme="light"] .lg-param input[type="color"] { background: rgba(255,255,255,0.7); border-color: rgba(0,0,0,0.1); }
 
 
-.card, .modal, .auth-box, .quick-host-card, .mode-card, .public-room {
+/* 注意：.modal 曾被并进这个列表，它下面的 background 同特异性且后出现，把弹窗自己的不透明底色覆盖掉了 */
+.card, .auth-box, .quick-host-card, .mode-card, .public-room {
   border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.045);
   border: 1px solid rgba(255, 255, 255, 0.09);
@@ -1825,9 +1843,13 @@ body.sidebar-collapsed .sidebar-bottom {
   overflow: hidden;
   transition: all var(--fast);
 }
-[data-theme="light"] .card, [data-theme="light"] .modal {
+[data-theme="light"] .card {
   background: rgba(255, 255, 255, 0.85);
   border-color: rgba(0, 0, 0, 0.08);
+}
+[data-theme="light"] .modal {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.1);
 }
 .card > *,
 .modal > *,
@@ -1839,7 +1861,7 @@ body.sidebar-collapsed .sidebar-bottom {
   z-index: 1;
 }
 
-.card, .modal, .quick-host-card, .mode-card, .public-room { border-radius: var(--radius-lg); }
+.card, .quick-host-card, .mode-card, .public-room { border-radius: var(--radius-lg); }
 
 /* ---- 开关：传统样式（accent 轨道 + 白色拇指）---- */
 .switch {

@@ -221,6 +221,15 @@
         <button class="btn btn-primary btn-glow" onclick="createRoom()" id="btn-create">创建房间</button>
       </div>
 
+      <div class="card hidden" id="host-creating">
+        <h2>正在创建房间</h2>
+        <div class="host-creating-body">
+          <div class="loading-spinner"></div>
+          <div id="host-creating-text">正在准备…</div>
+        </div>
+        <div class="warn-box" style="margin-top:14px">创建过程通常需要几秒到十几秒。EasyTier 模式会弹出管理员授权窗口，请选择「是」，否则无法创建虚拟网卡。</div>
+      </div>
+
       <div class="card hidden" id="host-active">
         <h2>房间已开启</h2>
         <div class="room-code-wrap">
@@ -580,5 +589,9 @@
 <div id="us-logged-in-as" class="hidden"></div>
 
   <script src="app.js"></script>
+
+  <!-- layout-tuner: 仅开发调试用，正式发布版由 CI 剔除，见 release.yml 的 Strip dev-only files -->
+  <link rel="stylesheet" href="layout-tuner.css">
+  <script src="layout-tuner.js"></script>
 </body>
 </html>
