@@ -2527,13 +2527,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     showStartupError('设置加载', error);
   }
 
-  /* 自动探测可用服务器（有代理/防火墙时域名与 IP 哪个通用哪个） */
-  try {
-    await resolveServer();
-    await resolveChatServer();
-  } catch (error) {
-    logLine('服务器探测失败: ' + error.message);
-  }
+  /* 服务器探测改为后台进行：不阻塞首屏渲染与登录交互 */
+  Promise.resolve().then(async () => {
+    try {
+      await resolveServer();
+      await resolveChatServer();
+    } catch (error) {
+      logLine('服务器探测失败: ' + error.message);
+    }
+  });
 
   if (!window.mclink) {
     showStartupError('客户端接口', new Error('预加载接口不可用，请重新启动客户端'));

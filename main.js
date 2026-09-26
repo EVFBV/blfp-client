@@ -65,7 +65,10 @@ function createWindow() {
     frame: false,                 /* 无原生边框，标题栏完全由 HTML 自己画 */
     titleBarStyle: 'hidden',
     /* 不使用系统 titleBarOverlay——否则会和 HTML 自定义标题栏叠成两条 */
-    show: false,
+    /* 立即显示：不再等 ready-to-show，否则启动时会有一段"什么都没有"的空档期。
+       深色 backgroundColor 保证出现瞬间不白屏，界面随首个绘制帧补上。 */
+    show: true,
+    paintWhenInitiallyHidden: true,
     backgroundColor: '#0f1117',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -96,7 +99,10 @@ function createWindow() {
       lastHiddenAt = 0;
     } catch (e) {}
   }
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  /* 窗口已在创建时立即显示；这里只做一次补充重绘，确保首帧内容到位 */
+  mainWindow.once('ready-to-show', () => {
+    try { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); repaintWindow(true); } } catch (e) {}
+  });
 
   /* 后台自动降进程优先级（防止挂在后台时抢占鼠标/UI 响应） */
   const os = require('os');
