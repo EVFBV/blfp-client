@@ -123,7 +123,11 @@ $('btn-install').addEventListener('click', async () => {
 window.installer.onProgress(({ percent, text }) => {
   $('progress-fill').style.width = percent + '%';
   $('progress-pct').textContent = percent + '%';
-  if (text) $('progress-text').textContent = text;
+  if (text) {
+    $('progress-text').textContent = text;
+    /* 启动客户端时已经在「完成」页，把状态同步过去，避免看着像卡住 */
+    if ($('step-done').classList.contains('active')) $('done-text').textContent = text;
+  }
 });
 
 /* ---------- ④ 完成 ---------- */

@@ -186,6 +186,43 @@ async function writeFileWithRetry(outPath, data, onRetry) {
   );
 }
 
+/* 解析 tasklist /NH 输出：命中行以镜像名开头。
+   不能用 includes —— 无匹配时 tasklist 会输出
+   "INFO: No tasks are running which match the specified criteria."，
+   宽松匹配容易把状态行误判成进程存在，从而谎报启动成功。 */
+function tasklistHasImage(out, imageName) {
+  const name = String(imageName).toLowerCase();
+  return String(out || '').split(/\r?\n/).some((line) => {
+    const t = line.trim().toLowerCase();
+    return t === name || t.startsWith(name + ' ');
+  });
+}
+
+/* 查询某个镜像名的进程是否在运行 */
+function isProcessRunning(imageName) {
+  return new Promise((resolve) => {
+    let out = '';
+    let child;
+    try {
+      child = spawn('tasklist.exe', ['/FI', 'IMAGENAME eq ' + imageName, '/NH'], { windowsHide: true });
+    } catch (e) { return resolve(false); }
+    child.stdout.on('data', (d) => { out += d.toString(); });
+    child.on('error', () => resolve(false));
+    child.on('close', () => resolve(tasklistHasImage(out, imageName)));
+  });
+}
+
+/* 轮询等待进程出现（启动是异步的，UAC 还需要用户点击） */
+async function waitForProcess(imageName, timeoutMs, onTick) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await isProcessRunning(imageName)) return true;
+    if (onTick) onTick(Math.round((Date.now() - start) / 1000));
+    await sleep(700);
+  }
+  return false;
+}
+
 let win;
 function createWindow() {
   win = new BrowserWindow({
@@ -388,34 +425,67 @@ ipcMain.handle('install', async (evt, opts) => {
 });
 
 ipcMain.handle('launch', async (evt, exePath) => {
-  const fsx = require('fs');
-  const childProcess = require('child_process');
+  const send = (text) => { try { win.webContents.send('install-progress', { percent: 100, text }); } catch (e) {} };
   try {
-    if (!exePath || !fsx.existsSync(exePath)) return { ok: false, error: '未找到主程序：' + exePath };
+    if (!exePath || !fs.existsSync(exePath)) return { ok: false, error: '未找到主程序：' + exePath };
 
-    /* 立刻启动，不等、不校验（UAC 已关闭时提权是静默的）：
-       BLFP.exe 带 requireAdministrator 清单，普通权限的安装器不能直接 spawn 它（EACCES），
-       所以走 ShellExecute 语义。Start-Process -Verb RunAs 在 UAC 关闭时立刻生效，
-       UAC 开启时也会正常弹窗，两种情况都能起来。 */
-    try {
-      childProcess.spawn('powershell.exe', [
-        '-NoProfile',
-        '-WindowStyle', 'Hidden',
-        '-Command',
-        'Start-Process -FilePath "' + exePath.replace(/"/g, '""') + '" -Verb RunAs',
-      ], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-    } catch (e) {
-      console.error('[Installer] Start-Process 启动失败:', e.message);
-      /* 仅在提权启动"同步失败"时才走兜底，避免安装器退出后兜底来不及执行 */
-      try {
-        const { shell } = require('electron');
-        await shell.openPath(exePath);
-      } catch (e2) { console.error('[Installer] 兜底启动也失败:', e2.message); }
+    /* 已经在运行就不重复启动 */
+    if (await isProcessRunning(EXE_NAME)) {
+      setTimeout(() => app.quit(), 800);
+      return { ok: true };
     }
 
-    /* 不等客户端起来，安装器立即退出 */
-    setTimeout(() => app.quit(), 300);
-    return { ok: true };
+    let lastError = '';
+
+    /* 第一条路：ShellExecute 语义。BLFP.exe 清单是 requireAdministrator，
+       ShellExecute 会按清单自动弹 UAC —— 与用户双击快捷方式完全一致，
+       也是唯一不依赖 powershell 的启动方式。 */
+    send('正在启动 BLFP…');
+    try {
+      const err = await shell.openPath(exePath);
+      if (err) lastError = err;
+    } catch (e) { lastError = e.message; }
+
+    if (await waitForProcess(EXE_NAME, 15000, (s) => send('正在等待 BLFP 启动（已等待 ' + s + ' 秒）…'))) {
+      setTimeout(() => app.quit(), 800);
+      return { ok: true };
+    }
+
+    /* 第二条路：显式提权 Start-Process。
+       必须绑定 error/close 并收集 stderr —— spawn 失败是异步事件，同步 try/catch 抓不到，
+       旧实现正是因此变成静默失败（而且那条 shell.openPath 兜底永远走不到）。 */
+    send('正在改用提权方式启动…');
+    await new Promise((resolve) => {
+      let settled = false;
+      const finish = () => { if (!settled) { settled = true; resolve(); } };
+      try {
+        const child = spawn('powershell.exe', [
+          '-NoProfile',
+          '-Command',
+          'Start-Process -FilePath "' + exePath.replace(/"/g, '""') + '" -Verb RunAs',
+        ], { windowsHide: true });
+        let errOut = '';
+        if (child.stderr) child.stderr.on('data', (d) => { errOut += d.toString(); });
+        child.on('error', (e) => { lastError = e.message; finish(); });
+        child.on('close', (code) => {
+          if (code !== 0) lastError = errOut.trim() || ('powershell 退出码 ' + code);
+          finish();
+        });
+        setTimeout(finish, 30000);
+      } catch (e) { lastError = e.message; finish(); }
+    });
+
+    if (await waitForProcess(EXE_NAME, 30000, (s) => send('正在等待 BLFP 启动（已等待 ' + s + ' 秒）…'))) {
+      setTimeout(() => app.quit(), 800);
+      return { ok: true };
+    }
+
+    /* 两条路都没起来：如实报错，不假装成功、也不退出，让用户看到提示 */
+    return {
+      ok: false,
+      error: '未能启动 BLFP。' + (lastError ? '\n' + lastError : '') +
+        '\n请手动双击桌面上的 BLFP 快捷方式启动（弹出提示时请点「是」允许管理员权限）。',
+    };
   } catch (e) {
     return { ok: false, error: (e && e.message) || '未知错误' };
   }
