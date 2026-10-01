@@ -44,14 +44,28 @@ jobs:
       - name: Strip dev-only files
         shell: bash
         run: |
-          # 布局调试器只用于开发期微调，正式发布版必须剔除
-          rm -f renderer/layout-tuner.js renderer/layout-tuner.css
+          # 布局调试器只用于开发期微调：正式版必须剔除，PRE 版必须保留。
+          #
+          # 这里只做"把工作区恢复成正式版"的粗清理，真正按版本号决定去留的是
+          # scripts/prepare-release.js —— 它挂在 npm run dist 前面，会：
+          #   PRE  → 从 git 把 6 个调试器文件取回来并插回 index.html 引用
+          #   正式 → 删掉全部 6 个文件并清掉 index.html 引用，然后断言无残留
+          # 两处都以同一个文件清单为准，避免新增调试器文件后漏掉某个。
+          TUNER_FILES=(
+            renderer/layout-tuner.js
+            renderer/layout-tuner.css
+            renderer/layout-tuner-shared.js
+            renderer/layout-tuner-window.html
+            renderer/layout-tuner-window.css
+            renderer/layout-tuner-window.js
+          )
+          for f in "${TUNER_FILES[@]}"; do rm -f "$f"; done
           sed -i '/layout-tuner/d' renderer/index.html
           if grep -rn 'layout-tuner' renderer/ ; then
             echo '::error::布局调试器未被完全剔除，发布版不应包含它'
             exit 1
           fi
-          echo '已剔除布局调试器'
+          echo '已剔除布局调试器（PRE 版本稍后由 prepare-release.js 按版本号恢复）'
 
       - name: Build uninstaller
         run: cd uninstaller && npm run dist -- --publish never
@@ -89,6 +103,32 @@ jobs:
           $binSum = (Get-ChildItem (Join-Path $root "resources\bin") | Measure-Object -Property Length -Sum).Sum
           Write-Host ("   bin total: " + [math]::Round($binSum/1MB,1) + " MB")
 
+          # 布局调试器：PRE 版必须有，正式版必须没有。
+          # 在**打包产物**里校验，而不是只看工作区 —— 免得文件被剔了但构建缓存又带回来。
+          $tuner = @(
+            "renderer\layout-tuner.js",
+            "renderer\layout-tuner.css",
+            "renderer\layout-tuner-shared.js",
+            "renderer\layout-tuner-window.html",
+            "renderer\layout-tuner-window.css",
+            "renderer\layout-tuner-window.js"
+          )
+          $appRenderer = Join-Path $root "resources\app\renderer"
+          $present = @($tuner | Where-Object { Test-Path (Join-Path $appRenderer $_) })
+          $isPre = "$ver".Contains("-")
+          if ($isPre) {
+            if ($present.Count -ne $tuner.Count) {
+              $miss = $tuner | Where-Object { -not (Test-Path (Join-Path $appRenderer $_)) }
+              throw ("PRE 版本 $ver 的产物缺少布局调试器：" + ($miss -join ", "))
+            }
+            Write-Host "OK - PRE build contains the layout debugger (6/6 files)"
+          } else {
+            if ($present.Count -gt 0) {
+              throw ("正式版本 $ver 的产物混入了布局调试器：" + ($present -join ", "))
+            }
+            Write-Host "OK - stable build contains no layout debugger"
+          }
+
       - name: Assemble payload
         shell: powershell
         run: |
@@ -122,39 +162,28 @@ jobs:
           if ($mb -lt 150) { throw "installer too small ($mb MB) - payload probably missing" }
           Write-Host "OK - installer verified"
 
+      - name: Generate release notes
+        shell: bash
+        run: |
+          # 从真实提交生成更新日志；区间由 changelog.js 自动取 HEAD 可达的最近 tag。
+          # 生成失败（比如算不出区间）就直接终止发布 —— 宁可不出包，
+          # 也不要发一个更新日志和实际改动对不上的版本。
+          node scripts/changelog.js --with-build --sha "${{ github.sha }}" --out CHANGELOG_RELEASE.md
+          echo '----- 发布说明预览 -----'
+          head -40 CHANGELOG_RELEASE.md
+          echo '------------------------'
+          if [ ! -s CHANGELOG_RELEASE.md ]; then
+            echo '::error::发布说明为空，拒绝发布'
+            exit 1
+          fi
+
       - name: Upload release
         uses: softprops/action-gh-release@v3
         with:
           files: installer/out_v${{ steps.ver.outputs.v }}-final/BLFP-Setup-v${{ steps.ver.outputs.v }}.exe
           # tag 名含 '-'（如 v2.3.1-pre）一律标为预发布，避免被 /releases/latest 返回而推送给正式用户
           prerelease: ${{ contains(steps.ver.outputs.v, '-') }}
-          body: |
-            ## BLFP v${{ steps.ver.outputs.v }}
-
-            ### ✨ 新功能
-            - 设置页新增「更新渠道」：正式版只拉取最新正式版本，测试版可自动拉取最新 pre 测试版本
-            - 所有弹窗（公告/更新/确认/端口选择/日志/诊断/房间详情等）统一淡入淡出动画
-
-            ### 🐛 修复
-            - 安装程序：等待旧进程退出超时导致 EBUSY「资源被占用」安装失败
-            - 安装程序：安装完成后无法正常唤醒客户端
-            - 修复搜索好友报错 `f is not defined`
-            - 修复「收集诊断信息」报错 `showModal is not defined`
-            - 运行日志刷屏：HTTP 安全警告改为每个来源只提示一次
-            - 公开房间列表不再每 30 秒刷一条日志
-            - 退出登录偶发卡死：逐步容错，确保会话清理完成
-            - 弹窗背景过透、退出确认按钮点不到
-            - 通知消失时增加滑出动画，不再突然消失
-            - 开房不再短暂停留「创建房间」页面：进入即显示「正在创建」状态
-
-            ### 🎨 界面
-            - 窗口栏背景透明度调低（0.55→0.88），不再透出页面内容
-            - 侧边栏、开关控件、EasyTier 测速区、关闭房间按钮等 8 处间距微调
-            - EasyTier 测速结果正式排版：节点名靠左、延迟靠右，正常绿色、不可达红色
-
-            ### ⚙️ 其他
-            - CI Actions 升级至最新大版本（checkout v7 / setup-node v7 / gh-release v3）
-
-            ### 构建信息
-            - 构建 commit：`${{ github.sha }}`
-            - 详细构建时间见包内 `renderer/build-info.js`
+          # 更新日志由 scripts/changelog.js 从真实提交里生成，不再硬编码。
+          # 之前这里写死了 v2.3.3 时期的说明，之后每次发版都原样贴出去，
+          # 用户看到的日志和实际改动对不上。
+          body_path: CHANGELOG_RELEASE.md

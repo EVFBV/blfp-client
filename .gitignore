@@ -36,3 +36,5 @@ bin/*.sys
 *.log
 .DS_Store
 Thumbs.db
+# 发布时由 scripts/changelog.js 生成的说明，不进仓库
+CHANGELOG_RELEASE.md
