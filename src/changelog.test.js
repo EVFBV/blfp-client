@@ -201,3 +201,56 @@ test('产物校验脚本：目录不存在时明确失败', () => {
   })();
   assert.equal(r, 1, '目录不存在却没报错');
 });
+
+/* ---------- 版本号一致性（三套 package.json 必须同步） ---------- */
+
+const PKG_FILES = ['package.json', 'installer/package.json', 'uninstaller/package.json'];
+
+test('三套 package.json 的版本号必须一致', () => {
+  const versions = PKG_FILES.map((f) => ({
+    f, v: JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8')).version,
+  }));
+  const uniq = [...new Set(versions.map((x) => x.v))];
+  assert.equal(uniq.length, 1,
+    '版本号不一致：' + versions.map((x) => x.f + '=' + x.v).join('、')
+    + '（发布流程用 tag 名找 installer/uninstaller 的产物，不一致就会构建失败）');
+});
+
+test('三套 package.json 的输出目录都不写死版本号', () => {
+  for (const f of PKG_FILES) {
+    const j = JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8'));
+    const out = j.build && j.build.directories && j.build.directories.output;
+    assert.ok(out, f + ' 缺 build.directories.output');
+    assert.equal(/\d+\.\d+\.\d+/.test(out), false,
+      f + ' 的 output 写死了版本号（' + out + '），应用 ${version} 宏');
+    assert.ok(out.includes('${version}'), f + ' 的 output 应用 ${version} 宏，实际：' + out);
+  }
+});
+
+test('installer 产物名与 workflow 的下载路径一致', () => {
+  const inst = JSON.parse(fs.readFileSync(path.join(ROOT, 'installer/package.json'), 'utf8'));
+  const ver = inst.version;
+  /* installer 用 ${version} 生成 BLFP-Setup-v<版本>.exe，展开后应是这个名字 */
+  const name = inst.build.win.artifactName.replace('${version}', ver);
+  assert.equal(name, 'BLFP-Setup-v' + ver + '.exe', '产物名不对：' + name);
+
+  /* workflow 的 upload 路径必须能拼出同一个文件 */
+  const yml = fs.readFileSync(WF, 'utf8');
+  assert.ok(yml.includes('installer/out_v${{ steps.ver.outputs.v }}-final/BLFP-Setup-v${{ steps.ver.outputs.v }}.exe'),
+    'workflow 的 Upload 路径与 installer 的实际输出不一致');
+  /* 输出目录必须就是 out_v${version}-final，否则上面的路径找不到文件 */
+  assert.equal(inst.build.directories.output, 'out_v${version}-final',
+    'installer 输出目录应为 out_v${version}-final，实际：' + inst.build.directories.output);
+});
+
+test('uninstaller 产物路径与 workflow 的 Assemble 一致', () => {
+  const un = JSON.parse(fs.readFileSync(path.join(ROOT, 'uninstaller/package.json'), 'utf8'));
+  assert.equal(un.build.directories.output, 'out_v${version}',
+    'uninstaller 输出目录应为 out_v${version}，实际：' + un.build.directories.output);
+  const yml = fs.readFileSync(WF, 'utf8');
+  /* workflow 里是：(Join-Path "uninstaller" "out_v$ver") */
+  assert.ok(yml.includes('"uninstaller" "out_v$ver"'),
+    'workflow 的 Assemble 没按 out_v$ver 找卸载器');
+  assert.equal(un.build.win.artifactName, 'BLFP-Uninstall.exe',
+    '卸载器产物名变了，workflow 找的是 BLFP-Uninstall.exe');
+});
