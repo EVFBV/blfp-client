@@ -2185,3 +2185,40 @@ html, body { height: 100%; }
 #reg-captcha-box > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) {
   translate: -2px 0px;
 }
+
+/* ==========================================================================
+   软件内更新的进度条（更新弹窗里）
+   更新全程不出现安装程序界面，所以这个进度条就是用户唯一的反馈，
+   必须能同时表达"下载中 %"和"后台安装中"两种状态。
+   ========================================================================== */
+.update-progress {
+  margin: 4px 0 2px;
+}
+.update-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+[data-theme="light"] .update-progress-track { background: rgba(0, 0, 0, 0.08); }
+.update-progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2, var(--accent)));
+  /* 只过渡宽度：进度是高频更新，过渡太多会拖慢渲染 */
+  transition: width 0.18s ease;
+}
+.update-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 7px;
+  font-size: 0.82rem;
+  color: var(--text2);
+}
+.update-progress-meta #update-progress-percent {
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}

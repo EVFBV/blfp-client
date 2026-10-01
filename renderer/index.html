@@ -547,9 +547,17 @@
   <div class="modal update-modal">
     <h3 id="update-title">发现新版本</h3>
     <p id="update-notes" class="update-notes"></p>
+    <!-- 软件内更新的进度条：下载与后台安装都走这里，全程不出现安装程序界面 -->
+    <div id="update-progress" class="update-progress hidden">
+      <div class="update-progress-track"><div id="update-progress-fill" class="update-progress-fill"></div></div>
+      <div class="update-progress-meta">
+        <span id="update-progress-text">准备中…</span>
+        <span id="update-progress-percent"></span>
+      </div>
+    </div>
     <div class="modal-actions">
-      <button class="btn btn-outline btn-sm" onclick="closeModal('update-modal')">稍后</button>
-      <button class="btn btn-primary btn-sm" id="update-download" onclick="openUpdateDownload()">打开下载页</button>
+      <button class="btn btn-outline btn-sm" id="update-later" onclick="closeModal('update-modal')">稍后</button>
+      <button class="btn btn-primary btn-sm" id="update-download" onclick="startUpdate()">立即更新</button>
     </div>
   </div>
 </div>

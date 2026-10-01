@@ -10,6 +10,12 @@ const blfpApi = {
   checkGithubUpdate: (channel) => ipcRenderer.invoke('check-github-update', channel),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
 
+  /* 软件内更新：自己挑源下载 + 静默安装，全程不出现安装程序界面。
+     注意主进程在下载完、拉起安装器后很快就会退出（要让安装器能覆盖 BLFP.exe），
+     所以进度只能靠 onUpdateProgress 推过来，别指望 startUpdate 的返回值。 */
+  startUpdate: (opts) => ipcRenderer.invoke('start-update', opts),
+  onUpdateProgress: (cb) => ipcRenderer.on('update-progress', (_e, payload) => cb(payload)),
+
   // 本机局域网 IP
   getLanIp: () => ipcRenderer.invoke('get-lan-ip'),
 

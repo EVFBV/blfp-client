@@ -1,11 +1,14 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const { spawn } = require('child_process');
 const net = require('net');
 const os = require('os');
 const { scanJavaPorts } = require('./src/port-scanner');
 const FrpcManager = require('./src/frpc-manager');
 const MotdBroadcaster = require('./src/motd-broadcast');
 const EasyTierManager = require('./src/easytier-manager');
+const { downloadWithFallback } = require('./src/update-download');
 
 /* 后台/遮挡时不挂起渲染，避免恢复窗口后出现黑屏 */
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
@@ -257,6 +260,94 @@ ipcMain.handle('open-external', async (_e, url) => {
   await shell.openExternal(url);
   return { ok: true };
 });
+/* ==================== 软件内更新：自己下载 + 静默安装 ====================
+ *
+ * 用户要的效果：点更新 → 软件内出现进度条 → 自动挑一个能用的镜像源下载 →
+ * 全程不出现安装程序界面 → 装完第一时间把客户端拉起来。
+ *
+ * 怎么做：
+ *   1. 用 src/update-download.js 挑源 + 下载（带进度、坏了自动换源）
+ *   2. 下载完把安装程序以**隐藏的静默参数**拉起来（--blfp-silent-update），
+ *      安装器收到这个参数后完全不建窗口，在后台把活干完
+ *   3. 客户端立刻退出 —— 必须退，否则 BLFP.exe 被占用，安装器写不进去
+ *      （安装器那边也有等待解锁的兜底，两边都做才稳）
+ *
+ * 注意：安装器**只有**在被这样带参调用时才是无头的；
+ * 用户自己双击安装器仍然是正常的图形界面安装。
+ */
+function buildUpdateMirrors() {
+  /* 直接把原始地址拼在前面的加速服务。直连放第一，但排序是按实测速度来的，
+     所以"自动选择能用的镜像源"是真的测过再选，而不是写死顺序。 */
+  return [
+    { name: 'GitHub 直连', prefix: '' },
+    { name: 'ghfast.top', prefix: 'https://ghfast.top/' },
+    { name: 'ghproxy.net', prefix: 'https://ghproxy.net/' },
+    { name: 'gh-proxy.com', prefix: 'https://gh-proxy.com/' },
+  ];
+}
+
+/* 安装程序放在临时目录；同名会覆盖，避免堆积一堆 200MB 的安装包 */
+function updateInstallerPath(assetName) {
+  const safe = String(assetName || 'BLFP-Setup.exe').replace(/[^\w.\-]+/g, '_');
+  return path.join(app.getPath('temp'), safe);
+}
+
+/* 客户端自己的安装目录 = BLFP.exe 所在目录 */
+function currentInstallDir() {
+  return path.dirname(app.getPath('exe'));
+}
+
+ipcMain.handle('start-update', async (evt, opts) => {
+  const url = opts && opts.url;
+  const assetName = opts && opts.assetName;
+  if (typeof url !== 'string' || !/^https:\/\//i.test(url)) {
+    return { ok: false, error: '没有可用的下载地址' };
+  }
+  const sender = evt && evt.sender;
+  const send = (payload) => { try { sender.send('update-progress', payload); } catch (e) {} };
+
+  try {
+    const dest = updateInstallerPath(assetName);
+    /* 上次留下的半截文件会让"完整性检查"误判，先清掉 */
+    try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch (e) {}
+
+    send({ phase: 'probe', percent: 0, text: '正在选择下载源…' });
+    const result = await downloadWithFallback({
+      url,
+      dest,
+      fsImpl: fs,
+      fetchImpl: fetch,
+      mirrors: buildUpdateMirrors(),
+      onProgress: (p) => send({ phase: 'download', percent: p.percent, received: p.received, total: p.total }),
+      log: (m) => console.log('[更新] ' + m),
+    });
+    if (!result.ok) {
+      send({ phase: 'error', percent: 0, text: result.error });
+      return { ok: false, error: result.error, attempts: result.attempts };
+    }
+
+    const mb = Math.round(result.bytes / 1048576);
+    send({ phase: 'install', percent: 100, text: `下载完成（${result.mirror}，${mb} MB），正在后台安装…` });
+
+    /* 用隐藏的静默参数拉起安装器：不弹任何界面，由它在后台关客户端、装文件、再拉起来 */
+    const installDir = currentInstallDir();
+    const args = ['--blfp-silent-update', '--target', installDir, '--relaunch'];
+    const child = spawn(dest, args, { detached: true, stdio: 'ignore', windowsHide: true });
+    child.unref();
+
+    send({ phase: 'restart', percent: 100, text: '正在重启客户端…' });
+    /* 必须尽快退出：不退的话 BLFP.exe 一直占着文件，安装器写不进去 */
+    setTimeout(() => {
+      try { app.exit(0); } catch (e) { process.exit(0); }
+    }, 250);
+    return { ok: true, mirror: result.mirror, bytes: result.bytes };
+  } catch (e) {
+    const message = (e && e.message) || String(e);
+    send({ phase: 'error', percent: 0, text: message });
+    return { ok: false, error: message };
+  }
+});
+
 ipcMain.handle('check-github-update', async (_e, channel) => {
   /* 更新渠道：'stable'（正式版，只拉最新正式 release）| 'test'（测试版，拉最新 release，含 pre 测试版）
      GitHub 的 /releases/latest 永远不会返回 pre-release，所以测试渠道必须列全量再挑。 */

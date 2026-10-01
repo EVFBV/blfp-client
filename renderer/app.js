@@ -2140,7 +2140,9 @@ async function checkForUpdates() {
       const tag = info.prerelease && channel === 'test' ? '（测试版）' : '';
       $('update-title').textContent = `发现新版本 ${info.latestVersion}${tag}`;
       $('update-notes').textContent = info.releaseNotes || '暂无更新说明';
-      $('update-download').textContent = info.downloadUrl ? `下载 ${info.assetName || '安装程序'}` : '打开发布页';
+      $('update-download').textContent = info.downloadUrl ? '立即更新' : '打开发布页';
+      /* 复位进度条与按钮：上次可能失败过或已经走到一半 */
+      if (typeof resetUpdateProgressUI === 'function') resetUpdateProgressUI();
       openModal('update-modal');
       toast(`发现新版本 ${info.latestVersion}${tag}`, 'success');
     } else {
@@ -2150,10 +2152,99 @@ async function checkForUpdates() {
     toast('检查更新失败：' + e.message, 'error');
   }
 }
+/*
+ * 软件内更新：自己挑源下载（带进度条）→ 静默安装 → 客户端自动重启。
+ * 全程不出现安装程序界面；也不需要用户去浏览器里手动下载。
+ *
+ * 注意主进程在拉起安装器后会立刻退出（不退就占着 BLFP.exe，安装器写不进去），
+ * 所以这里拿到 result 之后基本就该被关掉了，进度全靠 onUpdateProgress 推。
+ */
+function setUpdateProgress(percent, text) {
+  const wrap = $('update-progress');
+  const fill = $('update-progress-fill');
+  const label = $('update-progress-text');
+  const pct = $('update-progress-percent');
+  if (wrap) wrap.classList.remove('hidden');
+  if (fill) fill.style.width = Math.max(0, Math.min(100, Number(percent) || 0)) + '%';
+  if (label && text) label.textContent = text;
+  if (pct) pct.textContent = Number.isFinite(Number(percent)) && Number(percent) > 0 ? Math.floor(Number(percent)) + '%' : '';
+}
+
+let updateInFlight = false;
+
+/* 每次打开更新弹窗都复位一次：否则上次失败的红字/进度条会一直挂在那儿 */
+function resetUpdateProgressUI() {
+  const wrap = $('update-progress');
+  if (wrap) wrap.classList.add('hidden');
+  setUpdateProgress(0, '准备中…');
+  if (wrap) wrap.classList.add('hidden');
+  const btn = $('update-download');
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = state.updateInfo?.downloadUrl ? '立即更新' : '打开发布页';
+  }
+  const later = $('update-later');
+  if (later) later.disabled = false;
+}
+
+async function startUpdate() {
+  if (updateInFlight) return;
+  const url = state.updateInfo?.downloadUrl;
+  if (!url) {
+    /* 没有可下载的安装包时才退回浏览器，不让用户卡死在这里 */
+    const fallback = state.updateInfo?.releaseUrl;
+    if (fallback) return window.mclink.openExternal(fallback).then((r) => { if (!r.ok) toast(r.error, 'error'); });
+    return toast('暂无可用下载地址', 'warn');
+  }
+  updateInFlight = true;
+  const btn = $('update-download');
+  const later = $('update-later');
+  if (btn) { btn.disabled = true; btn.textContent = '更新中…'; }
+  /* 更新期间不让关弹窗：关掉就看不到进度、也不知道出没出错 */
+  if (later) later.disabled = true;
+  setUpdateProgress(0, '正在选择下载源…');
+  try {
+    const r = await window.mclink.startUpdate({ url, assetName: state.updateInfo?.assetName });
+    if (r && r.ok === false) {
+      updateInFlight = false;
+      if (btn) { btn.disabled = false; btn.textContent = '重试'; }
+      if (later) later.disabled = false;
+      setUpdateProgress(0, '更新失败：' + (r.error || '未知错误'));
+      toast('更新失败：' + (r.error || '未知错误'), 'error');
+      return;
+    }
+    /* 走到这里主进程通常马上就要退出了；万一没退，如实告诉用户下一步怎么办 */
+    setUpdateProgress(100, '安装程序已在后台运行，客户端即将重启…');
+  } catch (e) {
+    updateInFlight = false;
+    if (btn) { btn.disabled = false; btn.textContent = '重试'; }
+    if (later) later.disabled = false;
+    setUpdateProgress(0, '更新失败：' + ((e && e.message) || '未知错误'));
+    toast('更新失败：' + ((e && e.message) || '未知错误'), 'error');
+  }
+}
+
+/* 主进程推过来的进度 */
+if (window.mclink && window.mclink.onUpdateProgress) {
+  window.mclink.onUpdateProgress((p) => {
+    if (!p) return;
+    if (p.phase === 'probe') return setUpdateProgress(0, '正在选择下载源…');
+    if (p.phase === 'download') {
+      const mb = (n) => (Number(n) || 0) / 1048576;
+      const text = p.total
+        ? `正在下载 ${mb(p.received).toFixed(1)} / ${mb(p.total).toFixed(1)} MB`
+        : `正在下载 ${mb(p.received).toFixed(1)} MB`;
+      return setUpdateProgress(p.percent || 0, text);
+    }
+    if (p.phase === 'install') return setUpdateProgress(100, p.text || '正在后台安装…');
+    if (p.phase === 'restart') return setUpdateProgress(100, p.text || '正在重启客户端…');
+    if (p.phase === 'error') return setUpdateProgress(0, '更新失败：' + (p.text || '未知错误'));
+  });
+}
+
 function openUpdateDownload() {
-  const url = state.updateInfo?.downloadUrl || state.updateInfo?.releaseUrl;
-  if (!url) return toast('暂无可用下载地址', 'warn');
-  window.mclink.openExternal(url).then((r) => { if (!r.ok) toast(r.error, 'error'); });
+  /* 保留旧入口名，避免历史调用点失效 */
+  return startUpdate();
 }
 function openSourceRepo() {
   window.mclink.openExternal(GITHUB_REPO_URL);

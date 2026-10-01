@@ -48,6 +48,14 @@ jobs:
           cd uninstaller && npm ci && cd ..
           cd installer && npm ci && cd ..
 
+      # 先跑测试再打包：宁可不发版，也不要发一个"秒关秒装"其实没生效的安装器。
+      # 安装器那 42 项测试专门盯着用户抱怨过的几个点（静默模式不能建窗口、
+      # 快路径只等 4 秒、不允许 120 秒等待、必须跳过未变化文件）。
+      - name: Run tests
+        run: |
+          npm test
+          cd installer && npm test && cd ..
+
       - name: Strip dev-only files
         shell: bash
         run: |
