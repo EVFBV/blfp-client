@@ -93,13 +93,45 @@ function cleanSubject(s) {
 function summarize(body, subject) {
   const lines = String(body || '').split('\n').map((l) => l.trim()).filter(Boolean);
   /* 取第一条"像人话"的说明行：不是元信息、不是列表符号以外的噪声 */
-  const cand = lines.find((l) =>
+  const i = lines.findIndex((l) =>
     !/^(Signed-off-by|Co-authored-by|BREAKING CHANGE)/i.test(l) &&
     !/^[-*]\s*$/.test(l) &&
     l.length >= 6
   );
-  const text = (cand || subject).replace(/^[-*]\s*/, '');
-  return text.length > 200 ? text.slice(0, 197) + '…' : text;
+  if (i < 0) return clip(String(subject || ''));
+
+  /* commit message 的正文经常一句没写完就换行，例如
+       "问题：xxx 写死了，\n之后每次发版都原样贴出去。"
+     只取第一行会得到半句话（尾随逗号），发布说明看着像被截断。
+     所以：这一行若以逗号/顿号/分号/冒号结尾，就继续接下一行，直到句子写完。
+     遇到新的列表项就停，避免把整段列表拼进来。 */
+  let text = lines[i].replace(/^[-*]\s*/, '');
+  for (let k = i + 1; k < lines.length && /([，,、：:；;]|——|—|--)$/.test(text); k++) {
+    if (/^[-*]\s+/.test(lines[k])) break;
+    if (/^(Signed-off-by|Co-authored-by)/i.test(lines[k])) break;
+    text = glue(text, lines[k].replace(/^[-*]\s*/, ''));
+  }
+  return clip(text);
+}
+
+/* 拼接续行：破折号或 ASCII 标点后接拉丁字母时补一个空格（"—Windows" → "— Windows"） */
+function glue(a, b) {
+  const needSpace = /[—–\-\x00-\x7F]$/.test(a) && /^[A-Za-z0-9]/.test(b);
+  return a + (needSpace ? ' ' : '') + b;
+}
+
+/* 裁剪：优先在句子边界收尾，避免出现"…初始化失败。新增…"这种半句 */
+function clip(t) {
+  let s = String(t || '').trim().replace(/^[-*]\s*/, '');
+  const LIMIT = 150;
+  if (s.length > LIMIT) {
+    const head = s.slice(0, LIMIT);
+    const m = head.match(/^[\s\S]*[。！？!?]/);
+    /* 切在完整句子上（且不至于只剩一小截）；否则退化为按字数截断 */
+    s = (m && m[0].length >= 40) ? m[0] : head.replace(/([，,、：:；;]|——|—|--|\s)+$/, '') + '…';
+  }
+  /* 结尾悬空的标点一律去掉 */
+  return s.replace(/([，,、：:；;]+|——|—|--)$/, '');
 }
 
 function collect(from, to) {
