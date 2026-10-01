@@ -235,6 +235,11 @@ async function handleSessionExpired(message) {
     try { localStorage.removeItem('mclink_token'); } catch (e) {}
     const main = $('main-app'); if (main) main.classList.add('hidden');
     const auth = $('auth-page'); if (auth) auth.classList.remove('hidden');
+    /* 跟退出登录一样：过期后必须把验证码也重置并重新拉一个。
+       否则旧控件还留着上一轮已消耗的 challenge（极验的 challenge 是一次性的），
+       再登录会直接报"网络不给力"；而且旧的 validate 还可能被当成"验证通过"复用。 */
+    if (typeof resetCaptchaState === 'function') { resetCaptchaState('login'); resetCaptchaState('reg'); }
+    if (typeof refreshCaptchaBox === 'function') { refreshCaptchaBox('login'); refreshCaptchaBox('reg'); }
     showAuthErr(message || '登录已过期，请重新登录');
   } finally {
     setTimeout(() => { sessionExpiredHandling = false; }, 3000);
@@ -621,6 +626,9 @@ function doLogout() {
     /* 关键：彻底重置验证码（含已通过的 validate），
        否则再登录会显示"验证通过"直接放行，验证码形同虚设。 */
     if (typeof resetCaptchaState === 'function') { resetCaptchaState('login'); resetCaptchaState('reg'); }
+    /* resetCaptchaState 会把验证码框清空，这里立刻补回来 ——
+       否则退出登录后回到登录页是"没有人机验证"的空白，得先点一次登录才出现。 */
+    if (typeof refreshCaptchaBox === 'function') { refreshCaptchaBox('login'); refreshCaptchaBox('reg'); }
     toast('已退出登录', 'success');
 
     /* ---- 以下都是"尽力而为"的收尾：每步独立超时，失败只记日志 ---- */
@@ -2828,10 +2836,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('auth-page').classList.remove('hidden');
   $('main-app').classList.add('hidden');
   setLoginLoading(false);
-  /* 一进登录页就加载验证码，而不是等用户点了登录才出。
-     两块都预加载好，切换 tab 无需等待，也不会闪一下空白。 */
-  loadCaptcha('login');
-  loadCaptcha('reg');
+  /* 人机验证：先按**当前**地址立刻加载一次（快），服务器探测完再补一次（准）。
+     为什么不能只等探测完：探测要挨个试候选地址，慢的话要好几秒，
+     验证码就会迟迟不出现。为什么不能只在这里加载一次：此刻 state.server 还是
+     硬编码的默认地址，而 resolveServer() 可能把它换成另一个候选地址；
+     默认地址不可达时这次必然失败、框就空着，等用户点一次登录、地址被修正后
+     才看得到极验 —— 就是"要点一次登录才会出现人机验证"。
+     两次都走 refreshCaptchaBox：框里已经有东西时它不会重复渲染。 */
+  refreshCaptchaBox('login');
+  refreshCaptchaBox('reg');
 
   const showStartupError = (source, error) => {
     const message = error instanceof Error ? error.message : String(error);
@@ -2853,6 +2866,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (error) {
       logLine('服务器探测失败: ' + error.message);
     }
+    /* 地址定下来之后再加载人机验证：两块都预加载，进到登录页就能看到极验，
+       不用先点一次登录。失败会自动重试。 */
+    refreshCaptchaBox('login');
+    refreshCaptchaBox('reg');
   });
 
   if (!window.mclink) {
@@ -3552,6 +3569,38 @@ async function loadCaptcha(slot, force) {
   } finally {
     captchaSlots[slot].loading = false;
   }
+}
+
+/*
+ * 保证验证码框里**确实有东西**：空了就（重新）加载，失败还会退避重试。
+ *
+ * 为什么需要它：
+ *   - 启动时如果请求失败（地址还没探测好），验证码框会一直空着，
+ *     用户必须先点一次登录才看得到极验；
+ *   - 退出登录后 resetCaptchaState() 会把盒子清空，回到登录页同样是空的。
+ * 这两种情况都靠这里补上，做到"进到界面就能看到人机验证"。
+ */
+function refreshCaptchaBox(slot, attempt) {
+  const st = captchaSlots[slot];
+  const box = $(captchaBoxId(slot));
+  if (!st || !box) return Promise.resolve();
+  const n = attempt || 0;
+  /* 已经有内容就别重渲染：否则会把用户已经填好/已通过验证的验证码清掉 */
+  if (box.childElementCount > 0) return Promise.resolve();
+  return loadCaptcha(slot, true).then(() => {
+    const now = $(captchaBoxId(slot));
+    /* 服务端关掉了人机验证：空白是正常的，不要白重试 */
+    if (st.disabled) return;
+    if (now && now.childElementCount > 0) return;
+    if (n >= 4) {
+      logLine('人机验证多次加载仍为空，可点"刷新验证码"或检查服务器地址');
+      return;
+    }
+    /* 退避重试：0.6s / 1.2s / 2.4s / 4.8s。
+       服务器刚起来、网络刚就绪这类情况，重试一次基本就好了。 */
+    const delay = 600 * Math.pow(2, n);
+    setTimeout(() => refreshCaptchaBox(slot, n + 1), delay);
+  }).catch(() => { /* loadCaptcha 自己已经把失败记进日志了 */ });
 }
 
 /* 换一张（提交失败带 captcha:true 时调用） */
