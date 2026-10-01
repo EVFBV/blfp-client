@@ -212,6 +212,15 @@ if (require.main === module) {
   /* 生成结果为空（比如区间里没提交）要显式报错，别默默发一段空日志 */
   if (res.total === 0 && res.commitCount === 0) {
     console.error('[changelog] 区间 ' + (from || '(开头)') + '..' + to + ' 没有任何提交，拒绝生成空日志');
+    /* 最常见的原因是**浅克隆**：CI 默认只拉 1 个提交，
+       git describe <tag>^ 会 fatal，区间永远是空的。
+       这里直接把病因和药方打出来，省得下次又从头查（真踩过）。 */
+    const shallow = git('rev-parse', '--is-shallow-repository') === 'true';
+    if (shallow) {
+      console.error('[changelog] 原因：当前是**浅克隆**（git rev-list --count HEAD = '
+        + (git('rev-list', '--count', 'HEAD') || '?') + '），无法遍历提交历史。');
+      console.error('[changelog] 解决：在 workflow 的 actions/checkout 上加 fetch-depth: 0 和 fetch-tags: true。');
+    }
     process.exit(2);
   }
 

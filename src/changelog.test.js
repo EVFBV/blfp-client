@@ -254,3 +254,25 @@ test('uninstaller 产物路径与 workflow 的 Assemble 一致', () => {
   assert.equal(un.build.win.artifactName, 'BLFP-Uninstall.exe',
     '卸载器产物名变了，workflow 找的是 BLFP-Uninstall.exe');
 });
+
+/* ---------- 更新日志需要完整 git 历史 ---------- */
+
+test('checkout 必须拉全历史，否则算不出更新日志区间', () => {
+  const yml = fs.readFileSync(WF, 'utf8');
+  const i = yml.indexOf('actions/checkout@');
+  assert.ok(i > 0, '找不到 checkout 步骤');
+  const block = yml.slice(i, i + 300);
+  /* CI 默认 fetch-depth: 1（浅克隆），此时连 HEAD 的父提交都不存在，
+     git describe <tag>^ 直接 fatal，区间算空，发布失败（真踩过）。
+     更新日志要遍历历史，所以必须 fetch-depth: 0。 */
+  assert.ok(/fetch-depth:\s*0/.test(block),
+    'checkout 缺 fetch-depth: 0 —— 浅克隆下生成更新日志会失败');
+  assert.ok(/fetch-tags:\s*true/.test(block),
+    'checkout 缺 fetch-tags: true —— 看不到旧 tag 同样算不出区间');
+});
+
+test('浅克隆下 changelog 会明确指出病因', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'scripts', 'changelog.js'), 'utf8');
+  assert.ok(src.includes('is-shallow-repository'), '没有检测浅克隆');
+  assert.ok(src.includes('fetch-depth: 0'), '报错里没有给出解决办法');
+});
