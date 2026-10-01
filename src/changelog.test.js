@@ -99,9 +99,14 @@ test('CI 里调试器的删除清单与校验清单都是 6 个文件', () => {
 });
 
 test('CI 会在产物里断言 PRE 有调试器、正式版没有', () => {
-  const yml = fs.readFileSync(WF, 'utf8');
-  assert.ok(yml.includes('PRE 版本') && yml.includes('缺少布局调试器'), 'PRE 断言缺失');
-  assert.ok(yml.includes('正式版本') && yml.includes('混入了布局调试器'), '正式版断言缺失');
+  /* 断言逻辑现在在 scripts/verify-build.js 里（原先在 PowerShell 内联块，
+     含中文时 PS 5.1 按 ANSI 解码会挂），所以这里查脚本而不是查 workflow。 */
+  const vb = fs.readFileSync(VB, 'utf8');
+  assert.ok(vb.includes('缺少布局调试器'), 'PRE 断言缺失');
+  assert.ok(vb.includes('混入了布局调试器'), '正式版断言缺失');
+  assert.ok(vb.includes('index.html 没有引用布局调试器'), '缺 index.html 引用校验');
+  /* 且 workflow 确实调用了它 */
+  assert.ok(fs.readFileSync(WF, 'utf8').includes('scripts/verify-build.js'), 'CI 没调用校验脚本');
 });
 
 /* ---------- 打包输出目录：工作流与 package.json 必须一致 ---------- */
@@ -135,4 +140,64 @@ test('工作流的目录名规则与 package.json 一致', () => {
   assert.equal(/node\s+-(p|e)\s+"[^"]*\$\{/.test(yml), false,
     '工作流里在 PowerShell 字符串中出现了 ${...}，会被 PowerShell 展开成空串');
   assert.equal(yml.includes('$outDir'), false, '还有残留的 $outDir 变量');
+});
+
+/* ---------- 产物校验脚本（取代了易挂的 PowerShell 内联块） ---------- */
+
+const VB = path.join(ROOT, 'scripts', 'verify-build.js');
+
+test('产物校验用 Node 脚本，不用 PowerShell 内联块', () => {
+  const yml = fs.readFileSync(WF, 'utf8');
+  const i = yml.indexOf('- name: Verify client build');
+  const j = yml.indexOf('- name: Assemble payload');
+  assert.ok(i > 0 && j > i, '找不到 Verify 步骤');
+  const block = yml.slice(i, j);
+  assert.ok(block.includes('scripts/verify-build.js'), 'Verify 没调用 verify-build.js');
+  assert.equal(block.includes('shell: powershell'), false,
+    'Verify 仍用 PowerShell —— 含中文时 PS 5.1 按 ANSI 解码会挂，且本地无法验证');
+});
+
+test('产物校验脚本：PRE 有调试器则通过，缺了则失败', () => {
+  const { execFileSync } = require('child_process');
+  const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'vb-'));
+  const R = path.join(tmp, 'resources');
+  fs.mkdirSync(path.join(R, 'app', 'renderer'), { recursive: true });
+  fs.mkdirSync(path.join(R, 'app', 'src'), { recursive: true });
+  fs.mkdirSync(path.join(R, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(tmp, 'blfp-client'), '');
+  for (const f of ['main.js']) fs.writeFileSync(path.join(R, 'app', f), '');
+  for (const f of ['index.html', 'app.js', 'style.css']) fs.writeFileSync(path.join(R, 'app', 'renderer', f), '');
+  fs.writeFileSync(path.join(R, 'app', 'src', 'easytier-manager.js'), '');
+  for (const f of ['easytier-core.exe', 'easytier-cli.exe', 'frpc.exe', 'wintun.dll']) {
+    fs.writeFileSync(path.join(R, 'bin', f), '');
+  }
+
+  const run = (ver) => {
+    try {
+      execFileSync('node', [VB, tmp, ver, '--platform', 'linux'], { stdio: 'pipe' });
+      return 0;
+    } catch (e) { return e.status || 1; }
+  };
+
+  /* 还没放调试器：PRE 应失败 */
+  assert.equal(run('2.3.6-pre'), 1, 'PRE 缺调试器却没报错');
+
+  /* 放上 6 个调试器文件 + index.html 引用 */
+  const tunerNames = ['layout-tuner.js', 'layout-tuner.css', 'layout-tuner-shared.js',
+    'layout-tuner-window.html', 'layout-tuner-window.css', 'layout-tuner-window.js'];
+  tunerNames.forEach((f) => fs.writeFileSync(path.join(R, 'app', 'renderer', f), ''));
+  fs.writeFileSync(path.join(R, 'app', 'renderer', 'index.html'), '<script src="layout-tuner.js"></script>');
+
+  assert.equal(run('2.3.6-pre'), 0, 'PRE 有调试器却报错');
+  /* 同一个产物当正式版跑：应失败（混入调试器） */
+  assert.equal(run('2.3.6'), 1, '正式版混入调试器却没报错');
+});
+
+test('产物校验脚本：目录不存在时明确失败', () => {
+  const { execFileSync } = require('child_process');
+  const r = (() => {
+    try { execFileSync('node', [VB, '/tmp/definitely-not-here-xyz', '2.3.6-pre'], { stdio: 'pipe' }); return 0; }
+    catch (e) { return e.status || 1; }
+  })();
+  assert.equal(r, 1, '目录不存在却没报错');
 });

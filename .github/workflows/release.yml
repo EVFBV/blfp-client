@@ -74,64 +74,13 @@ jobs:
         run: npm run dist -- --publish never
 
       - name: Verify client build
-        shell: powershell
+        shell: bash
         run: |
-          $ver = "${{ steps.ver.outputs.v }}"
-          # 目录名规则与 package.json 的 build.directories.output 一致（build_v + 版本号），
-          # 那条由测试守着，别在这里另写一套；也**不要**在这里写美元大括号，
-          # PowerShell 会把双引号里的变量引用展开成空串（踩过）。
-          $root = Join-Path "build_v$ver" "win-unpacked"
-          if (-not (Test-Path $root)) { throw "unpacked build not found: $root" }
-          $required = @(
-            (Join-Path $root "BLFP.exe"),
-            (Join-Path $root "resources\bin\easytier-core.exe"),
-            (Join-Path $root "resources\bin\easytier-cli.exe"),
-            (Join-Path $root "resources\bin\frpc.exe"),
-            (Join-Path $root "resources\bin\wintun.dll"),
-            (Join-Path $root "resources\app\renderer\index.html"),
-            (Join-Path $root "resources\app\renderer\app.js"),
-            (Join-Path $root "resources\app\renderer\style.css"),
-            (Join-Path $root "resources\app\main.js"),
-            (Join-Path $root "resources\app\src\easytier-manager.js")
-          )
-          $missing = @()
-          foreach ($f in $required) {
-            if (-not (Test-Path $f)) { $missing += $f }
-          }
-          if ($missing.Count -gt 0) {
-            Write-Host "FAILED - client build is missing:"
-            $missing | ForEach-Object { Write-Host "   $_" }
-            throw "client build incomplete"
-          }
-          Write-Host "OK - client build verified (exe + bin runtime + renderer + src)"
-          $binSum = (Get-ChildItem (Join-Path $root "resources\bin") | Measure-Object -Property Length -Sum).Sum
-          Write-Host ("   bin total: " + [math]::Round($binSum/1MB,1) + " MB")
-
-          # 布局调试器：PRE 版必须有，正式版必须没有。
-          # 在**打包产物**里校验，而不是只看工作区 —— 免得文件被剔了但构建缓存又带回来。
-          $tuner = @(
-            "renderer\layout-tuner.js",
-            "renderer\layout-tuner.css",
-            "renderer\layout-tuner-shared.js",
-            "renderer\layout-tuner-window.html",
-            "renderer\layout-tuner-window.css",
-            "renderer\layout-tuner-window.js"
-          )
-          $appRenderer = Join-Path $root "resources\app\renderer"
-          $present = @($tuner | Where-Object { Test-Path (Join-Path $appRenderer $_) })
-          $isPre = "$ver".Contains("-")
-          if ($isPre) {
-            if ($present.Count -ne $tuner.Count) {
-              $miss = $tuner | Where-Object { -not (Test-Path (Join-Path $appRenderer $_)) }
-              throw ("PRE 版本 $ver 的产物缺少布局调试器：" + ($miss -join ", "))
-            }
-            Write-Host "OK - PRE build contains the layout debugger (6/6 files)"
-          } else {
-            if ($present.Count -gt 0) {
-              throw ("正式版本 $ver 的产物混入了布局调试器：" + ($present -join ", "))
-            }
-            Write-Host "OK - stable build contains no layout debugger"
-          }
+          # 校验逻辑放在 scripts/verify-build.js 里，不用 PowerShell：
+          # PowerShell 内联脚本含中文时，Windows PowerShell 5.1 会按 ANSI 解码无 BOM 的脚本，
+          # 中文变乱码导致步骤失败且看不出原因；Node 没有这个问题，本地也能直接跑。
+          VER="${{ steps.ver.outputs.v }}"
+          node scripts/verify-build.js "build_v$VER/win-unpacked" "$VER"
 
       - name: Assemble payload
         shell: powershell
