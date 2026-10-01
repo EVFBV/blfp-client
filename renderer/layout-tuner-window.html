@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>布局调试器</title>
+<link rel="stylesheet" href="layout-tuner-window.css">
+</head>
+<body>
+<header id="ltw-head">
+  <b>布局调试器</b>
+  <span id="ltw-status">初始化中…</span>
+  <button id="ltw-detach" class="ltw-mini" title="重新同步主窗口状态">重连</button>
+</header>
+
+<div id="ltw-body">
+
+  <!-- 界面选择：所有界面，含平时看不到的弹窗/非当前页 -->
+  <section class="ltw-sec">
+    <div class="ltw-sec-head">
+      <span>① 选择界面</span>
+      <span class="ltw-hint">全部界面都能改，含隐藏弹窗</span>
+    </div>
+    <select id="ltw-screen"></select>
+    <div class="ltw-row">
+      <label class="ltw-chk"><input type="checkbox" id="ltw-reveal" checked> 选中时在主窗口临时显示它</label>
+    </div>
+    <div class="ltw-row">
+      <button id="ltw-pick" class="ltw-btn">🎯 在主窗口点选元素</button>
+      <button id="ltw-show-screen" class="ltw-btn">📌 显示该界面</button>
+    </div>
+  </section>
+
+  <!-- 元素列表：当前界面下的可调部件 -->
+  <section class="ltw-sec">
+    <div class="ltw-sec-head">
+      <span>② 选择部件</span>
+      <span class="ltw-hint" id="ltw-screen-name">—</span>
+    </div>
+    <input id="ltw-filter-el" class="ltw-input" placeholder="筛选部件（按文字或选择器）">
+    <div id="ltw-el-list" class="ltw-list"></div>
+  </section>
+
+  <!-- 属性编辑 -->
+  <section class="ltw-sec">
+    <div class="ltw-sec-head"><span>③ 调整样式</span><span class="ltw-hint" id="ltw-sel-name">未选中</span></div>
+    <input id="ltw-filter-prop" class="ltw-input" placeholder="筛选属性，如 圆角 / font / margin">
+    <div id="ltw-groups"></div>
+    <div class="ltw-row">
+      <button id="ltw-reset-el" class="ltw-btn ltw-danger">重置此部件</button>
+      <button id="ltw-reset-all" class="ltw-btn ltw-danger">全部重置</button>
+    </div>
+  </section>
+
+  <!-- 自由 CSS -->
+  <section class="ltw-sec">
+    <div class="ltw-sec-head"><span>④ 自由 CSS</span><span class="ltw-hint">每行一条声明</span></div>
+    <textarea id="ltw-css" spellcheck="false" placeholder="color: #fff;&#10;text-shadow: 0 0 8px #3b6eff;&#10;backdrop-filter: blur(8px);"></textarea>
+  </section>
+
+  <!-- 导出 -->
+  <section class="ltw-sec">
+    <div class="ltw-sec-head"><span>⑤ 导出</span><span class="ltw-hint">复制给开发者</span></div>
+    <div class="ltw-row">
+      <button id="ltw-export" class="ltw-btn">生成结果</button>
+      <button id="ltw-copy" class="ltw-btn ltw-primary">复制</button>
+      <button id="ltw-save" class="ltw-btn">保存到本地</button>
+    </div>
+    <textarea id="ltw-out" spellcheck="false" placeholder="点「生成结果」"></textarea>
+  </section>
+
+  <div id="ltw-tip">快捷键：Ctrl+Shift+D 开合调试器 · Alt+拖动在主窗口直接移动部件 · 方向键微调（Shift=10px）· Esc 退出拾取</div>
+</div>
+
+<script src="layout-tuner-shared.js"></script>
+<script src="layout-tuner-window.js"></script>
+</body>
+</html>

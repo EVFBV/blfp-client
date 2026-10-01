@@ -1,0 +1,87 @@
+/* 布局调试器独立窗口的样式。
+   独立窗口不加载被测界面的 style.css，所以这里自带一套深色主题，
+   免得调试器长什么样受主界面主题影响。 */
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%;
+  background: #12141c; color: #e6e8ef;
+  font: 13px/1.5 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+}
+#ltw-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; background: #1a1d28; border-bottom: 1px solid #262a38;
+  position: sticky; top: 0; z-index: 10;
+}
+#ltw-head b { font-size: 14px; color: #fff; }
+#ltw-status { flex: 1; font-size: 11px; color: #7d8299; }
+#ltw-status.ok { color: #4ade80; }
+#ltw-status.bad { color: #f87171; }
+.ltw-mini { padding: 2px 8px; font-size: 11px; border-radius: 5px; cursor: pointer;
+  border: 1px solid #2e3348; background: #212536; color: #d8dcea; font-family: inherit; }
+.ltw-mini:hover { background: #272c40; }
+
+#ltw-body { padding: 12px; display: flex; flex-direction: column; gap: 14px; }
+
+.ltw-sec { background: #171a24; border: 1px solid #262a38; border-radius: 8px; padding: 10px; }
+.ltw-sec-head {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 12px; font-weight: 600; color: #a8b0c8; margin-bottom: 8px;
+}
+.ltw-hint { font-size: 11px; font-weight: 400; color: #6b7188; margin-left: auto; }
+
+.ltw-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.ltw-chk { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #a8b0c8; cursor: pointer; }
+
+.ltw-input, #ltw-screen, textarea {
+  width: 100%; padding: 6px 8px; border-radius: 6px;
+  border: 1px solid #2e3348; background: #0f1117; color: #e6e8ef;
+  font: inherit; font-size: 12px;
+}
+.ltw-input:focus, #ltw-screen:focus, textarea:focus { outline: none; border-color: #3b6eff; }
+textarea { resize: vertical; min-height: 64px; font-family: ui-monospace, Consolas, monospace; }
+#ltw-out { min-height: 90px; }
+
+.ltw-btn {
+  padding: 6px 10px; border-radius: 6px; cursor: pointer;
+  border: 1px solid #2e3348; background: #212536; color: #d8dcea;
+  font: inherit; font-size: 12px;
+}
+.ltw-btn:hover { background: #272c40; border-color: #3b4257; }
+.ltw-btn.ltw-primary { background: #2f5bd4; border-color: #3b6eff; color: #fff; }
+.ltw-btn.ltw-primary:hover { background: #3b6eff; }
+.ltw-btn.ltw-danger { color: #f0a0a0; border-color: #4a2b2b; }
+.ltw-btn.ltw-danger:hover { background: #33201f; }
+
+.ltw-list {
+  max-height: 190px; overflow-y: auto; margin-top: 6px;
+  border: 1px solid #232838; border-radius: 6px;
+}
+.ltw-item {
+  padding: 5px 8px; cursor: pointer; font-size: 12px;
+  border-bottom: 1px solid #1e2231; display: flex; gap: 6px; align-items: baseline;
+}
+.ltw-item:last-child { border-bottom: none; }
+.ltw-item:hover { background: #1e2334; }
+.ltw-item.on { background: #22406b; }
+.ltw-item .ltw-tag { font-size: 10px; color: #6b7188; margin-left: auto; flex-shrink: 0;
+  max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ltw-empty { padding: 10px; color: #6b7188; font-size: 12px; text-align: center; }
+
+/* 属性行 */
+.ltw-grp { margin-bottom: 10px; }
+.ltw-grp-name { font-size: 11px; color: #7d8299; margin: 8px 0 4px; font-weight: 600; }
+.ltw-prop { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.ltw-prop label { width: 84px; flex-shrink: 0; font-size: 12px; color: #a8b0c8; }
+.ltw-prop input[type="range"] { flex: 1; min-width: 0; accent-color: #3b6eff; }
+.ltw-prop input[type="text"], .ltw-prop select { flex: 1; min-width: 0; padding: 4px 6px;
+  border-radius: 5px; border: 1px solid #2e3348; background: #0f1117; color: #e6e8ef; font: inherit; font-size: 12px; }
+.ltw-prop input[type="color"] { width: 34px; height: 24px; padding: 0; border: 1px solid #2e3348;
+  border-radius: 4px; background: #0f1117; cursor: pointer; flex-shrink: 0; }
+.ltw-val { width: 46px; text-align: right; font-size: 11px; color: #7d8299; flex-shrink: 0;
+  font-variant-numeric: tabular-nums; }
+.ltw-clr { width: 18px; height: 18px; padding: 0; flex-shrink: 0; border-radius: 4px; cursor: pointer;
+  border: 1px solid #2e3348; background: #1a1d28; color: #7d8299; font-size: 11px; line-height: 1; }
+.ltw-clr:hover { color: #f0a0a0; border-color: #4a2b2b; }
+
+#ltw-tip { font-size: 11px; color: #6b7188; line-height: 1.7; padding: 0 2px 8px; }
+#ltw-sel-name { color: #7dd3fc; }

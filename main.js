@@ -15,6 +15,10 @@ app.commandLine.appendSwitch('force-color-profile', 'srgb');
 
 const GITHUB_RELEASE_API = 'https://api.github.com/repos/EVFBV/BLFP-client/releases/latest';
 let mainWindow;
+/* 布局调试器的独立窗口（仅 PRE 版带调试器时才会创建）。
+   独立窗口的好处：主窗口可以随便切页面、开关弹窗，调试器始终在旁边可见可操作，
+   而且调试器自己的样式不会污染被测界面。 */
+let tunerWindow = null;
 let frpcMgr = new FrpcManager();
 let motdBroadcaster = new MotdBroadcaster();
 let easyTierMgr = new EasyTierManager(app);
@@ -173,6 +177,74 @@ app.on('before-quit', (event) => {
   stopServices().finally(() => app.quit());
 });
 app.on('window-all-closed', () => app.quit());
+
+/* ====== 布局调试器的独立窗口 ====== */
+const TUNER_HTML = path.join(__dirname, 'renderer', 'layout-tuner-window.html');
+
+function openTunerWindow() {
+  /* 已开着就聚焦，不重复创建 */
+  if (tunerWindow && !tunerWindow.isDestroyed()) {
+    if (tunerWindow.isMinimized()) tunerWindow.restore();
+    tunerWindow.focus();
+    return { ok: true, reused: true };
+  }
+  tunerWindow = new BrowserWindow({
+    width: 420,
+    height: 760,
+    minWidth: 340,
+    minHeight: 420,
+    title: '布局调试器',
+    /* 用原生边框：调试器是工具窗口，需要能拖动/缩放/最小化，
+       无边框会让它和主窗口的视觉混在一起不好辨认 */
+    frame: true,
+    show: false,
+    backgroundColor: '#12141c',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    autoHideMenuBar: true,
+  });
+  tunerWindow.loadFile(TUNER_HTML);
+  tunerWindow.once('ready-to-show', () => {
+    try { if (tunerWindow && !tunerWindow.isDestroyed()) tunerWindow.show(); } catch (e) {}
+  });
+  tunerWindow.on('closed', () => {
+    tunerWindow = null;
+    /* 通知主窗口：调试器关了，把高亮/拾取等临时状态清掉 */
+    try { mainWindow?.webContents.send('tuner-window-closed'); } catch (e) {}
+  });
+  return { ok: true, reused: false };
+}
+
+function closeTunerWindow() {
+  if (tunerWindow && !tunerWindow.isDestroyed()) tunerWindow.close();
+  tunerWindow = null;
+  return { ok: true };
+}
+
+/* 主窗口 → 调试器窗口 的单向转发（选中的元素信息、样式快照等）。
+   调试器窗口不在时静默忽略，不报错。
+   注意通道分工，避免两边互相回环：
+     tuner-cmd   调试器 → 主窗口（下发指令）
+     tuner-data  主窗口 → 调试器（上报数据） */
+function sendToTuner(channel, payload) {
+  try {
+    if (tunerWindow && !tunerWindow.isDestroyed()) tunerWindow.webContents.send('tuner-data', { channel, payload });
+  } catch (e) {}
+}
+
+ipcMain.handle('tuner-open', () => openTunerWindow());
+ipcMain.handle('tuner-close', () => closeTunerWindow());
+ipcMain.handle('tuner-is-open', () => Boolean(tunerWindow && !tunerWindow.isDestroyed()));
+/* 调试器窗口 → 主窗口 的指令转发（例如"选中某个元素""把某界面显示出来"） */
+ipcMain.handle('tuner-to-main', (_e, channel, payload) => {
+  try { mainWindow?.webContents.send('tuner-cmd', { channel, payload }); } catch (e) {}
+  return { ok: true };
+});
+/* 主窗口 → 调试器窗口 的信息上报 */
+ipcMain.on('main-to-tuner', (_e, channel, payload) => sendToTuner(channel, payload));
 
 // ====== IPC: 应用信息与安全外链 ======
 ipcMain.handle('get-app-info', async () => ({

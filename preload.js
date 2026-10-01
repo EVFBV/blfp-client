@@ -67,7 +67,20 @@ const blfpApi = {
   removeAllListeners: (ch) => ipcRenderer.removeAllListeners(ch),
   openLogExternal: () => ipcRenderer.invoke('open-log-external'),
   setCustomTitlebar: (opts) => ipcRenderer.invoke('set-custom-titlebar', opts),
-  setCustomBackground: (opts) => ipcRenderer.invoke('set-custom-background', opts)
+  setCustomBackground: (opts) => ipcRenderer.invoke('set-custom-background', opts),
+
+  /* 布局调试器的独立窗口（仅 PRE 版带调试器时可用）。
+     主窗口用 tunerOpen/tunerClose 开合，
+     调试器窗口用 onTunerCmd/onTunerData 收指令，
+     两边用 toTuner / toMain 互发消息。 */
+  tunerOpen: () => ipcRenderer.invoke('tuner-open'),
+  tunerClose: () => ipcRenderer.invoke('tuner-close'),
+  tunerIsOpen: () => ipcRenderer.invoke('tuner-is-open'),
+  tunerToMain: (channel, payload) => ipcRenderer.invoke('tuner-to-main', channel, payload),
+  onTunerCmd: (cb) => ipcRenderer.on('tuner-cmd', (_e, msg) => cb(msg)),
+  onTunerWindowClosed: (cb) => ipcRenderer.on('tuner-window-closed', () => cb()),
+  toTuner: (channel, payload) => ipcRenderer.send('main-to-tuner', channel, payload),
+  onTunerData: (cb) => ipcRenderer.on('tuner-data', (_e, msg) => cb(msg))
 };
 
 /* 同时以 mclink 和 electronAPI 两个名字暴露（历史代码两种写法都有） */

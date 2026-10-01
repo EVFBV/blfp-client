@@ -595,8 +595,9 @@
 
   <script src="app.js"></script>
 
-  <!-- layout-tuner: 仅开发调试用，正式发布版由 CI 剔除，见 release.yml 的 Strip dev-only files -->
+  <!-- layout-tuner: 仅开发调试用，正式发布版由构建脚本剔除，见 scripts/prepare-release.js -->
   <link rel="stylesheet" href="layout-tuner.css">
+  <script src="layout-tuner-shared.js"></script>
   <script src="layout-tuner.js"></script>
 </body>
 </html>

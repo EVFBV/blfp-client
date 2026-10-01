@@ -21,11 +21,22 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const version = String(pkg.version || '');
 const isPre = version.includes('-');
 
-const TUNER_FILES = ['renderer/layout-tuner.js', 'renderer/layout-tuner.css'];
+const TUNER_FILES = [
+  'renderer/layout-tuner.js',
+  'renderer/layout-tuner.css',
+  /* 独立窗口版新增：共享定义 + 调试器窗口自己的 html/css/js。
+     漏掉任何一个都会让 PRE 包里的调试器打不开（窗口白屏或属性列表为空），
+     所以必须一并纳入"恢复/剔除 + 校验"。 */
+  'renderer/layout-tuner-shared.js',
+  'renderer/layout-tuner-window.html',
+  'renderer/layout-tuner-window.css',
+  'renderer/layout-tuner-window.js',
+];
 const INDEX_REL = 'renderer/index.html';
 const TUNER_TAGS = [
   '<!-- layout-tuner: 仅开发调试用，正式发布版由构建脚本剔除，见 scripts/prepare-release.js -->',
   '<link rel="stylesheet" href="layout-tuner.css">',
+  '<script src="layout-tuner-shared.js"></script>',
   '<script src="layout-tuner.js"></script>',
 ];
 
