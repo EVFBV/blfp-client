@@ -51,7 +51,11 @@
 
 ### Q3: workflow 路径版本不匹配
 - 原因：首次推送 v2.1.1 时只更新了 package.json 版本号
-- 解决：重新 tag v2.1.1（force push），确保 workflow 与 package.json 一致
+- **当时的**解决：重新 tag v2.1.1（force push）
+- ⚠️ **这条做法已作废，不要再照做。** 当时那个 tag 还没有人装过，重打没代价。
+  现在「已发布的 tag 永不重打」是硬规则：重打会让已装那个版本的用户版本号对不上。
+  正确做法是先 `node scripts/bump-version.js --patch`（会自动拒绝回退的号），
+  再用**新的号**打 tag。见 `docs/RELEASE.md` 的「版本号规则」。
 
 ### Q4: git push 需要认证
 - 原因：容器无交互式终端
