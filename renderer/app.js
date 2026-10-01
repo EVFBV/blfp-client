@@ -3078,115 +3078,183 @@ async function showRoomDetail(code) {
 }
 
 
-/* ====== 人机验证（图形码由服务端签发、服务端校验）======
-   旧实现有两个致命问题：
-     1) 滑块/极验结果只存在前端（geetestPassed / state.geetestValidate），
-        提交请求里从来没带上，服务端也无从校验 —— 等于完全没有拦截；
-     2) 登录和注册两个表单用了同一个 id="geetest-captcha-box"，
-        $() 只能拿到登录页那一块，注册页的验证码是死的。
-   现在：/auth/captcha 下发 { token, image }，答案只存在服务端；
-   登录/注册/发验证码都带上 captcha_token + 用户输入，由服务端校验（见服务端 captcha.js）。 */
+/* ====== 人机验证（服务端签发、服务端校验；支持极验 GeeTest v4 与内置图形码）======
+   两种提供方由服务端决定（GET /auth/captcha 返回 provider）：
+     - geetest：加载极验 SDK 渲染 widget，成功后拿到 4 个字段随请求提交
+     - builtin：服务端签发图形码，答案只在服务端
+   关键设计：极验 SDK 加载失败（CSP 拦截 / 网络不通 / file:// 限制）时
+   **自动退回服务端随附的内置图形码**，绝不把用户卡在登录门外。 */
 const captchaSlots = {
-  login: { token: '', ready: false },
-  reg: { token: '', ready: false },
+  login: { mode: 'none', token: '', image: '', validate: null, disabled: false, unavailable: false, geetest: null, loading: false },
+  reg:   { mode: 'none', token: '', image: '', validate: null, disabled: false, unavailable: false, geetest: null, loading: false },
 };
 
 function captchaBoxId(slot) { return slot === 'reg' ? 'reg-captcha-box' : 'login-captcha-box'; }
-function captchaInputId(slot) { return slot === 'reg' ? 'r-captcha' : 'l-captcha'; }
+function captchaInputId(slot) { return slot === 'reg' ? 'reg-captcha-input' : 'login-captcha-input'; }
 
-function renderCaptchaWidget(slot, image) {
+/* 渲染内置图形码（服务端签发的 SVG 图片 + 输入框） */
+function renderBuiltinCaptcha(slot, token, image) {
   const box = $(captchaBoxId(slot));
   if (!box) return;
-  const submitOnEnter = slot === 'reg' ? 'doRegister()' : 'doLogin()';
   box.innerHTML =
     '<div class="captcha-row">' +
-      '<img class="captcha-img" src="' + image + '" alt="人机验证" title="点击刷新" ' +
-        'onclick="loadCaptcha(\'' + slot + '\', true)">' +
-      '<input id="' + captchaInputId(slot) + '" class="captcha-input" type="text" maxlength="6" ' +
-        'autocomplete="off" spellcheck="false" placeholder="图中字符" ' +
-        'onkeydown="if(event.key===\'Enter\')' + submitOnEnter + '">' +
-      '<button type="button" class="btn btn-outline btn-sm" ' +
-        'onclick="loadCaptcha(\'' + slot + '\', true)">换一张</button>' +
-    '</div>';
+      '<img class="captcha-img" alt="验证码" src="' + image + '" title="点击换一张">' +
+      '<input class="captcha-input" id="' + captchaInputId(slot) + '" maxlength="4" placeholder="验证码" autocomplete="off" spellcheck="false">' +
+    '</div>' +
+    '<div class="captcha-tip">看不清？点图片换一张</div>';
+  const img = box.querySelector('.captcha-img');
+  if (img) img.onclick = () => loadCaptcha(slot, true);
+  captchaSlots[slot].token = token || '';
+  captchaSlots[slot].image = image || '';
+  captchaSlots[slot].validate = null;
+  captchaSlots[slot].mode = 'builtin';
+  captchaSlots[slot].geetest = null;
 }
 
-/* force=true 强制换一张；服务端判定失败后必须换（该挑战已被作废） */
+/* 动态加载极验 v4 SDK（只加载一次），带超时，失败即抛错以便回退 */
+function loadGeetestSdk() {
+  if (window.initGeetest4) return Promise.resolve();
+  if (loadGeetestSdk._p) return loadGeetestSdk._p;
+  loadGeetestSdk._p = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://static.geetest.com/v4/gt4.js';
+    s.async = true;
+    const timer = setTimeout(() => reject(new Error('极验 SDK 加载超时')), 8000);
+    s.onload = () => { clearTimeout(timer); window.initGeetest4 ? resolve() : reject(new Error('极验 SDK 未初始化')); };
+    s.onerror = () => { clearTimeout(timer); reject(new Error('极验 SDK 加载失败（可能被 CSP 或网络拦截）')); };
+    document.head.appendChild(s);
+  }).catch((e) => { loadGeetestSdk._p = null; throw e; });
+  return loadGeetestSdk._p;
+}
+
+/* 渲染极验 widget */
+function renderGeetest(slot, captchaId) {
+  return new Promise((resolve, reject) => {
+    try {
+      window.initGeetest4({ captchaId: captchaId, product: 'bind', language: 'zho' }, (captcha) => {
+        const box = $(captchaBoxId(slot));
+        if (!box || typeof captcha.appendTo !== 'function') { reject(new Error('极验 widget 无法挂载')); return; }
+        captcha.appendTo(box);
+        if (typeof captcha.onSuccess === 'function') {
+          captcha.onSuccess(() => {
+            const v = typeof captcha.getValidate === 'function' ? captcha.getValidate() : null;
+            captchaSlots[slot].validate = v || null;
+          });
+        }
+        captchaSlots[slot].geetest = captcha;
+        captchaSlots[slot].mode = 'geetest';
+        resolve();
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+/* 取验证码。provider 由服务端决定；极验失败自动退回内置图形码 */
 async function loadCaptcha(slot, force) {
+  const st = captchaSlots[slot];
+  if (!st || st.loading) return;
   const box = $(captchaBoxId(slot));
-  if (!box) return;
-  if (!force && captchaSlots[slot] && captchaSlots[slot].ready) return;
-  captchaSlots[slot] = { token: '', ready: false };
-  box.innerHTML = '<span class="captcha-tip">正在加载人机验证…</span>';
+  if (box && (force || st.mode === 'none')) box.innerHTML = '<div class="captcha-tip">正在加载人机验证…</div>';
+  st.loading = true;
   try {
     const data = await api('/auth/captcha');
-    if (!data || data.enabled === false) {
-      /* 服务端关闭了人机验证：标记为 disabled，绝不能在本地把提交拦住 */
-      captchaSlots[slot] = { token: '', ready: true, disabled: true };
-      box.innerHTML = '<span class="captcha-tip">服务端未启用人机验证</span>';
+    if (!data || data.enabled === false || !data.provider || data.provider === 'off') {
+      /* 服务端关闭了人机验证：隐藏整块，提交时不带字段 */
+      if (box) box.innerHTML = '';
+      st.mode = 'none';
+      st.disabled = true;
+      st.unavailable = false;
       return;
     }
-    captchaSlots[slot] = { token: data.token || '', ready: true, disabled: false };
-    renderCaptchaWidget(slot, data.image || '');
+    st.disabled = false;
+    if (data.provider === 'geetest' && data.captcha_id) {
+      try {
+        await loadGeetestSdk();
+        await renderGeetest(slot, data.captcha_id);
+        return;
+      } catch (e) {
+        /* 极验不可用：退回服务端随附的内置图形码，用户照样能登录 */
+        logLine('人机验证：' + e.message + '，已回退内置图形码');
+        if (data.fallback_token && data.fallback_image) {
+          renderBuiltinCaptcha(slot, data.fallback_token, data.fallback_image);
+          return;
+        }
+        throw e;
+      }
+    }
+    if (!data.token || !data.image) throw new Error('服务端未返回验证码');
+    renderBuiltinCaptcha(slot, data.token, data.image);
   } catch (e) {
-    /* 兼容旧服务端：没有 /auth/captcha 接口（404）说明服务端尚未升级，
-       它既不会校验也不该拦住用户——否则新客户端在旧服务端上完全无法登录。
-       其余失败（网络抖动等）同样放行，交给服务端定夺，避免本地把登录锁死。 */
-    const notFound = (e && e.status === 404) || /404/.test((e && e.message) || '');
-    captchaSlots[slot] = { token: '', ready: false, disabled: notFound, unavailable: !notFound };
-    box.innerHTML = notFound
-      ? '<span class="captcha-tip">服务端未启用人机验证（服务端版本较旧）</span>'
-      : '<span class="captcha-tip">人机验证加载失败：' + escapeHtml(e.message) + '</span>' +
-        '<button type="button" class="btn btn-outline btn-sm" ' +
-          'onclick="loadCaptcha(\'' + slot + '\', true)">重试</button>';
+    /* 老服务端没有 /auth/captcha（404）：标记为不可用，放行提交，
+       避免新客户端在旧服务端上完全无法登录（服务端才是权威判定方） */
+    const notFound = e && (e.status === 404 || e.status === 501);
+    if (box) box.innerHTML = '';
+    st.mode = 'none';
+    st.unavailable = true;
+    if (!notFound) logLine('人机验证加载失败：' + (e.message || e));
+  } finally {
+    captchaSlots[slot].loading = false;
   }
 }
 
-/* 清空（退出登录 / 注册成功后调用）：不要复用已被服务端消费掉的 token */
+/* 换一张（提交失败带 captcha:true 时调用） */
 function resetCaptcha(slot) {
-  captchaSlots[slot] = { token: '', ready: false };
-  const box = $(captchaBoxId(slot));
-  if (box) box.innerHTML = '<span class="captcha-tip">点击加载人机验证</span>';
+  const st = captchaSlots[slot];
+  if (!st) return;
+  if (st.mode === 'geetest' && st.geetest) {
+    st.validate = null;
+    try { if (typeof st.geetest.reset === 'function') st.geetest.reset(); } catch (_) {}
+    return;
+  }
+  st.validate = null;
   const input = $(captchaInputId(slot));
   if (input) input.value = '';
-}
-
-/* 提交时要带的验证码字段 */
-function captchaFields(slot) {
-  const input = $(captchaInputId(slot));
-  return {
-    captcha_token: (captchaSlots[slot] && captchaSlots[slot].token) || '',
-    captcha_answer: input ? input.value.trim() : '',
-  };
-}
-
-/* 本地先拦一道，省掉一次必定失败的请求；返回 false 时已经给出提示 */
-function ensureCaptcha(slot) {
-  const slotState = captchaSlots[slot] || {};
-  /* 服务端关闭 / 接口不可用（旧服务端）：放行，由服务端决定是否放行 */
-  if (slotState.disabled || slotState.unavailable) return true;
-  if (!slotState.token) {
-    toast('人机验证还没加载好，正在重新获取', 'warn');
-    loadCaptcha(slot, true);
-    return false;
-  }
-  const input = $(captchaInputId(slot));
-  if (!input || !input.value.trim()) {
-    toast('请输入图中的人机验证码', 'warn');
-    if (input) input.focus();
-    return false;
-  }
-  return true;
-}
-
-/* 服务端判定验证码失败时换一张（该挑战已被作废，必须换） */
-function handleCaptchaError(slot, err) {
-  const payload = err && err.payload;
-  const failed = (payload && payload.captcha) || /人机验证|图形验证码/.test((err && err.message) || '');
-  if (!failed) return false;
+  if (st.disabled || st.unavailable) return;
   loadCaptcha(slot, true);
+}
+
+/* 组装随请求提交的验证码字段：极验提交 4 个字段，内置码提交 token+答案 */
+function captchaFields(slot) {
+  const st = captchaSlots[slot] || {};
+  if (st.mode === 'geetest') {
+    const v = st.validate || {};
+    return {
+      lot_number: v.lot_number || '',
+      captcha_output: v.captcha_output || '',
+      pass_token: v.pass_token || '',
+      gen_time: v.gen_time || '',
+    };
+  }
+  const input = $(captchaInputId(slot));
+  return { captcha_token: st.token || '', captcha_answer: input ? input.value.trim() : '' };
+}
+
+/* 提交前的本地检查（服务端仍会再校验一次，这里只是提前给提示） */
+function ensureCaptcha(slot) {
+  const st = captchaSlots[slot] || {};
+  if (st.disabled || st.unavailable) return true;   // 关闭或旧服务端：不阻塞
+  if (st.mode === 'geetest') {
+    if (st.validate && st.validate.lot_number) return true;
+    toast('请先完成人机验证', 'error');
+    try { if (st.geetest && typeof st.geetest.showCaptcha === 'function') st.geetest.showCaptcha(); } catch (_) {}
+    return false;
+  }
+  if (st.mode === 'none') return true;              // 还没加载出来，交给服务端判定
+  const input = $(captchaInputId(slot));
+  const val = input ? input.value.trim() : '';
+  if (!val) { toast('请输入图片验证码', 'error'); return false; }
   return true;
 }
 
+/* 服务端判定验证码失败时：刷新验证码并提示 */
+function handleCaptchaError(slot, err) {
+  if (!err || !err.payload || !err.payload.captcha) return false;
+  resetCaptcha(slot);
+  toast(err.payload.error || '人机验证失败，请重新验证', 'error');
+  return true;
+}
 /* ====== 个性化：字体/标题栏/背景 ====== */
 function setFontFamily(font) {
   localStorage.setItem('blfp_font', font);
