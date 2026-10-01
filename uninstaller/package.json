@@ -1,6 +1,6 @@
 {
   "name": "blfp-uninstaller",
-  "version": "2.3.4-pre",
+  "version": "2.3.5-pre",
   "description": "BLFP 卸载程序",
   "main": "main.js",
   "scripts": {
@@ -17,7 +17,7 @@
     "appId": "com.blfp.uninstaller",
     "productName": "BLFP-Uninstall",
     "directories": {
-      "output": "out_v2.3.4-pre"
+      "output": "out_v2.3.5-pre"
     },
     "files": [
       "main.js",

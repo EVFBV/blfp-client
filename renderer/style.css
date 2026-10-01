@@ -1567,34 +1567,37 @@ select option { background: #0c0d18; color: var(--text); padding: 8px; }
   background: rgba(0,0,0,0.15);
 }
 
-/* ====== 滑块人机验证 ====== */
-.slider-captcha { width: 100%; }
-.sc-track {
-  position: relative; height: 44px; width: 100%;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 8px; overflow: hidden;
+/* ====== 人机验证（图形码，服务端签发 + 服务端校验）====== */
+.captcha-box {
+  min-height: 44px; padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+  font-size: .8rem; color: var(--text3);
+  display: flex; align-items: center; justify-content: center; gap: 8px;
 }
-.sc-fill {
-  position: absolute; left: 0; top: 0; bottom: 0; width: 44px;
-  background: hsla(var(--lg-accent-h), 50%, 50%, 0.15);
-  transition: width 0.15s ease-out;
+.captcha-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
 }
-.sc-thumb {
-  position: absolute; left: 0; top: 0; width: 44px; height: 44px;
-  display: flex; align-items: center; justify-content: center;
-  background: hsla(var(--lg-accent-h), 50%, 50%, 0.5);
-  color: #fff; cursor: grab; user-select: none;
-  font-size: 1.1rem; transition: background 0.3s;
-  border-radius: 8px 0 0 8px;
+.captcha-img {
+  height: 42px; width: auto; max-width: 46%;
+  border-radius: 6px; cursor: pointer; flex-shrink: 0;
+  background: #f4f5f9;
+  /* 图形码是浅色底图，深色主题下加个描边避免糊在一起 */
+  border: 1px solid rgba(255, 255, 255, 0.14);
 }
-.sc-thumb:active { cursor: grabbing; }
-.sc-hint {
-  position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  font-size: .78rem; color: var(--text3);
-  pointer-events: none; transition: opacity 0.3s;
+.captcha-input {
+  flex: 1; min-width: 0; height: 34px;
+  padding: 0 10px; letter-spacing: 2px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text1); font-size: .9rem;
 }
+.captcha-input:focus { outline: none; border-color: hsla(var(--lg-accent-h), 60%, 55%, 0.6); }
+.captcha-tip { font-size: .78rem; color: var(--text3); }
+[data-theme="light"] .captcha-box { border-color: rgba(0, 0, 0, 0.12); background: rgba(0, 0, 0, 0.02); }
+[data-theme="light"] .captcha-input { background: #fff; border-color: rgba(0, 0, 0, 0.14); }
 
 
 
@@ -2067,18 +2070,27 @@ html, body { height: 100%; }
 }
 .et-node-good { color: var(--success); font-weight: 600; flex-shrink: 0; }
 .et-node-bad { color: var(--danger); font-weight: 600; flex-shrink: 0; }
+/* 未测出：既不是可用也不是不可用（UDP 中继无法用 TCP 探测） */
+.et-node-unknown { color: var(--warn, #d9a441); font-weight: 600; flex-shrink: 0; }
+/* 节点地址原文，便于直接看出地址写错/协议写错 */
+.et-peer {
+  display: block; margin-top: 2px; font-style: normal;
+  font-size: .72rem; color: var(--text3); opacity: .85;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 [data-theme="light"] .et-result-row {
   background: rgba(0, 0, 0, 0.03);
   border-color: rgba(0, 0, 0, 0.08);
 }
 
 /* ====== 弹窗退场动画（配合 openModal/closeModal 统一开关）======
+   时长刻意压短（180/200ms）：退场比进场更该"跟手"，长了就会被感知成"点了关闭要等一会"。 */
 .modal-backdrop.modal-leaving {
-  animation: backdropOut calc(0.22s * var(--anim-speed)) ease forwards;
+  animation: backdropOut calc(0.18s * var(--anim-speed)) ease forwards;
   pointer-events: none;
 }
 .modal-backdrop.modal-leaving .modal {
-  animation: modalOut calc(0.24s * var(--anim-speed)) cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: modalOut calc(0.2s * var(--anim-speed)) cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 @keyframes backdropOut { from { opacity: 1; } to { opacity: 0; } }
 @keyframes modalOut {

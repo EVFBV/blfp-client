@@ -63,6 +63,8 @@
         </div>
       </div>
 
+      <div class="form-group"><label>人机验证</label><div id="login-captcha-box" class="captcha-box"><span class="captcha-tip">点击加载人机验证</span></div></div>
+
       <button id="btn-login" class="btn btn-primary btn-full" onclick="doLogin()">登录</button>
     </div>
 
@@ -88,8 +90,8 @@
       <div class="form-group"><label>用户名 (3-20位)</label><input id="r-user" type="text" placeholder="请输入用户名"></div>
       <div class="form-group"><label>邮箱</label><input id="r-email" type="email" placeholder="用于接收验证码"></div>
       <div class="form-group"><label>邮箱验证码</label><div class="code-row"><input id="r-code" type="text" placeholder="6位验证码" maxlength="6"><button class="btn btn-outline btn-sm" id="r-send-code" onclick="sendCode('register')">获取验证码</button></div></div>
-      <div class="form-group"><label>密码 (至少6位)</label><input id="r-pass" type="password" placeholder="请设置密码"></div>
-      <div class="form-group"><label>人机验证</label><div id="geetest-captcha-box" style="min-height:44px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px dashed rgba(255,255,255,0.12);background:rgba(255,255,255,0.02);font-size:.8rem;color:var(--text3);cursor:pointer" onclick="initGeetest()"><span>点击进行人机验证</span></div></div>
+      <div class="form-group"><label>密码 (至少8位)</label><input id="r-pass" type="password" placeholder="请设置密码"></div>
+      <div class="form-group"><label>人机验证</label><div id="reg-captcha-box" class="captcha-box"><span class="captcha-tip">点击加载人机验证</span></div></div>
       <button class="btn btn-primary btn-full" onclick="doRegister()">注册</button>
     </div>
 

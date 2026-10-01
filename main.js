@@ -420,8 +420,9 @@ ipcMain.handle('set-custom-titlebar', async (_e, opts) => {
   return { ok: true };
 });
 
-// ====== IPC: TCP 测延迟（frp 节点 ping，功能9）======
-ipcMain.handle('ping-node', async (_e, { host, port }) => {
+// ====== IPC: 节点测延迟（frp 节点 + EasyTier 节点，功能9）======
+/* TCP 连接探测：能真实反映"端口是否可连"，用于 tcp/ws/wss 节点 */
+function tcpPing(host, port, timeout = 5000) {
   return new Promise((resolve) => {
     const start = Date.now();
     const socket = new net.Socket();
@@ -430,14 +431,48 @@ ipcMain.handle('ping-node', async (_e, { host, port }) => {
       if (done) return;
       done = true;
       try { socket.destroy(); } catch {}
-      resolve(ok ? { ok: true, latency: Date.now() - start } : { ok: false, error: error || 'UNKNOWN' });
+      resolve(ok ? { ok: true, latency: Date.now() - start, method: 'tcp' } : { ok: false, error: error || 'UNKNOWN' });
     };
-    socket.setTimeout(5000);
+    socket.setTimeout(timeout);
     socket.once('connect', () => finish(true));
     socket.once('timeout', () => finish(false, 'ETIMEDOUT'));
     socket.once('error', (err) => finish(false, (err && (err.code || err.message)) || 'ERROR'));
     try { socket.connect(port || 7000, host); } catch { finish(false); }
   });
+}
+
+/* ICMP 探测：UDP 中继（udp://host:port）没法用 TCP 连接判断可用性——
+   对 UDP 端口做 TCP connect 必然超时/被拒，会把能用的中继误判成"不可达"。
+   这里退化为系统 ping 探主机，仅作延迟参考。
+   探不到时返回 unknown，绝不能当成"节点不可达"。 */
+function icmpPing(host, timeout = 3000) {
+  return new Promise((resolve) => {
+    const isWin = process.platform === 'win32';
+    const args = isWin
+      ? ['-n', '1', '-w', String(timeout), host]
+      : ['-c', '1', '-W', String(Math.max(1, Math.round(timeout / 1000))), host];
+    const start = Date.now();
+    try {
+      require('child_process').execFile('ping', args, { timeout: timeout + 2000, windowsHide: true }, (err, stdout, stderr) => {
+        const out = String(stdout || '') + String(stderr || '');
+        const replied = /ttl[=|]/i.test(out) || /time[=<]\s*[\d.]+\s*ms/i.test(out) || /时间[=<]\s*[\d.]+\s*ms/i.test(out);
+        if (err && !replied) return resolve({ ok: false, unknown: true, error: 'ICMP 无响应（UDP 中继无法用 TCP 探测）' });
+        const m = out.match(/time[=<]\s*([\d.]+)\s*ms/i) || out.match(/时间[=<]\s*([\d.]+)\s*ms/i);
+        const measured = m ? Math.round(Number(m[1])) : (Date.now() - start);
+        resolve({ ok: true, latency: Number.isFinite(measured) ? measured : (Date.now() - start), method: 'icmp' });
+      });
+    } catch (e) {
+      resolve({ ok: false, unknown: true, error: (e && e.message) || 'ICMP 调用失败' });
+    }
+  });
+}
+
+ipcMain.handle('ping-node', async (_e, { host, port, protocol } = {}) => {
+  if (!host || typeof host !== 'string') return { ok: false, error: 'INVALID_HOST' };
+  const proto = String(protocol || 'tcp').toLowerCase();
+  /* udp 中继只做主机级探测；其余按 TCP 连接探测 */
+  if (proto === 'udp') return icmpPing(host);
+  return tcpPing(host, port);
 });
 
 // ====== IPC: 局域网 MOTD 广播（功能5）======

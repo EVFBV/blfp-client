@@ -187,7 +187,7 @@ function askElevation(what) {
     const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
     $('confirm-title').textContent = '需要管理员权限';
     $('confirm-msg').textContent = what + ' 需要创建虚拟网卡，必须以管理员身份运行。\n\n点「确定」以管理员身份重启客户端（重启后请重新操作）；点「取消」则保持当前权限（EasyTier 无法使用，可改用 frp 中转模式）。';
-    $('confirm-modal').classList.remove('hidden');
+    openModal('confirm-modal');
     $('confirm-ok').__handler = () => finish('elevate');
     $('confirm-cancel').__handler = () => finish('cancel');
   });
@@ -346,7 +346,14 @@ async function api(path, opts = {}, baseServer) {
       /* token 失效：统一退回登录页，而不是让用户面对"点什么都没反应" */
       handleSessionExpired(data.error || '登录已过期，请重新登录');
     }
-    if (!res.ok) throw new Error(data.error || '请求失败 (' + res.status + ')');
+    if (!res.ok) {
+      /* 把服务端附加字段（如 captcha:true、tfa_required）挂在 error 上，
+         调用方不必靠匹配错误文案来判断失败原因 */
+      const err = new Error(data.error || '请求失败 (' + res.status + ')');
+      err.status = res.status;
+      err.payload = data;
+      throw err;
+    }
     return data;
   } catch (e) {
     if (e.name === 'AbortError') {
@@ -404,6 +411,8 @@ function showAuthTab(tab) {
   $('form-2fa').classList.add('hidden');
   $('auth-err').classList.add('hidden');
   tfaSession = null;
+  /* 切到哪个表单，就准备好哪个表单的人机验证（两个表单各自的验证码互不串台） */
+  loadCaptcha(tab === 'reg' ? 'reg' : 'login');
 }
 
 function showAuthErr(msg) {
@@ -431,10 +440,17 @@ async function sendCode(scene) {
     return showAuthErr(scene === 'register' ? '请填写正确的邮箱' : '验证码登录请在上方填写邮箱');
   }
   const btn = scene === 'register' ? $('r-send-code') : $('l-send-code');
+  const slot = scene === 'register' ? 'reg' : 'login';
+  /* 发信也要过人机验证（防邮件轰炸）。服务端这一步只校验不消费挑战，
+     所以用户解一次图形码就能接着完成注册/登录。 */
+  if (!ensureCaptcha(slot)) return;
   try {
     btn.disabled = true;
     const purpose = scene === 'register' ? 'register' : 'login';
-    await api('/auth/send-code', { method: 'POST', body: JSON.stringify({ email, purpose }) });
+    await api('/auth/send-code', {
+      method: 'POST',
+      body: JSON.stringify({ email, purpose, ...captchaFields(slot) }),
+    });
     toast('验证码已发送，请查收邮箱', 'success');
     // 60秒倒计时
     let sec = 60;
@@ -444,6 +460,7 @@ async function sendCode(scene) {
     }, 1000);
   } catch (e) {
     btn.disabled = false;
+    handleCaptchaError(slot, e);
     showAuthErr(e.message);
   }
 }
@@ -465,10 +482,15 @@ async function doLogin() {
     if (!password) return showAuthErr('请输入密码');
     body = { username, password };
   }
+  /* 人机验证由服务端校验；这里先本地拦一次，省掉一次必定失败的请求 */
+  if (!ensureCaptcha('login')) return;
 
   try {
     setLoginLoading(true, '登录中…');
-    const data = await api('/auth/login', { method: 'POST', body: JSON.stringify(body) });
+    const data = await api('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ ...body, ...captchaFields('login') }),
+    });
 
     if (data.tfa_required) {
       tfaSession = { tfaToken: data.tfa_token, methods: data.tfa_methods || {} };
@@ -488,6 +510,8 @@ async function doLogin() {
     localStorage.removeItem('mclink_server');
     enterApp();
   } catch (e) {
+    /* 验证码错误时服务端会作废该挑战，必须换一张再试 */
+    handleCaptchaError('login', e);
     showAuthErr(e.message);
   } finally {
     setLoginLoading(false);
@@ -548,37 +572,35 @@ async function doRegister() {
   if (!username || !password) return showAuthErr('请输入用户名和密码');
   if (!email) return showAuthErr('请填写邮箱');
   if (!code) return showAuthErr('请填写邮箱验证码');
-  if (!requireGeetest()) return showAuthErr('请先完成人机验证');
+  /* 人机验证由服务端校验；这里先本地拦一次，省掉一次必定失败的请求 */
+  if (!ensureCaptcha('reg')) return;
 
   try {
-    await api('/auth/register', { method: 'POST', body: JSON.stringify({ username, email, code, password }) });
+    await api('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, email, code, password, ...captchaFields('reg') }),
+    });
     toast('注册成功，请登录', 'success');
+    resetCaptcha('reg');
     showAuthTab('login');
     $('l-user').value = username;
   } catch (e) {
+    /* 验证码错误时服务端会作废该挑战，必须换一张再试 */
+    handleCaptchaError('reg', e);
     showAuthErr(e.message);
   }
 }
 
 function doLogout() {
   // 二次确认弹窗
-  showConfirm('确认退出登录？', '退出后需重新登录才能使用联机功能。', async () => {
-    // 每一步单独兜底：任一环节抛错也必须完成退出。
-    // 原来的写法里 leaveRoom/closeRoom/stopEasyTier 一旦抛错，后面的清 token 全部不执行，
-    // 用户点了确认、弹窗也关了，却还停在已登录状态 —— 看起来就是「确认按钮没反应」。
-    const failed = [];
-    const step = async (name, fn) => {
-      try { await fn(); } catch (e) {
-        failed.push(name);
-        logLine('退出登录时「' + name + '」失败: ' + ((e && e.message) || e));
-      }
-    };
-    if (state.role === 'guest') await step('退出房间', () => leaveRoom());
-    else if (state.role === 'host') await step('关闭房间', () => closeRoom());
-    await step('停止 EasyTier', () => stopEasyTier());
-    await step('停止 frpc', () => window.mclink.frpcStop());
-    await step('同步离线状态', () => syncPresence(false));
-
+  showConfirm('确认退出登录？', '退出后需重新登录才能使用联机功能。', () => {
+    /* 顺序很重要：先把"退出登录"这件事同步做完（清会话 + 回登录页），再去收尾。
+       原实现是 await 收尾步骤（关房间 / 停 EasyTier / 停 frpc 都是 IPC 或网络调用），
+       只要其中任意一个不返回（IPC 卡住、网络无响应），后面的清 token、切页面
+       就永远执行不到 —— 表现就是"确认按钮点了有反应，但退不回登录页"。 */
+    const oldToken = state.token;
+    const oldRole = state.role;
+    const oldRoomCode = state.roomCode;
     if (state.presenceTimer) clearInterval(state.presenceTimer);
     state.presenceTimer = null;
     state.token = null;
@@ -588,11 +610,49 @@ function doLogout() {
     // 房间状态也要清，否则重新登录后 createRoom 会以为「已在房间中」
     state.role = null;
     state.roomCode = null;
+    state.members = [];
     localStorage.removeItem('mclink_token');
     $('main-app').classList.add('hidden');
     $('auth-page').classList.remove('hidden');
-    if (failed.length) toast('已退出登录（' + failed.join('、') + ' 未正常结束）', 'warn');
-    else toast('已退出登录', 'success');
+    /* 顺手收起可能还开着的弹窗，避免退出后界面残留 */
+    ['log-viewer-modal', 'diag-modal', 'room-detail-modal', 'announcement-modal', 'update-modal'].forEach((id) => closeModal(id));
+    if (typeof resetCaptcha === 'function') { resetCaptcha('login'); resetCaptcha('reg'); }
+    toast('已退出登录', 'success');
+
+    /* ---- 以下都是"尽力而为"的收尾：每步独立超时，失败只记日志 ---- */
+    const stepTimeout = 5000;
+    const withTimeout = (fn, ms) => Promise.race([
+      Promise.resolve().then(fn),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('超时 ' + ms + 'ms')), ms)),
+    ]);
+    /* 收尾步骤仍需要旧会话（关房间要 role/roomCode，上报离线要 token），
+       临时挂回去，用完恢复成当前值（用户可能已经重新登录了） */
+    const withOldSession = async (fn) => {
+      const prev = { token: state.token, role: state.role, roomCode: state.roomCode };
+      state.token = oldToken;
+      state.role = oldRole;
+      state.roomCode = oldRoomCode;
+      try { return await fn(); } finally {
+        state.token = prev.token;
+        state.role = prev.role;
+        state.roomCode = prev.roomCode;
+      }
+    };
+    (async () => {
+      const failed = [];
+      const step = async (name, fn) => {
+        try { await withTimeout(fn, stepTimeout); } catch (e) {
+          failed.push(name);
+          logLine('退出登录时「' + name + '」失败: ' + ((e && e.message) || e));
+        }
+      };
+      if (oldRole === 'guest') await step('退出房间', () => withOldSession(() => leaveRoom()));
+      else if (oldRole === 'host') await step('关闭房间', () => withOldSession(() => closeRoom()));
+      await step('停止 EasyTier', () => stopEasyTier());
+      await step('停止 frpc', () => window.mclink.frpcStop());
+      await step('同步离线状态', () => withOldSession(() => syncPresence(false)));
+      if (failed.length) toast('已退出登录（' + failed.join('、') + ' 未正常结束）', 'warn');
+    })();
   });
 }
 
@@ -600,18 +660,19 @@ function doLogout() {
 function showConfirm(title, msg, onConfirm) {
   $('confirm-title').textContent = title;
   $('confirm-msg').textContent = msg;
-  $('confirm-modal').classList.remove('hidden');
+  /* 必须走 openModal/closeModal：直接切 hidden 会绕过退场动画，弹窗会"瞬间消失" */
+  openModal('confirm-modal');
   $('confirm-ok').__handler = onConfirm;
 }
 function confirmOk() {
   const handler = $('confirm-ok').__handler;
   $('confirm-ok').__handler = null;
   $('confirm-cancel').__handler = null;
-  $('confirm-modal').classList.add('hidden');
+  closeModal('confirm-modal');
   if (handler) handler();
 }
 function confirmCancel() {
-  $('confirm-modal').classList.add('hidden');
+  closeModal('confirm-modal');
   const handler = $('confirm-cancel').__handler;
   $('confirm-cancel').__handler = null;
   $('confirm-ok').__handler = null;
@@ -806,34 +867,91 @@ function refreshFrpNodes() {
 
 /* ============ EasyTier 节点选择 ============ */
 let etLoadPromise = null;
+
+/* 解析 EasyTier peer 地址。
+   必须容忍"没有协议头"的写法（例如后台手工写库成 host:port），
+   否则 new URL() 直接抛错，节点会被整体判成不可用。
+   返回 { host, port, protocol }，protocol 用于决定探测方式：
+     tcp/ws/wss → TCP 连接探测；udp → 只能做主机级探测（TCP 探测对 UDP 中继无意义） */
+const ET_DEFAULT_PORT = 11010;
 function parsePeerTarget(peer) {
-  try {
-    const u = new URL(String(peer));
-    if (!u.hostname) return null;
-    let port = Number(u.port);
-    if (!port) port = (u.protocol === 'wss:' || u.protocol === 'https:') ? 443 : 11010;
-    return { host: u.hostname, port };
-  } catch { return null; }
+  const raw = String(peer == null ? '' : peer).trim();
+  if (!raw || raw.length > 512) return null;
+  let protocol = '';
+  let rest = raw;
+  const scheme = raw.match(/^([a-z][a-z0-9+.-]*):\/\//i);
+  if (scheme) {
+    protocol = scheme[1].toLowerCase();
+    rest = raw.slice(scheme[0].length);
+    if (!['tcp', 'udp', 'ws', 'wss', 'http', 'https'].includes(protocol)) return null;
+  }
+  rest = rest.split('/')[0].split('?')[0]; /* 去掉路径与查询串 */
+  if (!rest || rest.includes('@')) return null; /* 不处理带认证信息的地址 */
+  let host;
+  let port;
+  const v6 = rest.match(/^\[([^\]]+)\](?::(\d+))?$/);
+  if (v6) {
+    host = v6[1];
+    port = v6[2] ? Number(v6[2]) : null;
+  } else {
+    const idx = rest.lastIndexOf(':');
+    if (idx === -1) {
+      host = rest;
+      port = null;
+    } else {
+      host = rest.slice(0, idx);
+      const tail = rest.slice(idx + 1);
+      if (!/^\d+$/.test(tail)) return null;
+      port = Number(tail);
+    }
+  }
+  if (!host || /\s/.test(host)) return null;
+  if (port === null) port = protocol === 'wss' || protocol === 'https' ? 443 : ET_DEFAULT_PORT;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return { host, port, protocol: protocol || 'tcp' };
 }
 
-let lastPingError = '';
-async function pingPeerUrl(peer) {
+/* 规范化 peer，用于"用户选的节点"与"房间下发的 peers"做比较。
+   服务端下发的字符串与节点列表同源，但大小写/协议默认值/有无协议头都可能不一致，
+   直接字符串相等会误判成"当前不可用"而偷偷回退到自动选择。 */
+function canonicalPeer(peer) {
+  const t = parsePeerTarget(peer);
+  if (!t) return String(peer == null ? '' : peer).trim().toLowerCase();
+  return `${t.protocol}://${t.host.toLowerCase()}:${t.port}`;
+}
+
+/* 探测单个节点。返回 { state, ms, error }：
+     ok          探测成功，ms 为延迟
+     unreachable 明确不可达（TCP 拒绝/超时，或主机探测失败）
+     unknown     无法判定（UDP 中继且主机探测被墙等）——不能当成不可达
+   error 只属于本次探测，不再用全局变量，避免把 A 节点的错误显示到 B 节点上。 */
+async function probeNode(peer) {
   const target = parsePeerTarget(peer);
-  if (!target || !window.mclink || !window.mclink.pingNode) {
-    lastPingError = '客户端接口不可用';
-    return null;
+  if (!target) {
+    return { state: 'unreachable', ms: null, error: '节点地址无法解析：' + String(peer == null ? '' : peer) };
+  }
+  if (!window.mclink || typeof window.mclink.pingNode !== 'function') {
+    return { state: 'unknown', ms: null, error: '客户端接口不可用（pingNode 未注入，请重启客户端）' };
   }
   try {
-    const res = await window.mclink.pingNode({ host: target.host, port: target.port });
-    if (res && res.ok) { lastPingError = ''; return Number(res.latency); }
-    lastPingError = (res && res.error) || '未知错误';
-    logLine('测速失败 ' + target.host + ':' + target.port + ' → ' + lastPingError);
-    return null;
+    /* udp 中继没法用 TCP 连接判断可用性，交给主进程做主机级探测 */
+    const res = await window.mclink.pingNode({ host: target.host, port: target.port, protocol: target.protocol });
+    if (res && res.ok) return { state: 'ok', ms: Number(res.latency), error: '' };
+    if (res && res.unknown) {
+      return { state: 'unknown', ms: null, error: (res && res.error) || '无法判定（UDP 中继不支持 TCP 探测）' };
+    }
+    return { state: 'unreachable', ms: null, error: (res && res.error) || '未知错误' };
   } catch (e) {
-    lastPingError = e.message || '调用失败';
-    logLine('测速异常 ' + target.host + ':' + target.port + ' → ' + lastPingError);
-    return null;
+    return { state: 'unknown', ms: null, error: (e && e.message) || '调用失败' };
   }
+}
+
+/* 兼容旧签名：只关心延迟的调用点用它 */
+async function pingPeerUrl(peer) {
+  const r = await probeNode(peer);
+  if (r.state === 'ok') return r.ms;
+  logLine('测速 ' + String(peer) + ' → ' + r.state + ' ' + (r.error || ''));
+  return null;
 }
 
 async function loadEtNodes(options = {}) {
@@ -872,27 +990,45 @@ async function testEtNodes() {
   if (!nodes.length) return toast('没有可用的 EasyTier 节点', 'warn');
   if (results) { results.classList.remove('hidden'); results.textContent = '正在测速…'; }
   if (badge) { badge.classList.remove('hidden'); badge.textContent = '测速中...'; }
-  const rows = await Promise.all(nodes.map(async (n) => ({ node: n, latency: await pingPeerUrl(n.peer) })));
-  rows.sort((a, b) => (a.latency ?? Infinity) - (b.latency ?? Infinity));
+  const rows = await Promise.all(nodes.map(async (n) => ({ node: n, probe: await probeNode(n.peer) })));
+  const rank = { ok: 0, unknown: 1, unreachable: 2 };
+  rows.sort((a, b) => (rank[a.probe.state] - rank[b.probe.state]) || ((a.probe.ms ?? Infinity) - (b.probe.ms ?? Infinity)));
   if (results) {
     results.innerHTML = rows.map((r) => {
-      const text = r.latency === null ? ('不可达 ' + (lastPingError || '')) : `${r.latency} ms`;
-      const cls = r.latency === null ? 'et-node-bad' : 'et-node-good';
-      return `<div class="et-result-row"><span>${escapeHtml(r.node.name)}</span><span class="${cls}">${text}</span></div>`;
+      const p = r.probe;
+      const text = p.state === 'ok' ? (p.ms + ' ms')
+        : p.state === 'unknown' ? ('未测出：' + (p.error || '无法判定'))
+          : ('不可达 ' + (p.error || ''));
+      const cls = p.state === 'ok' ? 'et-node-good' : (p.state === 'unknown' ? 'et-node-unknown' : 'et-node-bad');
+      /* 把 peer 原文一并列出来：节点地址写错、协议写错时一眼可见 */
+      return `<div class="et-result-row"><span>${escapeHtml(r.node.name)}<em class="et-peer">${escapeHtml(String(r.node.peer || ''))}</em></span><span class="${cls}">${escapeHtml(text)}</span></div>`;
     }).join('');
   }
-  const best = rows.find((r) => r.latency !== null);
-  if (badge) badge.textContent = best ? `最低延迟：${best.node.name} ${best.latency} ms` : '无可用节点';
-  if (best) logLine(`EasyTier 测速完成，最低延迟节点: ${best.node.name} (${best.latency} ms)`);
+  const best = rows.find((r) => r.probe.state === 'ok');
+  if (badge) {
+    /* 测速探不出 ≠ 节点不能用：UDP 中继无法用 TCP 探测，不能因此显示成"无可用节点"误导用户 */
+    badge.textContent = best
+      ? `最低延迟：${best.node.name} ${best.probe.ms} ms`
+      : '未测出延迟（节点仍可用于连接）';
+  }
+  if (best) logLine(`EasyTier 测速完成，最低延迟节点: ${best.node.name} (${best.probe.ms} ms)`);
+  else logLine('EasyTier 测速：均未测出延迟，将按原顺序尝试连接（测速失败不代表节点不可用）');
 }
 
 async function pickBestEtPeer(peers) {
   if (!Array.isArray(peers) || peers.length <= 1) return peers;
-  const results = await Promise.all(peers.map(async (peer) => ({ peer, latency: await pingPeerUrl(peer) })));
-  results.sort((a, b) => (a.latency ?? Infinity) - (b.latency ?? Infinity));
-  if (results[0].latency === null) return peers;
-  logLine(`自动选择最低延迟 EasyTier 节点: ${results[0].peer} (${results[0].latency} ms)`);
-  return [results[0].peer];
+  const results = await Promise.all(peers.map(async (peer) => ({ peer, probe: await probeNode(peer) })));
+  /* 只排序、不淘汰：测速仅是延迟估算，探不到的节点（尤其 UDP 中继）必须继续作为候选，
+     否则会把一个本来能连的中继从连接列表里删掉。 */
+  const rank = { ok: 0, unknown: 1, unreachable: 2 };
+  results.sort((a, b) => (rank[a.probe.state] - rank[b.probe.state]) || ((a.probe.ms ?? Infinity) - (b.probe.ms ?? Infinity)));
+  const ordered = results.map((r) => r.peer);
+  if (results[0].probe.state === 'ok') {
+    logLine(`EasyTier 首选节点 ${ordered[0]} (${results[0].probe.ms} ms)，其余 ${ordered.length - 1} 个作为备用`);
+  } else {
+    logLine('EasyTier 未测出可用延迟，按原顺序尝试全部节点');
+  }
+  return ordered;
 }
 
 async function resolveEtPeers(peers) {
@@ -901,12 +1037,16 @@ async function resolveEtPeers(peers) {
   if (mode && String(mode) !== 'auto') {
     const node = state.etNodes.find((n) => String(n.id) === String(mode));
     if (node) {
-      const matched = peers.find((p) => p === node.peer);
+      /* 用规范化后的地址比较：协议头有无、大小写、端口缺省都不该导致匹配失败 */
+      const wanted = canonicalPeer(node.peer);
+      const matched = peers.find((p) => canonicalPeer(p) === wanted);
       if (matched) {
-        logLine(`使用指定 EasyTier 节点: ${node.name}`);
-        return [matched];
+        /* 指定节点排在第一位，其余保留为备用：万一指定中继临时不通，仍能连上房间 */
+        const rest = peers.filter((p) => p !== matched);
+        logLine(`使用指定 EasyTier 节点: ${node.name}（${node.peer}）` + (rest.length ? `，另有 ${rest.length} 个备用节点` : ''));
+        return [matched, ...rest];
       }
-      logLine(`指定 EasyTier 节点 ${node.name} 当前不可用，改为自动选择`);
+      logLine(`指定 EasyTier 节点 ${node.name}（${node.peer}）不在本次房间的节点列表中，改为自动选择`);
     }
   }
   return pickBestEtPeer(peers);
@@ -1000,24 +1140,55 @@ function openModal(id) {
   void el.offsetWidth; /* 强制 reflow，保证进场动画重播 */
   el.classList.remove('hidden');
 }
+/* 退场动画的真实时长（毫秒）；动画没在跑时返回 0。
+   用 Web Animations API 判断动画是否真的在跑，比解析 CSS 可靠：
+   性能模式关闭、系统"减弱动态效果"、规则被更高优先级覆盖等情况下都不会误等。 */
+function modalLeaveMs(el) {
+  try {
+    if (typeof el.getAnimations === 'function') {
+      const a = el.getAnimations().find((x) => x.animationName === 'backdropOut');
+      if (!a) return 0;
+      const timing = a.effect && a.effect.getTiming ? a.effect.getTiming() : null;
+      const ms = timing && typeof timing.duration === 'number' ? timing.duration : 0;
+      return ms > 0 ? ms : 0;
+    }
+  } catch (e) { /* 落到 CSS 兜底 */ }
+  try {
+    const cs = getComputedStyle(el);
+    if (!cs.animationName || cs.animationName === 'none') return 0;
+    if (cs.animationName.split(',').map((s) => s.trim()).indexOf('backdropOut') === -1) return 0;
+    const raw = (cs.animationDuration || '0s').split(',')[0].trim();
+    const ms = raw.endsWith('ms') ? parseFloat(raw) : parseFloat(raw) * 1000;
+    return Number.isFinite(ms) && ms > 0 ? ms : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
 function closeModal(id) {
   const el = $(id);
   if (!el || el.classList.contains('hidden') || el._ltClosing) return;
   const seq = ++_modalCloseSeq;
   el._ltClosing = seq;
-  /* 先播退场动画，动画结束（或超时兜底）后再真正隐藏 */
-  el.classList.add('modal-leaving');
   const finish = () => {
     if (el._ltClosing !== seq) return;
     el.classList.remove('modal-leaving');
     el.classList.add('hidden');
     el._ltClosing = 0;
   };
+  /* 先播退场动画，动画结束（或按真实时长兜底）后再真正隐藏 */
+  el.classList.add('modal-leaving');
+  const ms = modalLeaveMs(el);
+  if (!ms) {
+    /* 动画没在跑（性能模式关/系统减弱动态效果）：立即隐藏，不能白等 */
+    finish();
+    return;
+  }
   el.addEventListener('animationend', function ltEnd(e) {
     if (e.animationName === 'backdropOut') { el.removeEventListener('animationend', ltEnd); finish(); }
   });
-  /* 动画被禁用（性能低档/系统减弱动态效果）时兜底 */
-  setTimeout(finish, 320);
+  /* 兜底时长与真实动画一致（+60ms 余量），不再固定 320ms */
+  setTimeout(finish, Math.round(ms) + 60);
 }
 
 // 通用弹窗打开：把内容写进 .modal 容器再显示遮罩。
@@ -1454,7 +1625,7 @@ let startHostDialogMode = 'easytier';
 let startHostDialogPortMode = 'auto';
 
 function openStartHostDialog() {
-  $('start-host-modal').classList.remove('hidden');
+  openModal('start-host-modal');
   startHostDialogMode = 'easytier';
   startHostDialogPortMode = 'auto';
   selectStartMode('easytier');
@@ -2907,101 +3078,112 @@ async function showRoomDetail(code) {
 }
 
 
-/* ====== Geetest 人机验证 ====== */
-let geetestPassed = false;
-let geetestLoading = false;
-function initGeetest() {
-  const box = $('geetest-captcha-box');
-  if (!box || geetestPassed || geetestLoading) return;
-  geetestLoading = true;
-  box.innerHTML = '<span style="color:var(--accent2)">正在加载验证...</span>';
-  // 尝试从服务器获取 geetest 配置；服务器未配置时使用滑块验证回退
-  api('/auth/captcha-config').then((cfg) => {
-    if (cfg && cfg.gt && cfg.challenge) {
-      initGeetestGT(cfg);
-    } else {
-      fallbackSliderCaptcha(box);
-    }
-  }).catch(() => {
-    fallbackSliderCaptcha(box);
-  });
+/* ====== 人机验证（图形码由服务端签发、服务端校验）======
+   旧实现有两个致命问题：
+     1) 滑块/极验结果只存在前端（geetestPassed / state.geetestValidate），
+        提交请求里从来没带上，服务端也无从校验 —— 等于完全没有拦截；
+     2) 登录和注册两个表单用了同一个 id="geetest-captcha-box"，
+        $() 只能拿到登录页那一块，注册页的验证码是死的。
+   现在：/auth/captcha 下发 { token, image }，答案只存在服务端；
+   登录/注册/发验证码都带上 captcha_token + 用户输入，由服务端校验（见服务端 captcha.js）。 */
+const captchaSlots = {
+  login: { token: '', ready: false },
+  reg: { token: '', ready: false },
+};
+
+function captchaBoxId(slot) { return slot === 'reg' ? 'reg-captcha-box' : 'login-captcha-box'; }
+function captchaInputId(slot) { return slot === 'reg' ? 'r-captcha' : 'l-captcha'; }
+
+function renderCaptchaWidget(slot, image) {
+  const box = $(captchaBoxId(slot));
+  if (!box) return;
+  const submitOnEnter = slot === 'reg' ? 'doRegister()' : 'doLogin()';
+  box.innerHTML =
+    '<div class="captcha-row">' +
+      '<img class="captcha-img" src="' + image + '" alt="人机验证" title="点击刷新" ' +
+        'onclick="loadCaptcha(\'' + slot + '\', true)">' +
+      '<input id="' + captchaInputId(slot) + '" class="captcha-input" type="text" maxlength="6" ' +
+        'autocomplete="off" spellcheck="false" placeholder="图中字符" ' +
+        'onkeydown="if(event.key===\'Enter\')' + submitOnEnter + '">' +
+      '<button type="button" class="btn btn-outline btn-sm" ' +
+        'onclick="loadCaptcha(\'' + slot + '\', true)">换一张</button>' +
+    '</div>';
 }
-function initGeetestGT(cfg) {
-  if (typeof initGeetest === 'function' && window.initGeetest) {
-    window.initGeetest({
-      gt: cfg.gt,
-      challenge: cfg.challenge,
-      offline: !cfg.success,
-      new_captcha: true
-    }, (captchaObj) => {
-      captchaObj.appendTo('#geetest-captcha-box');
-      captchaObj.onSuccess(() => {
-        geetestPassed = true;
-        const result = captchaObj.getValidate();
-        state.geetestValidate = result;
-        toast('验证通过', 'success');
-      });
-      captchaObj.onError(() => {
-        geetestLoading = false;
-        fallbackSliderCaptcha($('geetest-captcha-box'));
-      });
-    });
-  } else {
-    fallbackSliderCaptcha($('geetest-captcha-box'));
+
+/* force=true 强制换一张；服务端判定失败后必须换（该挑战已被作废） */
+async function loadCaptcha(slot, force) {
+  const box = $(captchaBoxId(slot));
+  if (!box) return;
+  if (!force && captchaSlots[slot] && captchaSlots[slot].ready) return;
+  captchaSlots[slot] = { token: '', ready: false };
+  box.innerHTML = '<span class="captcha-tip">正在加载人机验证…</span>';
+  try {
+    const data = await api('/auth/captcha');
+    if (!data || data.enabled === false) {
+      /* 服务端关闭了人机验证：标记为 disabled，绝不能在本地把提交拦住 */
+      captchaSlots[slot] = { token: '', ready: true, disabled: true };
+      box.innerHTML = '<span class="captcha-tip">服务端未启用人机验证</span>';
+      return;
+    }
+    captchaSlots[slot] = { token: data.token || '', ready: true, disabled: false };
+    renderCaptchaWidget(slot, data.image || '');
+  } catch (e) {
+    /* 兼容旧服务端：没有 /auth/captcha 接口（404）说明服务端尚未升级，
+       它既不会校验也不该拦住用户——否则新客户端在旧服务端上完全无法登录。
+       其余失败（网络抖动等）同样放行，交给服务端定夺，避免本地把登录锁死。 */
+    const notFound = (e && e.status === 404) || /404/.test((e && e.message) || '');
+    captchaSlots[slot] = { token: '', ready: false, disabled: notFound, unavailable: !notFound };
+    box.innerHTML = notFound
+      ? '<span class="captcha-tip">服务端未启用人机验证（服务端版本较旧）</span>'
+      : '<span class="captcha-tip">人机验证加载失败：' + escapeHtml(e.message) + '</span>' +
+        '<button type="button" class="btn btn-outline btn-sm" ' +
+          'onclick="loadCaptcha(\'' + slot + '\', true)">重试</button>';
   }
 }
-function fallbackSliderCaptcha(box) {
-  // 极验不可用时的滑块验证回退
-  let dragging = false, startX = 0, currentX = 0;
-  const trackW = () => box.clientWidth - 44;
-  box.innerHTML = '<div class="slider-captcha"><div class="sc-track"><div class="sc-fill"></div><div class="sc-thumb">→</div><span class="sc-hint">按住滑块拖到最右侧</span></div></div>';
-  const track = box.querySelector('.sc-track');
-  const fill = box.querySelector('.sc-fill');
-  const thumb = box.querySelector('.sc-thumb');
-  const hint = box.querySelector('.sc-hint');
-  const onDown = (e) => {
-    dragging = true;
-    startX = (e.touches ? e.touches[0] : e).clientX;
-    e.preventDefault();
-  };
-  const onMove = (e) => {
-    if (!dragging) return;
-    currentX = Math.max(0, Math.min(trackW(), (e.touches ? e.touches[0] : e).clientX - startX));
-    thumb.style.transform = 'translateX(' + currentX + 'px)';
-    fill.style.width = (currentX + 44) + 'px';
-    hint.style.opacity = String(Math.max(0, 1 - currentX / (trackW() / 2)));
-  };
-  const onUp = () => {
-    if (!dragging) return;
-    dragging = false;
-    if (currentX >= trackW() - 4) {
-      geetestPassed = true;
-      track.style.borderColor = 'var(--success)';
-      thumb.style.background = 'var(--success)';
-      hint.textContent = '验证通过 ✓';
-      hint.style.opacity = '1';
-      hint.style.color = 'var(--success)';
-      state.geetestValidate = { fallback: true };
-    } else {
-      thumb.style.transform = 'translateX(0)';
-      fill.style.width = '44px';
-      hint.style.opacity = '1';
-    }
-  };
-  thumb.addEventListener('mousedown', onDown);
-  thumb.addEventListener('touchstart', onDown, { passive: false });
-  document.addEventListener('mousemove', onMove);
-  document.addEventListener('touchmove', onMove, { passive: false });
-  document.addEventListener('mouseup', onUp);
-  document.addEventListener('touchend', onUp);
-  geetestLoading = false;
+
+/* 清空（退出登录 / 注册成功后调用）：不要复用已被服务端消费掉的 token */
+function resetCaptcha(slot) {
+  captchaSlots[slot] = { token: '', ready: false };
+  const box = $(captchaBoxId(slot));
+  if (box) box.innerHTML = '<span class="captcha-tip">点击加载人机验证</span>';
+  const input = $(captchaInputId(slot));
+  if (input) input.value = '';
 }
-function requireGeetest() {
-  if (!geetestPassed) {
-    toast('请先完成人机验证', 'warn');
-    initGeetest();
+
+/* 提交时要带的验证码字段 */
+function captchaFields(slot) {
+  const input = $(captchaInputId(slot));
+  return {
+    captcha_token: (captchaSlots[slot] && captchaSlots[slot].token) || '',
+    captcha_answer: input ? input.value.trim() : '',
+  };
+}
+
+/* 本地先拦一道，省掉一次必定失败的请求；返回 false 时已经给出提示 */
+function ensureCaptcha(slot) {
+  const slotState = captchaSlots[slot] || {};
+  /* 服务端关闭 / 接口不可用（旧服务端）：放行，由服务端决定是否放行 */
+  if (slotState.disabled || slotState.unavailable) return true;
+  if (!slotState.token) {
+    toast('人机验证还没加载好，正在重新获取', 'warn');
+    loadCaptcha(slot, true);
     return false;
   }
+  const input = $(captchaInputId(slot));
+  if (!input || !input.value.trim()) {
+    toast('请输入图中的人机验证码', 'warn');
+    if (input) input.focus();
+    return false;
+  }
+  return true;
+}
+
+/* 服务端判定验证码失败时换一张（该挑战已被作废，必须换） */
+function handleCaptchaError(slot, err) {
+  const payload = err && err.payload;
+  const failed = (payload && payload.captcha) || /人机验证|图形验证码/.test((err && err.message) || '');
+  if (!failed) return false;
+  loadCaptcha(slot, true);
   return true;
 }
 
