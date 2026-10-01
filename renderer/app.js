@@ -3299,17 +3299,21 @@ function switchToBuiltinCaptcha(slot) {
   return true;
 }
 
-/* 极验模式下给用户留一条自救的路：极验的 "网络不给力" 是画在它自己的 iframe 里的，
-   跨域读不到文字，onError 也不保证触发，所以不能只靠自动回退。 */
-function renderCaptchaSwitchLink(slot) {
-  const box = $('captchaBoxId(slot)');
+/* 极验模式下的"刷新验证码"入口。
+   注意：它刷新的是**极验**（重新向自家服务端签发 challenge 再渲染），不是换成别的验证方式 ——
+   极验的报错画在它自己的 iframe 里，跨域读不到文字，onError 也不保证触发，
+   所以除了自动处理之外，还得给用户一个能主动重来的按钮。 */
+function renderCaptchaRefreshLink(slot) {
+  const box = $(captchaBoxId(slot));
   if (!box || box.querySelector('.captcha-switch')) return;
   const wrap = document.createElement('div');
   wrap.className = 'captcha-switch';
   const a = document.createElement('a');
-  a.textContent = '验证码加载不出来？改用图片验证码';
-  a.onclick = () => {
-    if (!switchToBuiltinCaptcha(slot)) toast('暂时拿不到图片验证码，请点登录重试', 'error');
+  a.textContent = '刷新验证码';
+  a.onclick = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    /* resetCaptcha 会给极验重新签发一个 challenge 并重新渲染 */
+    resetCaptcha(slot);
   };
   wrap.appendChild(a);
   box.appendChild(wrap);
@@ -3370,15 +3374,16 @@ function renderGeetest3(slot, opts) {
           st.fallback = { token: opts.fallbackToken, image: opts.fallbackImage };
         }
         try { captcha.appendTo(box); } catch (e) { done(reject, e); return; }
-        renderCaptchaSwitchLink(slot);
+        renderCaptchaRefreshLink(slot);
         captcha.onSuccess(() => {
           try { st.validate = captcha.getValidate() || null; } catch (_) { st.validate = null; }
           if (st.validate) playCaptchaDone(slot);
         });
-        captcha.onError(() => {
+        captcha.onError((err) => {
           st.validate = null;
-          /* 以前只清 validate，界面纹丝不动，用户只能对着"网络不给力"干瞪眼 */
-          switchToBuiltinCaptcha(slot);
+          /* 不在这里切成内置图形码：用户要的是极验可用，不是被替换。
+             刷新入口一直挂在下面，点一下就会用新的 challenge 重新渲染极验。 */
+          logLine('极验回调报错：' + ((err && (err.error_code || err.msg)) || '未知') + '，可点"刷新验证码"重试');
         });
         done(resolve);
       });

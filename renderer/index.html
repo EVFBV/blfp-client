@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
   <!-- CSP：极验（GeeTest v4）的 SDK 脚本与它内部的 iframe 必须放行，否则人机验证加载不出来。
        static.geetest.com 是 SDK，*.geetest.com 覆盖其校验接口与 iframe。 -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://static.geetest.com https://*.geetest.com; style-src 'self' 'unsafe-inline' https://*.geetest.com; frame-src https://*.geetest.com; connect-src *; img-src 'self' data: https://*.geetest.com;">
+  <!-- 极验会同时使用 geetest.com 与 geevisit.com 两套域名，静态资源还可能走
+       dn-staticdown.qbox.me（七牛 CDN，见 gt.js 的 fallback_config）。
+       只放行 *.geetest.com 会把另一套域名拦掉，widget 就报"网络不给力"。
+       网页控制台没有 CSP，所以那边一直是好的 —— 这就是"网页正常、客户端不行"的原因。 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://*.geetest.com https://*.geevisit.com https://*.qbox.me; style-src 'self' 'unsafe-inline' https://*.geetest.com https://*.geevisit.com; frame-src https://*.geetest.com https://*.geevisit.com; connect-src *; img-src 'self' data: blob: https://*.geetest.com https://*.geevisit.com https://*.qbox.me; font-src 'self' data: https://*.geetest.com https://*.geevisit.com;">
   <title>BLFP 联机助手</title>
   <link rel="stylesheet" href="style.css">
 </head>

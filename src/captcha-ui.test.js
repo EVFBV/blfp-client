@@ -301,21 +301,28 @@ const GEETEST3 = {
   fallback_token: 'fb-1', fallback_image: 'data:image/svg+xml;base64,AAA',
 };
 
-test('极验模式下必须给出"改用图片验证码"的入口', () => {
+test('极验模式下必须给出"刷新验证码"入口，且刷新的仍是极验（不是换掉它）', () => {
   const { src } = extract();
-  assert.ok(src.includes('renderCaptchaSwitchLink'),
-    '没有自救入口 —— 极验画在自己的 iframe 里报"网络不给力"，跨域读不到文字，' +
-    'onError 也不保证触发，用户会卡在死掉的 widget 前面');
-  assert.ok(src.includes('改用图片验证码'), '没有可点击的文案');
+  assert.ok(src.includes('renderCaptchaRefreshLink'), '没有刷新入口');
+  assert.ok(src.includes('刷新验证码'), '没有可点击的文案');
+  /* 用户明确要求"让极验能用，而不是把它替换掉" */
+  assert.equal(/textContent\s*=\s*'[^']*改用图片验证码/.test(src), false,
+    '界面上又出现了"改用图片验证码"的入口 —— 那是替换掉极验，用户明确不要');
+  const i = src.indexOf('function renderCaptchaRefreshLink');
+  const body = src.slice(i, i + 700);
+  assert.ok(body.includes('resetCaptcha(slot)'),
+    '刷新入口没有走 resetCaptcha，点了不会重新签发 challenge 并重渲染极验');
 });
 
-test('极验 onError 要自动切到内置图形码，而不是只清 validate', () => {
+test('极验 onError 不能把极验换成内置图形码（保持极验在场，让用户刷新重来）', () => {
   const { src } = extract();
   const i = src.indexOf('captcha.onError(');
   assert.ok(i > 0, '找不到 onError');
-  const body = src.slice(i, i + 300);
-  assert.ok(body.includes('switchToBuiltinCaptcha'),
-    'onError 里没有回退 —— 用户只能对着"网络不给力"干瞪眼');
+  const body = src.slice(i, i + 500);
+  const code = body.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.equal(code.includes('switchToBuiltinCaptcha'), false,
+    'onError 里把极验换成了内置图形码 —— 用户要的是极验可用，不是被替换');
+  assert.ok(/st\.validate\s*=\s*null/.test(code), 'onError 没有清掉上一次的 validate');
 });
 
 test('切换用的图片来自签到接口一并下发的 fallback，不用再请求一次', () => {
@@ -325,7 +332,9 @@ test('切换用的图片来自签到接口一并下发的 fallback，不用再�
   assert.ok(/st\.fallback\s*=/.test(src), '没有把 fallback 存进槽位');
 });
 
-test('切到图片验证码后能真的用起来（端到端）', async () => {
+/* switchToBuiltinCaptcha 现在只用于"极验彻底起不来"的兜底（SDK 加载失败/初始化超时），
+   正常出错不会走到它 —— 所以这个能力必须保留且可用。 */
+test('极验彻底起不来时，兜底的内置图形码要能真的用起来（端到端）', async () => {
   const { sandbox, groups } = makeEnv(GEETEST3);
   /* 直接走"极验挂了 → 切换"这条路径 */
   await sandbox.__load('login');
@@ -342,11 +351,55 @@ test('切到图片验证码后能真的用起来（端到端）', async () => {
   assert.equal(sandbox.__fields('login').captcha_answer, 'ZX99');
 });
 
-test('极验模式下也要能点链接切换（链接真的挂到了容器上）', () => {
+test('刷新链接真的挂到了容器上并且绑定点击', () => {
   const { src } = extract();
-  const i = src.indexOf('function renderCaptchaSwitchLink');
-  assert.ok(i > 0, '找不到 renderCaptchaSwitchLink');
+  const i = src.indexOf('function renderCaptchaRefreshLink');
+  assert.ok(i > 0, '找不到 renderCaptchaRefreshLink');
   const body = src.slice(i, i + 700);
   assert.ok(body.includes('appendChild'), '链接没有挂到容器上');
   assert.ok(body.includes('onclick'), '链接没有绑定点击行为');
+});
+
+
+/* ---------- CSP：必须放行极验用到的全部域名 ---------- */
+
+test('CSP 必须放行 geevisit.com 与 qbox.me（极验会用这两套域名）', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'index.html'), 'utf8');
+  const m = html.match(/Content-Security-Policy" content="([^"]*)"/);
+  assert.ok(m, '找不到 CSP');
+  const csp = m[1];
+  const dirs = {};
+  csp.split(';').forEach((d) => { const [k, ...v] = d.trim().split(/\s+/); if (k) dirs[k] = v; });
+  const allows = (dir, host) => (dirs[dir] || []).some((p) => {
+    if (p === host || p === '*' || p === 'https:') return true;
+    if (p.startsWith('https://*.') && host.startsWith('https://')) {
+      return host.endsWith(p.slice('https://*'.length));
+    }
+    return false;
+  });
+  /* 极验 gettype.php/get.php 实测会返回：
+     static_servers: [static.geetest.com, static.geevisit.com]
+     api_server: api.geevisit.com
+     gt.js 的 fallback_config 里还有 dn-staticdown.qbox.me
+     只放行 *.geetest.com 会把另一套域名整个拦掉 —— 这就是客户端"网络不给力"的原因。 */
+  for (const [dir, host] of [
+    ['script-src', 'https://static.geevisit.com'],
+    ['script-src', 'https://dn-staticdown.qbox.me'],
+    ['frame-src', 'https://static.geevisit.com'],
+    ['img-src', 'https://static.geevisit.com'],
+    ['style-src', 'https://static.geevisit.com'],
+  ]) {
+    assert.ok(allows(dir, host), dir + ' 没有放行 ' + host + '（极验会报"网络不给力"）');
+  }
+  for (const dir of ['default-src', 'script-src', 'style-src', 'img-src']) {
+    assert.equal((dirs[dir] || []).includes('self'), false,
+      dir + ' 里出现了裸 self（少了引号）—— 会被当成主机名 self，等于什么都没允许');
+  }
+});
+
+test('极验域名清单与实测一致（防止有人"顺手精简"掉 geevisit）', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'index.html'), 'utf8');
+  for (const host of ['geetest.com', 'geevisit.com', 'qbox.me']) {
+    assert.ok(html.includes(host), 'CSP 里少了 ' + host);
+  }
 });
