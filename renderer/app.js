@@ -3130,11 +3130,38 @@ function loadGeetestSdk() {
 /* 渲染极验 widget */
 function renderGeetest(slot, captchaId) {
   return new Promise((resolve, reject) => {
+    /* 必须带超时：initGeetest4 的回调在多种情况下不会触发
+       （captcha_id 失效、域名未在极验后台登记、到极验的网络不通……），
+       回调不触发时原实现会永远挂起，界面一直停在"正在加载人机验证…"，
+       用户既看不到验证码也无法登录。超时后由上层回退到内置图形码。 */
+    let settled = false;
+    let timer = null;
+    const done = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      fn(arg);
+    };
+    timer = setTimeout(() => done(reject, new Error('极验初始化超时')), 8000);
     try {
       window.initGeetest4({ captchaId: captchaId, product: 'bind', language: 'zho' }, (captcha) => {
         const box = $(captchaBoxId(slot));
-        if (!box || typeof captcha.appendTo !== 'function') { reject(new Error('极验 widget 无法挂载')); return; }
-        captcha.appendTo(box);
+        if (!box || !captcha || typeof captcha.appendTo !== 'function') {
+          done(reject, new Error('极验 widget 无法挂载'));
+          return;
+        }
+        if (typeof captcha.onError === 'function') {
+          captcha.onError(() => {
+            if (settled) { loadCaptcha(slot, true); }
+            else { done(reject, new Error('极验初始化失败')); }
+          });
+        }
+        try {
+          captcha.appendTo(box);
+        } catch (e) {
+          done(reject, e);
+          return;
+        }
         if (typeof captcha.onSuccess === 'function') {
           captcha.onSuccess(() => {
             const v = typeof captcha.getValidate === 'function' ? captcha.getValidate() : null;
@@ -3143,10 +3170,10 @@ function renderGeetest(slot, captchaId) {
         }
         captchaSlots[slot].geetest = captcha;
         captchaSlots[slot].mode = 'geetest';
-        resolve();
+        done(resolve);
       });
     } catch (e) {
-      reject(e);
+      done(reject, e);
     }
   });
 }
