@@ -77,7 +77,10 @@ jobs:
         shell: powershell
         run: |
           $ver = "${{ steps.ver.outputs.v }}"
-          $root = Join-Path "build_v$ver" "win-unpacked"
+          $outDir = (node -p "require('./package.json').build.directories.output.split('${version}').join(require('./package.json').version)")
+          Write-Host "build output dir: $outDir"
+          $root = Join-Path $outDir "win-unpacked"
+          if (-not (Test-Path $root)) { throw "unpacked build not found: $root" }
           $required = @(
             (Join-Path $root "BLFP.exe"),
             (Join-Path $root "resources\bin\easytier-core.exe"),
@@ -133,7 +136,8 @@ jobs:
         shell: powershell
         run: |
           $ver = "${{ steps.ver.outputs.v }}"
-          $clientOutput = Join-Path "build_v$ver" "win-unpacked"
+          $outDir = (node -p "require('./package.json').build.directories.output.split('${version}').join(require('./package.json').version)")
+          $clientOutput = Join-Path $outDir "win-unpacked"
           $payloadDir = Join-Path "installer" "payload"
           if (Test-Path $payloadDir) { Remove-Item -Recurse -Force $payloadDir }
           New-Item -ItemType Directory -Path $payloadDir -Force | Out-Null

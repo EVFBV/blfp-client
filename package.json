@@ -22,7 +22,7 @@
     "appId": "com.blfp.client",
     "productName": "BLFP",
     "directories": {
-      "output": "build_v2.3.5-pre"
+      "output": "build_v${version}"
     },
     "files": [
       "main.js",
