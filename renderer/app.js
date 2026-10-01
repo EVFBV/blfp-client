@@ -3109,6 +3109,7 @@ function resetCaptchaState(slot) {
   st.mode = 'none';
   st.token = '';
   st.answer = '';
+  st.fallback = null;
   st.validate = null;
   st.geetest = null;
   st.challenge = '';
@@ -3282,6 +3283,38 @@ function loadGeetest3Sdk() {
   return loadGeetest3Sdk._p;
 }
 
+/* 极验挂了（最常见就是它自己的"网络不给力"）时切到内置图形码。
+   用的是签到 /auth/captcha 时一并下发的 fallback_token/fallback_image，
+   不需要再请求一次，切换是瞬时的。 */
+function switchToBuiltinCaptcha(slot) {
+  const st = captchaSlots[slot];
+  if (!st) return false;
+  if (!st.fallback || !st.fallback.token || !st.fallback.image) return false;
+  if (captchaDoneTimers[slot]) { clearTimeout(captchaDoneTimers[slot]); captchaDoneTimers[slot] = null; }
+  st.geetest = null;
+  st.validate = null;
+  st.answer = '';
+  logLine('极验不可用（网络不给力/接口异常），已改用图片验证码');
+  renderBuiltinCaptcha(slot, st.fallback.token, st.fallback.image);
+  return true;
+}
+
+/* 极验模式下给用户留一条自救的路：极验的 "网络不给力" 是画在它自己的 iframe 里的，
+   跨域读不到文字，onError 也不保证触发，所以不能只靠自动回退。 */
+function renderCaptchaSwitchLink(slot) {
+  const box = $('captchaBoxId(slot)');
+  if (!box || box.querySelector('.captcha-switch')) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'captcha-switch';
+  const a = document.createElement('a');
+  a.textContent = '验证码加载不出来？改用图片验证码';
+  a.onclick = () => {
+    if (!switchToBuiltinCaptcha(slot)) toast('暂时拿不到图片验证码，请点登录重试', 'error');
+  };
+  wrap.appendChild(a);
+  box.appendChild(wrap);
+}
+
 function renderGeetest3(slot, opts) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -3332,12 +3365,21 @@ function renderGeetest3(slot, opts) {
         st.offline = Boolean(opts.offline);
         st.challenge = opts.challenge || '';
         st.validate = null;
+        /* 签到接口已经把内置图形码一并下发了，先存着，极验一挂就能立刻切过去 */
+        if (opts.fallbackToken && opts.fallbackImage) {
+          st.fallback = { token: opts.fallbackToken, image: opts.fallbackImage };
+        }
         try { captcha.appendTo(box); } catch (e) { done(reject, e); return; }
+        renderCaptchaSwitchLink(slot);
         captcha.onSuccess(() => {
           try { st.validate = captcha.getValidate() || null; } catch (_) { st.validate = null; }
           if (st.validate) playCaptchaDone(slot);
         });
-        captcha.onError(() => { st.validate = null; });
+        captcha.onError(() => {
+          st.validate = null;
+          /* 以前只清 validate，界面纹丝不动，用户只能对着"网络不给力"干瞪眼 */
+          switchToBuiltinCaptcha(slot);
+        });
         done(resolve);
       });
     } catch (e) {
@@ -3429,7 +3471,7 @@ async function loadCaptcha(slot, force) {
     if (data.provider === 'geetest3' && data.gt && data.challenge) {
       try {
         await loadGeetest3Sdk();
-        await renderGeetest3(slot, { gt: data.gt, challenge: data.challenge, offline: data.offline });
+        await renderGeetest3(slot, { gt: data.gt, challenge: data.challenge, offline: data.offline, fallbackToken: data.fallback_token, fallbackImage: data.fallback_image });
         return;
       } catch (e) {
         logLine('人机验证：' + e.message + '，已回退内置图形码');

@@ -1623,6 +1623,12 @@ select option { background: #0c0d18; color: var(--text); padding: 8px; }
 }
 .captcha-input:focus { outline: none; border-color: hsla(var(--lg-accent-h), 60%, 55%, 0.6); }
 .captcha-tip { font-size: .78rem; color: var(--text3); }
+/* 极验"网络不给力"时的自救入口：极验的报错画在它自己的 iframe 里，
+   跨域读不到，onError 也不保证触发，所以必须给用户一个能点的东西 */
+.captcha-switch { margin-top: 8px; font-size: .78rem; }
+.captcha-switch a { color: hsl(28, 90%, 60%); cursor: pointer; text-decoration: underline; opacity: .9; }
+.captcha-switch a:hover { opacity: 1; }
+
 [data-theme="light"] .captcha-box { border-color: rgba(0, 0, 0, 0.12); background: rgba(0, 0, 0, 0.02); }
 [data-theme="light"] .captcha-input { background: #fff; border-color: rgba(0, 0, 0, 0.14); }
 

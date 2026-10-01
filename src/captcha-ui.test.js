@@ -126,7 +126,7 @@ function makeEnv(captchaResp) {
     dollars + block +
     ';globalThis.__slots=captchaSlots; globalThis.__load=loadCaptcha; globalThis.__ensure=ensureCaptcha;' +
     ' globalThis.__reset=resetCaptchaState; globalThis.__done=playCaptchaDone; globalThis.__fields=captchaFields;' +
-    ' globalThis.__resetCap=resetCaptcha;',
+    ' globalThis.__resetCap=resetCaptcha; globalThis.__switch=switchToBuiltinCaptcha;',
     sandbox
   );
   return { sandbox, groups, inputs, scripts, logs, toasts, getInitConfig: () => initConfig };
@@ -264,4 +264,75 @@ test('两个验证码容器前面都有同级 label（收起动画要能一起�
     const before = html.slice(Math.max(0, i - 120), i);
     assert.ok(before.includes('<label>'), id + ' 前面没有 label，收起动画会剩下一行字');
   }
+});
+
+test("回退路径不能调用本端不存在的函数（会直接把回退打断）", () => {
+  const { src } = extract();
+  const i = src.indexOf("function switchToBuiltinCaptcha");
+  assert.ok(i > 0, "找不到 switchToBuiltinCaptcha");
+  const body = src.slice(i, i + 700);
+  /* 服务端控制台没有 logLine，客户端有；调用不存在的函数会在运行时抛
+     ReferenceError，把"极验挂了→切图片验证码"这条路直接打断 */
+  if (!/function logLine/.test(src)) {
+    assert.equal(/\blogLine\(/.test(body), false,
+      "switchToBuiltinCaptcha 调用了本端不存在的 logLine，回退会抛错");
+  }
+});
+
+/* ---------- 极验"网络不给力"时必须能自救 ---------- */
+
+const GEETEST3 = {
+  enabled: true, provider: 'geetest3', gt: '3d3089824403f018354a4901ce23a7c8',
+  challenge: 'abc123', offline: false,
+  fallback_token: 'fb-1', fallback_image: 'data:image/svg+xml;base64,AAA',
+};
+
+test('极验模式下必须给出"改用图片验证码"的入口', () => {
+  const { src } = extract();
+  assert.ok(src.includes('renderCaptchaSwitchLink'),
+    '没有自救入口 —— 极验画在自己的 iframe 里报"网络不给力"，跨域读不到文字，' +
+    'onError 也不保证触发，用户会卡在死掉的 widget 前面');
+  assert.ok(src.includes('改用图片验证码'), '没有可点击的文案');
+});
+
+test('极验 onError 要自动切到内置图形码，而不是只清 validate', () => {
+  const { src } = extract();
+  const i = src.indexOf('captcha.onError(');
+  assert.ok(i > 0, '找不到 onError');
+  const body = src.slice(i, i + 300);
+  assert.ok(body.includes('switchToBuiltinCaptcha'),
+    'onError 里没有回退 —— 用户只能对着"网络不给力"干瞪眼');
+});
+
+test('切换用的图片来自签到接口一并下发的 fallback，不用再请求一次', () => {
+  const { src } = extract();
+  assert.ok(src.includes('fallbackToken: data.fallback_token'),
+    'loadCaptcha 没把 fallback 透传给 renderGeetest3，切换时无图可用');
+  assert.ok(/st\.fallback\s*=/.test(src), '没有把 fallback 存进槽位');
+});
+
+test('切到图片验证码后能真的用起来（端到端）', async () => {
+  const { sandbox, groups } = makeEnv(GEETEST3);
+  /* 直接走"极验挂了 → 切换"这条路径 */
+  await sandbox.__load('login');
+  await settle();
+  sandbox.__slots.login.fallback = { token: 'fb-1', image: 'data:image/svg+xml;base64,AAA' };
+  assert.equal(sandbox.__switch('login'), true, '切换失败');
+  assert.equal(sandbox.__slots.login.mode, 'builtin', '没有切到内置图形码');
+  assert.equal(sandbox.__slots.login.token, 'fb-1', '没有用上签到时的 fallback 图片');
+  /* 切换后必须能正常填、正常通过校验 */
+  const input = groups.login.box._q['.captcha-input'];
+  input.value = 'ZX99';
+  input.fire('input');
+  assert.equal(sandbox.__ensure('login'), true, '切换后仍然登录不了');
+  assert.equal(sandbox.__fields('login').captcha_answer, 'ZX99');
+});
+
+test('极验模式下也要能点链接切换（链接真的挂到了容器上）', () => {
+  const { src } = extract();
+  const i = src.indexOf('function renderCaptchaSwitchLink');
+  assert.ok(i > 0, '找不到 renderCaptchaSwitchLink');
+  const body = src.slice(i, i + 700);
+  assert.ok(body.includes('appendChild'), '链接没有挂到容器上');
+  assert.ok(body.includes('onclick'), '链接没有绑定点击行为');
 });
