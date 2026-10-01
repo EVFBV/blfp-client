@@ -9,6 +9,7 @@ const FrpcManager = require('./src/frpc-manager');
 const MotdBroadcaster = require('./src/motd-broadcast');
 const EasyTierManager = require('./src/easytier-manager');
 const { downloadWithFallback } = require('./src/update-download');
+const { startSilentInstaller } = require('./src/update-launch');
 
 /* 后台/遮挡时不挂起渲染，避免恢复窗口后出现黑屏 */
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
@@ -292,6 +293,12 @@ function updateInstallerPath(assetName) {
   return path.join(app.getPath('temp'), safe);
 }
 
+/* 上次更新的结果记录在这里（安装器写、客户端启动时读）。
+   放在 userData 下：同一个用户、同一个客户端，重启后一定读得到。 */
+function updateStatusFile() {
+  return path.join(app.getPath('userData'), 'update-status.json');
+}
+
 /* 客户端自己的安装目录 = BLFP.exe 所在目录 */
 function currentInstallDir() {
   return path.dirname(app.getPath('exe'));
@@ -329,22 +336,59 @@ ipcMain.handle('start-update', async (evt, opts) => {
     const mb = Math.round(result.bytes / 1048576);
     send({ phase: 'install', percent: 100, text: `下载完成（${result.mirror}，${mb} MB），正在后台安装…` });
 
-    /* 用隐藏的静默参数拉起安装器：不弹任何界面，由它在后台关客户端、装文件、再拉起来 */
+    /* 用隐藏的静默参数拉起安装器：不弹界面，由它在后台关客户端、装文件、再拉起来。
+       必须确认真起来了才允许退出客户端 —— 客户端自己没提权时，
+       spawn 一个 requireAdministrator 的 exe 不会弹 UAC，而是异步报 EACCES；
+       老实现没人监听这个错误，于是"没启动"和"启动成功"长得一模一样，
+       客户端照样退出 → 用户看到的就是"点更新，软件没了"。
+       startSilentInstaller 内部：直接 spawn 并观察 → 不行退回 UAC 提权 → 都不行如实报错。 */
     const installDir = currentInstallDir();
-    const args = ['--blfp-silent-update', '--target', installDir, '--relaunch'];
-    const child = spawn(dest, args, { detached: true, stdio: 'ignore', windowsHide: true });
-    child.unref();
+    const launched = await startSilentInstaller({
+      installerPath: dest,
+      targetDir: installDir,
+      /* 让安装器把进度与结果写到固定位置。客户端马上就退出了，
+         装完之后不管成功失败都要靠这个文件知道发生了什么 ——
+         尤其是失败：不然用户只会看到"软件关了再也没回来"。 */
+      statusFile: updateStatusFile(),
+      spawnImpl: spawn,
+      log: (m) => console.log('[更新] ' + m),
+    });
+    if (!launched.ok) {
+      /* 没起来就绝对不要退出客户端：退出去用户就只能重装了 */
+      const message = launched.error || '启动安装程序失败';
+      send({ phase: 'error', percent: 0, text: message });
+      return { ok: false, error: message };
+    }
 
-    send({ phase: 'restart', percent: 100, text: '正在重启客户端…' });
+    send({ phase: 'restart', percent: 100, text: '安装程序已在后台运行，界面会短暂关闭后自动重启…' });
     /* 必须尽快退出：不退的话 BLFP.exe 一直占着文件，安装器写不进去 */
     setTimeout(() => {
       try { app.exit(0); } catch (e) { process.exit(0); }
     }, 250);
-    return { ok: true, mirror: result.mirror, bytes: result.bytes };
+    return { ok: true, mirror: result.mirror, bytes: result.bytes, method: launched.method };
   } catch (e) {
     const message = (e && e.message) || String(e);
     send({ phase: 'error', percent: 0, text: message });
     return { ok: false, error: message };
+  }
+});
+
+/*
+ * 读取"上次软件内更新的结果"。
+ * 安装器失败时会把客户端原样拉回来，这时用户需要一个交代 ——
+ * 否则他看到的只是"软件自己关了一下又开了"，完全不知道更新失败了。
+ * 读一次就删掉，避免每次启动都弹。
+ */
+ipcMain.handle('read-update-status', async () => {
+  const file = updateStatusFile();
+  try {
+    if (!fs.existsSync(file)) return null;
+    const raw = fs.readFileSync(file, 'utf8');
+    try { fs.unlinkSync(file); } catch (e) {}
+    const data = JSON.parse(raw);
+    return data && typeof data === 'object' ? data : null;
+  } catch (e) {
+    return null;
   }
 });
 

@@ -43,7 +43,9 @@ function parseSilentArgs(argv) {
     const inlineValue = eq === -1 ? null : arg.slice(eq + 1);
     const take = () => (inlineValue === null ? String(list[++i] == null ? '' : list[i]) : inlineValue);
     if (key === '--target' || key === '--dir' || key === '--installdir') { out.target = take(); continue; }
-    if (key === '--status-file') { out.statusFile = take(); continue; }
+    /* 必须转成绝对路径：安装器的当前目录与调用方（客户端）通常不同，
+       相对路径会被写到别处，结果就是"失败原因写了一个没人读的地方" —— 又变成静默失败。 */
+    if (key === '--status-file') { const v = take(); out.statusFile = v ? path.resolve(v) : ''; continue; }
     if (key === '--relaunch') { out.relaunch = inlineValue === null ? true : inlineValue !== '0'; continue; }
     if (key === '--no-shortcuts') { out.shortcuts = false; continue; }
   }

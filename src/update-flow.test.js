@@ -34,10 +34,16 @@ const handler = (name) => {
 
 test('客户端拉安装器用的隐藏参数必须和安装器认的完全一致', () => {
   const core = require('../installer/install-core.js');
-  const body = handler('start-update');
-  assert.ok(body.includes(core.SILENT_FLAG),
+  const launch = require('./update-launch.js');
+  assert.equal(launch.DEFAULT_SILENT_FLAG, core.SILENT_FLAG,
     `客户端用的参数与安装器认的（${core.SILENT_FLAG}）不一致 —— ` +
     '那安装器就会当成"用户双击"，直接弹出安装界面');
+  /* 端到端：客户端拼出来的参数，安装器必须真的解析成"静默 + 装到指定目录 + 装完重启" */
+  const args = launch.buildSilentArgs({ targetDir: require('path').resolve('BLFP') });
+  const parsed = core.parseSilentArgs(['electron.exe'].concat(args));
+  assert.equal(parsed.silent, true, '安装器没把这串参数当成静默安装');
+  assert.equal(parsed.relaunch, true, '安装器没解析出"装完要重启客户端"');
+  assert.equal(parsed.target, require('path').resolve('BLFP'), '安装器没解析出目标目录');
   assert.ok(INSTALLER_MAIN.includes('core.parseSilentArgs'), '安装器没有解析这个参数');
 });
 
@@ -66,15 +72,34 @@ test('镜像源候选里有直连，也有至少一个加速源（用户网络�
 
 test('下载完把安装器以隐藏参数拉起来，且是脱离父进程运行', () => {
   const body = handler('start-update');
-  assert.ok(/spawn\(/.test(body), '没有拉起安装器');
-  assert.ok(/detached:\s*true/.test(body), '不是 detached —— 客户端一退出安装器就跟着没了');
-  assert.ok(/unref\(\)/.test(body), '没有 unref，客户端可能退不干净');
-  assert.ok(/windowsHide:\s*true/.test(body), '没有隐藏窗口 —— 可能会闪一个黑框');
+  assert.ok(/startSilentInstaller\(/.test(body),
+    '没有走 startSilentInstaller —— 它负责确认安装器真的起来了（含提权兜底）');
+  /* detached / unref / windowsHide 现在由 update-launch.js 统一实现，去那边断言 */
+  const launch = fs.readFileSync(path.join(ROOT, 'src', 'update-launch.js'), 'utf8');
+  assert.ok(/detached:\s*true/.test(launch), '不是 detached —— 客户端一退出安装器就跟着没了');
+  assert.ok(/unref\(\)/.test(launch), '没有 unref，客户端可能退不干净');
+  assert.ok(/windowsHide:\s*true/.test(launch), '没有隐藏窗口 —— 可能会闪一个黑框');
+});
+
+test('安装器没启动成功时绝不能退出客户端（否则软件直接消失）', () => {
+  const body = handler('start-update');
+  const launchAt = body.indexOf('startSilentInstaller(');
+  const guardAt = body.indexOf('if (!launched.ok)');
+  const exitAt = body.indexOf('app.exit(0)');
+  assert.ok(launchAt > 0 && guardAt > launchAt && exitAt > guardAt,
+    '退出必须排在"确认安装器已启动"之后：客户端没提权时 spawn 会异步失败，' +
+    '如果先退出，用户看到的就是"点更新，软件没了"，只能重装');
+  /* 守卫分支里必须 return，不能只是提示一下就往下走。
+     注意别用"到第一个 } 为止"来切块 —— 里面 send({...}) 的 } 会把它提前截断。 */
+  const guardBlock = body.slice(guardAt, exitAt);
+  assert.ok(/return\s*\{\s*ok:\s*false/.test(guardBlock),
+    '启动失败的守卫没有 return { ok: false }，会继续走到退出');
+  assert.ok(!/app\.exit/.test(guardBlock), '启动失败的守卫里居然在退出客户端');
 });
 
 test('拉起安装器后客户端必须立刻退出（不退就占着 BLFP.exe，安装器写不进去）', () => {
   const body = handler('start-update');
-  const spawnAt = body.indexOf('spawn(');
+  const spawnAt = body.indexOf('startSilentInstaller(');
   const exitAt = body.indexOf('app.exit(0)');
   assert.ok(exitAt > spawnAt, '没有在拉起安装器之后退出客户端');
   /* 退出的 setTimeout 的延迟写在 app.exit(0) 之后，所以从 spawn 往后整段找 */
@@ -86,12 +111,15 @@ test('拉起安装器后客户端必须立刻退出（不退就占着 BLFP.exe�
 });
 
 test('安装目标目录取的是客户端自己的安装目录（不能装到别处去）', () => {
-  assert.ok(/getPath\('exe'\)/.test(MAIN_CODE), '没有用 BLFP.exe 所在目录作为安装目录');
-  assert.ok(/--target/.test(handler('start-update')), '没有把目录传给安装器');
+  assert.ok(/getPath\(\'exe\'\)/.test(MAIN_CODE), '没有用 BLFP.exe 所在目录作为安装目录');
+  assert.ok(/targetDir:\s*installDir/.test(handler('start-update')),
+    '没有把安装目录交给启动器');
 });
 
 test('会传 --relaunch，让安装器装完把客户端拉起来', () => {
-  assert.ok(/--relaunch/.test(handler('start-update')),
+  /* buildSilentArgs 默认带 --relaunch，除非显式 relaunch:false */
+  const launch = require('./update-launch.js');
+  assert.ok(launch.buildSilentArgs({ targetDir: 'x' }).includes('--relaunch'),
     '没传 --relaunch 的话装完客户端不会自己回来，用户会以为装坏了');
 });
 
@@ -144,4 +172,40 @@ test('"稍后"按钮仍可关闭弹窗（不能把用户锁在更新弹窗里）
   const m = HTML.match(/id="update-later"[^>]*onclick="([^"]+)"/);
   assert.ok(m, '找不到"稍后"按钮');
   assert.ok(/closeModal\('update-modal'\)/.test(m[1]), '稍后按钮关不掉弹窗');
+});
+
+/* ================= 更新失败必须看得见 ================= */
+
+test('客户端把 --status-file 传给安装器（否则失败原因无处可查）', () => {
+  const body = handler('start-update');
+  assert.ok(/statusFile:\s*updateStatusFile\(\)/.test(body), '没有把状态文件路径交给启动器');
+  assert.ok(/function updateStatusFile/.test(MAIN_CODE), '没有 updateStatusFile 实现');
+  const launch = require('./update-launch.js');
+  const args = launch.buildSilentArgs({ targetDir: 'x', statusFile: 'C:\\s.json' });
+  assert.ok(args.includes('--status-file'), 'buildSilentArgs 没带上 --status-file');
+  assert.ok(args.includes('C:\\s.json'), '状态文件路径没传进去');
+  /* 安装器必须真的认这个参数 */
+  const core = require('../installer/install-core.js');
+  const parsed = core.parseSilentArgs(['e.exe'].concat(args));
+  assert.equal(parsed.statusFile, require('path').resolve('C:\\s.json'),
+    '安装器没解析出状态文件路径 —— 写了也白写');
+});
+
+test('客户端启动时会读上次更新的结果，失败要报出来', () => {
+  assert.ok(/ipcMain\.handle\('read-update-status'/.test(MAIN_CODE), '没有读状态的 IPC');
+  assert.ok(/readUpdateStatus/.test(PRELOAD), 'preload 没暴露 readUpdateStatus');
+  assert.ok(/function reportLastUpdateResult/.test(APP), '渲染层没有报告函数');
+  const body = APP.slice(APP.indexOf('async function reportLastUpdateResult'));
+  const fn = body.slice(0, body.indexOf('\nasync function checkForUpdates'));
+  assert.ok(/st\.ok === false/.test(fn), '没有判断失败');
+  assert.ok(/toast\([^)]*'error'\)/.test(fn), '失败没有用红色通知报出来');
+  /* 必须挂在自动检查更新的调用点上，否则启动时不会执行 */
+  const calls = APP.match(/checkForUpdates\(\);\n\s*reportLastUpdateResult\(\);/g) || [];
+  assert.ok(calls.length >= 3, '自动检查更新的入口没有全部接上报告（接了 ' + calls.length + ' 处）');
+});
+
+test('状态只报一次（读走就删，不能每次启动都弹）', () => {
+  const body = MAIN_CODE.slice(MAIN_CODE.indexOf("ipcMain.handle('read-update-status'"));
+  const fn = body.slice(0, body.indexOf('\n});'));
+  assert.ok(/unlinkSync\(file\)/.test(fn), '读完没有删除状态文件，会每次启动都弹一次');
 });

@@ -2081,6 +2081,7 @@ async function loadAnnouncement() {
     state.announcement = announcement;
     if (!announcement.enabled || !announcement.content || localStorage.getItem(announcementStorageKey(announcement))) {
       checkForUpdates();
+    reportLastUpdateResult();
       return;
     }
     $('announcement-title').textContent = announcement.title || '公告';
@@ -2103,6 +2104,7 @@ async function loadAnnouncement() {
   } catch (e) {
     logLine('公告加载失败: ' + e.message);
     checkForUpdates();
+    reportLastUpdateResult();
   }
 }
 
@@ -2113,6 +2115,7 @@ function closeAnnouncement() {
   state.announcementTimer = null;
   closeModal('announcement-modal');
   checkForUpdates();
+    reportLastUpdateResult();
 }
 
 /*
@@ -2124,6 +2127,29 @@ function closeAnnouncement() {
  * 自动检查那条又被 if (!silent) 挡掉了绿色那条，只剩普通的。
  * 现在统一成：成功 → 绿色；失败 → 红色。自动检查与手动检查表现完全一致。
  */
+/*
+ * 报告"上次软件内更新"的结果。
+ *
+ * 安装器失败时会把客户端原样拉回来（文件没动）。此时如果什么都不说，
+ * 用户看到的只是「软件自己关了一下又开了」，完全不知道更新失败了 ——
+ * payload 缺失那类错误以前就是这么被吞掉的。
+ * 成功则不用报（客户端版本号变了，用户自己看得见）。
+ */
+async function reportLastUpdateResult() {
+  try {
+    if (!window.mclink || !window.mclink.readUpdateStatus) return;
+    const st = await window.mclink.readUpdateStatus();
+    if (!st || typeof st !== 'object') return;
+    if (st.ok === false) {
+      const reason = st.error || '未知原因';
+      logLine('上次更新失败：' + reason);
+      toast('上次更新失败：' + reason, 'error');
+    }
+  } catch (e) {
+    logLine('读取更新结果失败: ' + ((e && e.message) || e));
+  }
+}
+
 async function checkForUpdates() {
   try {
     if (!state.appInfo) await loadAppInfo();

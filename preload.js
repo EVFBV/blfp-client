@@ -14,6 +14,9 @@ const blfpApi = {
      注意主进程在下载完、拉起安装器后很快就会退出（要让安装器能覆盖 BLFP.exe），
      所以进度只能靠 onUpdateProgress 推过来，别指望 startUpdate 的返回值。 */
   startUpdate: (opts) => ipcRenderer.invoke('start-update', opts),
+  /* 上次软件内更新的结果（安装器写的）。失败时要让用户看到原因，
+     而不是「软件自己关了一下又开了」。读一次就清掉。 */
+  readUpdateStatus: () => ipcRenderer.invoke('read-update-status'),
   onUpdateProgress: (cb) => ipcRenderer.on('update-progress', (_e, payload) => cb(payload)),
 
   // 本机局域网 IP

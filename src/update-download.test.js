@@ -135,7 +135,12 @@ test('downloadWithFallback：第一个源下到一半断了 → 自动换源重�
     /* 探针带 Range: bytes=0-0，用它把"探测"和"真下载"分开，
        否则探针也会被当成下载、把计数打乱 */
     const isProbe = !!(opts && opts.headers && opts.headers.Range);
-    if (isProbe) return okResponse([Buffer.alloc(1)], { length: 1 });
+    if (isProbe) {
+      /* 让加速源的探针慢一点，保证直连总是排在前面 ——
+         否则两个探针都是瞬时返回，顺序由计时决定，这个测试会时红时绿（踩过）。 */
+      if (url.startsWith('https://m/')) await new Promise((r) => setTimeout(r, 40));
+      return okResponse([Buffer.alloc(1)], { length: 1 });
+    }
     /* 直连的第一次真下载：只给 30 字节但声称 100 → 触发"不完整"，必须换源 */
     if (url === 'https://github.com/x' && directDownloads++ === 0) {
       return okResponse([Buffer.alloc(30)], { length: 100 });

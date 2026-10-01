@@ -61,10 +61,27 @@ test('静默模式会把进度写到 stdout 与状态文件，供客户端显示
 
 /* ================= 秒关客户端 ================= */
 
-test('安装器必须以管理员权限运行（否则杀不掉以管理员运行的客户端）', () => {
-  assert.equal(PKG.build.win.requestedExecutionLevel, 'requireAdministrator',
-    '安装器不是 requireAdministrator 的话，关客户端就又得弹 UAC + 长等待，' +
-    '正是"关闭客户端时间太长了"的根源');
+test('安装器保持 asInvoker：双击不该弹 UAC，也不该破坏 payload 查找', () => {
+  /* 这里曾经为了"秒关客户端"改成 requireAdministrator，结果用户立刻反馈两件事：
+       1) 安装程序一打开就要求管理员权限（双击就弹 UAC）
+       2) portable 打包 + 提权后，安装器找不到自己的 payload
+     所以退回 asInvoker。秒关并不依赖它：
+       - 客户端带参拉起安装器时，子进程会**继承客户端的管理员令牌**，
+         所以 taskkill 照样有效，也不需要弹 UAC；
+       - 客户端自己没提权时，安装器同样没提权，杀的也是同样权限的客户端，一样能杀；
+       - 真要提权才能杀（客户端是管理员、安装器不是）时，还有 taskkillViaUac 兜底。
+     结论：用 asInvoker 才能既不打扰用户、又不牺牲秒关。 */
+  assert.equal(PKG.build.win.requestedExecutionLevel, 'asInvoker',
+    '安装器一旦要求管理员权限，用户双击就会弹 UAC，portable 下还可能导致找不到 payload');
+});
+
+test('秒关不能依赖安装器自身提权（靠继承客户端令牌 + UAC 兜底）', () => {
+  /* 快路径就是普通 taskkill，不含有任何"先提权"的前置动作 */
+  const fast = CODE.slice(CODE.indexOf('function taskkillElevated'), CODE.indexOf('function taskkillViaUac'));
+  assert.ok(/taskkillAll\(\)/.test(fast), '快路径没有直接走强杀');
+  assert.ok(!/RunAs/.test(fast), '快路径里不该有提权动作');
+  /* 兜底必须存在，否则"客户端是管理员、安装器不是"时永远关不掉 */
+  assert.ok(/function taskkillViaUac/.test(CODE), '缺少 UAC 兜底');
 });
 
 test('快路径不再无脑等待：强杀后只等 4 秒就该成功', () => {
@@ -150,4 +167,26 @@ test('进度提示会告诉用户跳过了多少、真正要写多少', () => {
 test('新增的 install-core.js 必须被打进安装器（否则运行时报模块找不到）', () => {
   assert.ok(PKG.build.files.includes('install-core.js'),
     'install-core.js 不在 electron-builder 的 files 列表里');
+});
+
+test('静默安装失败也必须把客户端拉回来（不能让用户"软件关了再也没回来"）', () => {
+  const body = MAIN.slice(MAIN.indexOf('async function runSilentInstall'));
+  const catchAt = body.indexOf('} catch (e) {');
+  assert.ok(catchAt > 0, '找不到 runSilentInstall 的 catch');
+  const handler = body.slice(catchAt, body.indexOf('\n}', catchAt));
+  assert.ok(/launchAndExit\(/.test(handler),
+    '失败分支没有把客户端拉回来 —— payload 缺失这类错误以前就是这样被完全吞掉的，' +
+    '用户只看到"点更新，软件关了，再也没回来"');
+  assert.ok(/ARGS\.relaunch/.test(handler), '失败分支没有判断 --relaunch');
+  /* 拉回来的必须是原来那个客户端（文件没被改动），所以失败时不能靠 result.exePath */
+  assert.ok(/path\.join\(targetDir, EXE_NAME\)/.test(handler),
+    '失败分支应该按安装目录推断原有客户端路径');
+});
+
+test('失败时会写下 ok:false 的状态，供客户端启动后显示原因', () => {
+  const body = MAIN.slice(MAIN.indexOf('async function runSilentInstall'));
+  const catchAt = body.indexOf('} catch (e) {');
+  const handler = body.slice(catchAt, body.indexOf('\n}', catchAt));
+  assert.ok(/ok:\s*false/.test(handler), '失败分支没有记录 ok:false');
+  assert.ok(/silentStatus\(/.test(handler), '失败分支没有写状态');
 });

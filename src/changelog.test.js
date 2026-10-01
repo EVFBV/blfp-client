@@ -216,6 +216,26 @@ test('三套 package.json 的版本号必须一致', () => {
     + '（发布流程用 tag 名找 installer/uninstaller 的产物，不一致就会构建失败）');
 });
 
+test('三套 package-lock.json 的版本也必须同步（否则 npm ci 装出来的版本号是旧的）', () => {
+  /* 这一条是补的：以前只查 package.json，结果手改版本号时三套 package-lock.json
+     留在旧版本上、测试照样全绿，直到打 tag 才发现产物目录名对不上。
+     同一个事实写在六个地方，就必须六处都查。 */
+  const lockFiles = ['package-lock.json', 'installer/package-lock.json', 'uninstaller/package-lock.json'];
+  const want = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+  for (const f of lockFiles) {
+    const full = path.join(ROOT, f);
+    if (!fs.existsSync(full)) continue;
+    const j = JSON.parse(fs.readFileSync(full, 'utf8'));
+    assert.equal(j.version, want,
+      f + ' 的 version 是 ' + j.version + '，应为 ' + want
+      + '（请用 node scripts/bump-version.js <版本号> 统一改，别手改）');
+    if (j.packages && j.packages['']) {
+      assert.equal(j.packages[''].version, want,
+        f + ' 的 packages[""].version 是 ' + j.packages[''].version + '，应为 ' + want);
+    }
+  }
+});
+
 test('三套 package.json 的输出目录都不写死版本号', () => {
   for (const f of PKG_FILES) {
     const j = JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8'));

@@ -61,6 +61,73 @@ function findAsar(target) {
   return candidates.sort((a, b) => fs.statSync(b).size - fs.statSync(a).size)[0];
 }
 
+/**
+ * 校验 payload 在不在**安装器运行时真正会去找的那个位置**。
+ *
+ * 为什么必须单独查这个：payload 是 extraResources 拷进 resources/ 的大家伙，
+ * 构建前 check-payload.js 只检查"源目录里有没有"，
+ * CI 的体积检查只检查"exe 够不够大" —— 两者都发现不了
+ * "payload 没被拷进 resources/" 或者"被放到了别的子目录"。
+ * 而用户看到的就是一句「payload 未找到」，装都装不了。
+ *
+ * 安装器 payloadPath() 的首选路径就是 resources/payload/payload.zip，
+ * 这里按同一规则去查（两处规则必须一致，有测试盯着）。
+ */
+function verifyPayload(target) {
+  const resolved = path.resolve(target || '.');
+  const roots = [];
+  const walk = (dir, depth) => {
+    if (depth > 4) return;
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory() && e.name === 'resources') roots.push(full);
+      else if (e.isDirectory()) walk(full, depth + 1);
+    }
+  };
+  if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) walk(resolved, 0);
+
+  if (!roots.length) {
+    console.log('  ? 没找到 resources 目录（可能是只给了 exe，跳过 payload 检查）');
+    return { ok: true, skipped: true };
+  }
+
+  const resources = roots.sort((a, b) => fs.statSync(b).size - fs.statSync(a).size)[0];
+  const zip = path.join(resources, 'payload', 'payload.zip');
+  const listDir = (p) => {
+    try {
+      return fs.readdirSync(p, { withFileTypes: true })
+        .map((e) => e.name + (e.isDirectory() ? '/' : ''))
+        .slice(0, 20).join(', ') || '(空)';
+    } catch (e) { return '(不存在)'; }
+  };
+
+  console.log(`  resources 目录：${resources}`);
+  console.log(`    内容：${listDir(resources)}`);
+  console.log(`    payload/：${listDir(path.join(resources, 'payload'))}`);
+
+  if (!fs.existsSync(zip)) {
+    console.log(`  ✗ 找不到 ${zip} —— 这正是用户看到的「payload 未找到」`);
+    return { ok: false, error: `resources/payload/payload.zip 不存在（resources 里实际有：${listDir(resources)}）` };
+  }
+  const mb = fs.statSync(zip).size / 1048576;
+  if (mb < 80) {
+    console.log(`  ✗ payload.zip 只有 ${mb.toFixed(1)} MB，客户端构建不完整`);
+    return { ok: false, error: `payload.zip 过小（${mb.toFixed(1)} MB）` };
+  }
+  console.log(`  ✓ resources/payload/payload.zip ${mb.toFixed(1)} MB —— 安装器运行时找得到`);
+  /* 卸载器也要在，否则装完了没有卸载入口 */
+  const uninstaller = path.join(resources, 'payload', 'BLFP-Uninstaller.exe');
+  if (fs.existsSync(uninstaller)) {
+    console.log('  ✓ resources/payload/BLFP-Uninstaller.exe');
+  } else {
+    console.log('  ✗ 缺少 BLFP-Uninstaller.exe');
+    return { ok: false, error: 'BLFP-Uninstaller.exe 不在 payload 里' };
+  }
+  return { ok: true };
+}
+
 function main() {
   const target = process.argv[2] || path.join(__dirname);
   const asarPath = findAsar(target);
@@ -92,6 +159,12 @@ function main() {
     }
   }
 
+  /* payload 必须待在安装器运行时真正会去找的位置 */
+  console.log('');
+  console.log('payload 位置（安装器运行时按同一规则查找）：');
+  const payload = verifyPayload(target);
+  if (!payload.ok) problems.push('payload：' + payload.error);
+
   if (problems.length) {
     console.error('');
     console.error('✗ 打包产物校验失败：');
@@ -103,4 +176,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { findAsar, MUST_CONTAIN, MUST_NOT_CONTAIN };
+module.exports = { findAsar, verifyPayload, MUST_CONTAIN, MUST_NOT_CONTAIN };

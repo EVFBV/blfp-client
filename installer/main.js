@@ -299,10 +299,26 @@ async function runSilentInstall() {
     try { app.exit(0); } catch (e) { process.exit(0); }
     return result;
   } catch (e) {
-    silentStatus({ phase: 'done', ok: false, error: e.message, ms: Date.now() - t0 });
-    console.error('[安装器] 静默安装失败：' + e.message);
+    const message = (e && e.message) || String(e);
+    silentStatus({ phase: 'done', ok: false, error: message, ms: Date.now() - t0 });
+    console.error('[安装器] 静默安装失败：' + message);
+    /* 失败也必须把客户端拉回来。
+       否则用户看到的就只是"点更新 → 软件关了 → 再也没回来"，
+       完全不知道发生了什么（payload 缺失这类错误以前就是这么被吞掉的）。
+       拉回来的是**原来那个**客户端（文件没被改动），
+       它启动后会读状态文件，把失败原因显示给用户。 */
+    if (ARGS.relaunch) {
+      silentStatus({ phase: 'relaunch-after-failure', ok: false, error: message });
+      const exePath = path.join(targetDir, EXE_NAME);
+      try {
+        if (fs.existsSync(exePath)) await launchAndExit(exePath);
+        else console.error('[安装器] 客户端主程序不存在，无法自动恢复：' + exePath);
+      } catch (err) {
+        console.error('[安装器] 失败后自动拉回客户端也失败了：' + ((err && err.message) || err));
+      }
+    }
     try { app.exit(1); } catch (err) { process.exit(1); }
-    return { ok: false, error: e.message };
+    return { ok: false, error: message };
   }
 }
 
