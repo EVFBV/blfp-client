@@ -3357,13 +3357,21 @@ function resetCaptchaBoxVisual(slot) {
   return box;
 }
 
-/* 验证通过后"收起"的时长（用户反馈过慢，这里统一提成常量，便于测试守住上限）。
-   总时长 = CAPTCHA_SETTLE_MS + CAPTCHA_COLLAPSE_MS。
-   原本是 420 + 340 = 760ms，用户反馈"有点慢了"，现在 150 + 230 = 380ms。
-   再快就没法看清是"收起"而不是"闪一下"了。 */
-const CAPTCHA_SETTLE_MS = 150;
-const CAPTCHA_COLLAPSE_MS = 230;
-const CAPTCHA_COLLAPSE_TRANSITION = 'height .2s cubic-bezier(.4,0,.2,1), opacity .2s ease, margin-bottom .2s ease';
+/* 验证通过后"收起"的时间线，分两段（用户反馈过慢、且"中间会卡一下"）：
+ *
+ *   第一段 CAPTCHA_FADE_MS：只动 opacity，让验证码**淡出**。
+ *       这一段绝对不能碰高度 —— 极验控件是 iframe，盒子高度一变，
+ *       iframe 每帧都要重新布局+重绘，掉帧就是用户说的"中间卡一下"。
+ *   第二段 CAPTCHA_COLLAPSE_MS：此时内容已经淡到看不见，先把它 display:none
+ *       移出布局，再收盒子的高度。高度动画从此只作用在一个**空盒子**上，
+ *       iframe 不再参与每帧重排 —— 这才是平滑的收起。
+ *
+ * 两段首尾相接，中间没有静止等待（原来有 150ms 什么都不动的空档，那也是"卡一下"）。
+ * 总时长 = 100 + 200 = 300ms。 */
+const CAPTCHA_FADE_MS = 100;
+const CAPTCHA_COLLAPSE_MS = 200;
+const CAPTCHA_COLLAPSE_TRANSITION = 'height ' + CAPTCHA_COLLAPSE_MS + 'ms cubic-bezier(.4, 0, .2, 1)';
+const CAPTCHA_FADE_TRANSITION = 'opacity ' + CAPTCHA_FADE_MS + 'ms ease-out';
 
 function playCaptchaDone(slot) {
   const box = $(captchaBoxId(slot));
@@ -3372,20 +3380,19 @@ function playCaptchaDone(slot) {
   box.classList.add('captcha-playing');
   if (captchaDoneTimers[slot]) clearTimeout(captchaDoneTimers[slot]);
 
-  const iframe = box.querySelector('iframe');
-  [iframe, box.querySelector('.geetest_holder'), box.querySelector('.geetest_box')].filter(Boolean).forEach((el) => {
-    el.style.transition = 'opacity .12s ease';
-    el.style.opacity = '0';
-  });
-  const img = box.querySelector('.captcha-img');
-  const input = box.querySelector('.captcha-input');
-  if (img) { img.style.transition = 'opacity .12s ease, transform .12s ease'; img.style.opacity = '0'; img.style.transform = 'scale(.94)'; }
-  if (input) { input.style.transition = 'opacity .12s ease'; input.style.opacity = '0'; }
-
-  /* label 跟着淡出，避免"验证完了还剩个人机验证的字" */
+  /* 高度必须在**改任何样式之前**量。改完再读 offsetHeight 会强制一次同步重排，
+     动画起手就会顿一下 —— 这也是"卡一下"的一个来源。 */
+  const startHeight = box.offsetHeight;
   const labelEl = captchaLabelEl(box);
+  /* 所有子节点整体淡出（含极验那个 iframe）。
+     统一处理，不再逐个 querySelector 改样式，减少起手时的样式写入。 */
+  const content = Array.prototype.slice.call(box.children);
+
+  /* 第一段：只动 opacity。这一阶段**不动布局**，所以 iframe 不会被反复重排。 */
+  content.forEach((el) => { el.style.transition = CAPTCHA_FADE_TRANSITION; el.style.opacity = '0'; });
   if (labelEl) {
-    labelEl.style.transition = 'opacity .12s ease, height .2s ease';
+    /* label 跟着淡出，避免"验证完了还剩个人机验证的字" */
+    labelEl.style.transition = CAPTCHA_FADE_TRANSITION;
     labelEl.style.overflow = 'hidden';
     labelEl.style.opacity = '0';
   }
@@ -3394,29 +3401,27 @@ function playCaptchaDone(slot) {
      不要任何中间产物，直接平滑收回；通过与否改用一条通知告知。 */
   toast('人机验证通过', 'success');
 
-  box.style.height = box.offsetHeight + 'px';
-  box.style.overflow = 'hidden';
-  box.style.transition = CAPTCHA_COLLAPSE_TRANSITION;
-
+  /* 第二段：内容已经看不见了，先移出布局，再收空盒子的高度。 */
   captchaDoneTimers[slot] = setTimeout(() => {
+    content.forEach((el) => { el.style.display = 'none'; });
+    box.style.height = startHeight + 'px';
+    box.style.overflow = 'hidden';
+    /* 先钉住起始高度，下一帧再改成 0，过渡才有起点 */
     requestAnimationFrame(() => {
+      box.style.transition = CAPTCHA_COLLAPSE_TRANSITION;
       box.style.height = '0px';
-      box.style.opacity = '0';
-      box.style.marginBottom = '0px';
     });
     setTimeout(() => {
       box.classList.add('captcha-done');
       box.style.height = '';
       box.style.overflow = '';
-      box.style.opacity = '';
-      box.style.marginBottom = '';
       box.style.transition = '';
       box.innerHTML = '';
       /* 透明还不够：label 仍占着一行高度，表单会留个空隙，所以要 display:none */
       if (labelEl) labelEl.style.display = 'none';
       box.classList.remove('captcha-playing');
-    }, CAPTCHA_COLLAPSE_MS);
-  }, CAPTCHA_SETTLE_MS);
+    }, CAPTCHA_COLLAPSE_MS + 40);
+  }, CAPTCHA_FADE_MS);
 }
 
 /* 找验证码容器前面那个同级的 <label>（"人机验证"那几个字）。

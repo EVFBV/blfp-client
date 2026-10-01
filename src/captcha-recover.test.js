@@ -34,7 +34,7 @@ const CSS = fs.readFileSync(path.join(ROOT, 'renderer', 'style.css'), 'utf8');
 
 /* 把 playCaptchaDone 用到的时长常量抽出来，一起放进沙箱 */
 function extractConsts() {
-  const names = ['CAPTCHA_SETTLE_MS', 'CAPTCHA_COLLAPSE_MS', 'CAPTCHA_COLLAPSE_TRANSITION'];
+  const names = ['CAPTCHA_FADE_MS', 'CAPTCHA_COLLAPSE_MS', 'CAPTCHA_COLLAPSE_TRANSITION', 'CAPTCHA_FADE_TRANSITION'];
   const out = [];
   for (const n of names) {
     const m = APP.match(new RegExp('const ' + n + '\\s*=\\s*([^;]+);'));
@@ -119,7 +119,7 @@ function makeEnv() {
     + extractConsts() + '\n'
     + extractFn('playCaptchaDone') + '\n'
     + 'globalThis.__done = playCaptchaDone; globalThis.__resetVisual = resetCaptchaBoxVisual;'
-    + ';globalThis.__settle = typeof CAPTCHA_SETTLE_MS === "number" ? CAPTCHA_SETTLE_MS : null;'
+    + ';globalThis.__fade = typeof CAPTCHA_FADE_MS === "number" ? CAPTCHA_FADE_MS : null;'
     + 'globalThis.__collapse = typeof CAPTCHA_COLLAPSE_MS === "number" ? CAPTCHA_COLLAPSE_MS : null;',
     sandbox
   );
@@ -253,14 +253,48 @@ test('.captcha-ok 样式已删除（不再存在"验证通过"的小方块）', 
 
 test('收起动画总时长必须在 450ms 以内（原本 760ms，用户反馈太慢）', () => {
   const env = makeEnv();
-  assert.equal(typeof env.sandbox.__settle, 'number', 'CAPTCHA_SETTLE_MS 没抽出来');
+  assert.equal(typeof env.sandbox.__fade, 'number', 'CAPTCHA_FADE_MS 没抽出来');
   assert.equal(typeof env.sandbox.__collapse, 'number', 'CAPTCHA_COLLAPSE_MS 没抽出来');
-  const total = env.sandbox.__settle + env.sandbox.__collapse;
+  const total = env.sandbox.__fade + env.sandbox.__collapse;
   assert.ok(total <= 450,
     '收起总时长 ' + total + 'ms 太慢了（用户明确反馈过慢）。'
-    + '当前是 ' + env.sandbox.__settle + '+' + env.sandbox.__collapse
-    + '，改小一点；也别小于 200ms，否则看着像"闪一下"而不是"收起"');
+    + '当前是淡出 ' + env.sandbox.__fade + ' + 收起 ' + env.sandbox.__collapse);
   assert.ok(total >= 200, '收起总时长 ' + total + 'ms 太快了，看不出是收起动画');
+});
+
+/*
+ * 这一条是"中间会卡一下"的**根因守卫**。
+ *
+ * 极验控件是 iframe，装在 .captcha-box 里。如果一边改盒子的 height、
+ * 一边让 iframe 留在布局里，iframe 每帧都要重新布局+重绘 —— 掉帧就是那个"卡一下"。
+ * 所以顺序必须是：先把内容 display:none 移出布局，再改高度。
+ */
+test('必须先隐藏内容、再收高度（否则 iframe 每帧重排 = 中间卡一下）', () => {
+  const body = extractFn('playCaptchaDone');
+  const hideAt = body.indexOf("el.style.display = 'none'");
+  const heightAt = body.indexOf('box.style.height = startHeight');
+  assert.ok(hideAt > 0, '找不到"隐藏内容"那一步');
+  assert.ok(heightAt > 0, '找不到"钉住起始高度"那一步');
+  assert.ok(hideAt < heightAt,
+    '先改了高度、之后才隐藏内容 —— 极验 iframe 会在整个收起过程里每帧重排，用户看到的就是"中间卡一下"。'
+    + '必须先把内容 display:none 移出布局，再动盒子的 height。');
+
+  /* 第一段（淡出）里绝不能出现高度/布局改动 */
+  const fadePhase = body.slice(0, hideAt);
+  assert.ok(!/box\.style\.height\s*=/.test(fadePhase),
+    '淡出阶段就改了高度 —— 这一阶段必须只动 opacity，否则 iframe 在还没淡出时就开始被反复重排');
+  assert.ok(/CAPTCHA_FADE_TRANSITION/.test(fadePhase), '淡出阶段没有用 CAPTCHA_FADE_TRANSITION 常量');
+});
+
+/*
+ * 两段之间不能有"什么都不动"的空档 —— 那也是"卡一下"。
+ * 第二段必须紧接第一段开始（由 CAPTCHA_FADE_MS 定时触发），而不是等一个额外的 settle。
+ */
+test('两段动画首尾相接，中间没有静止空档', () => {
+  const body = extractFn('playCaptchaDone');
+  assert.ok(/\}, CAPTCHA_FADE_MS\);\s*\}\s*$/.test(body.trim()),
+    '第二段不是由 CAPTCHA_FADE_MS 紧接触发的 —— 中间会有一段什么都不动的等待，看起来就是卡一下');
+  assert.ok(!/CAPTCHA_SETTLE_MS/.test(body), '还在用 CAPTCHA_SETTLE_MS 这个"空等"常量');
 });
 
 test('收起用同一份过渡常量，不允许各处写死的 magics 数字', () => {
@@ -268,6 +302,6 @@ test('收起用同一份过渡常量，不允许各处写死的 magics 数字', 
   assert.ok(/CAPTCHA_COLLAPSE_TRANSITION/.test(body),
     '收起过渡没有用 CAPTCHA_COLLAPSE_TRANSITION 常量');
   /* 定时也必须走常量，否则改了常量但定时没跟着变 */
-  assert.ok(/CAPTCHA_SETTLE_MS/.test(body), '外层定时没有用 CAPTCHA_SETTLE_MS');
+  assert.ok(/CAPTCHA_FADE_MS/.test(body), '外层定时没有用 CAPTCHA_FADE_MS');
   assert.ok(/CAPTCHA_COLLAPSE_MS/.test(body), '内层定时没有用 CAPTCHA_COLLAPSE_MS');
 });
