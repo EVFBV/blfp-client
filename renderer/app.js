@@ -3091,7 +3091,7 @@ async function showRoomDetail(code) {
    关键设计：极验 SDK 加载失败（CSP 拦截 / 网络不通 / file:// 限制）时
    **自动退回服务端随附的内置图形码**，绝不把用户卡在登录门外。 */
 const captchaSlots = {
-  login: { mode: 'none', token: '', image: '', validate: null, disabled: false, unavailable: false, geetest: null, loading: false },
+  login: { mode: 'none', token: '', image: '', answer: '', validate: null, disabled: false, unavailable: false, geetest: null, loading: false },
   reg:   { mode: 'none', token: '', image: '', validate: null, disabled: false, unavailable: false, geetest: null, loading: false },
 };
 
@@ -3108,6 +3108,7 @@ function resetCaptchaState(slot) {
   if (st.geetest && typeof st.geetest.reset === 'function') { try { st.geetest.reset(); } catch (_) {} }
   st.mode = 'none';
   st.token = '';
+  st.answer = '';
   st.validate = null;
   st.geetest = null;
   st.challenge = '';
@@ -3129,6 +3130,9 @@ function resetCaptchaState(slot) {
     box.style.position = '';
   }
   if (captchaDoneTimers[slot]) { clearTimeout(captchaDoneTimers[slot]); captchaDoneTimers[slot] = null; }
+  /* 还原被收起动画藏掉的 label */
+  const labelReset = captchaLabelEl(box);
+  if (labelReset) { labelReset.style.display = ''; labelReset.style.opacity = ''; labelReset.style.transition = ''; labelReset.style.overflow = ''; }
   const input = $(captchaInputId(slot));
   if (input) input.value = '';
 }
@@ -3152,6 +3156,14 @@ function playCaptchaDone(slot) {
   const input = box.querySelector('.captcha-input');
   if (img) { img.style.transition = 'opacity .18s ease, transform .18s ease'; img.style.opacity = '0'; img.style.transform = 'scale(.94)'; }
   if (input) { input.style.transition = 'opacity .18s ease'; input.style.opacity = '0'; }
+
+  /* label 跟着淡出，避免"验证完了还剩个人机验证的字" */
+  const labelEl = captchaLabelEl(box);
+  if (labelEl) {
+    labelEl.style.transition = 'opacity .18s ease, height .3s ease';
+    labelEl.style.overflow = 'hidden';
+    labelEl.style.opacity = '0';
+  }
 
   const ok = document.createElement('div');
   ok.className = 'captcha-ok';
@@ -3182,9 +3194,24 @@ function playCaptchaDone(slot) {
       box.style.marginBottom = '';
       box.style.transition = '';
       box.innerHTML = '';
+      /* 透明还不够：label 仍占着一行高度，表单会留个空隙，所以要 display:none */
+      if (labelEl) labelEl.style.display = 'none';
       box.classList.remove('captcha-playing');
     }, 340);
   }, 420);
+}
+
+/* 找验证码容器前面那个同级的 <label>（"人机验证"那几个字）。
+   收起动画只压容器的身高，label 不在容器里，不一起处理就会留在原地。 */
+function captchaLabelEl(box) {
+  if (!box || !box.parentElement) return null;
+  const kids = box.parentElement.children || [];
+  let found = null;
+  for (let i = 0; i < kids.length; i++) {
+    if (kids[i] === box) break;                       // 只往前找，取最近的那个
+    if (kids[i].tagName === 'LABEL') found = kids[i];
+  }
+  return found;
 }
 
 function captchaInputId(slot) { return slot === 'reg' ? 'reg-captcha-input' : 'login-captcha-input'; }
@@ -3203,6 +3230,10 @@ function renderBuiltinCaptcha(slot, token, image) {
   const input = box.querySelector('.captcha-input');
   if (input && input.addEventListener) {
     input.addEventListener('input', () => {
+      /* 边输边存：收起动画结束后容器会被清空，输入框随之消失，
+         届时再去 DOM 里读答案只会拿到空串 —— 提交必然被判"验证没过"。
+         所以必须在这里把答案留一份在状态里。 */
+      captchaSlots[slot].answer = input.value.trim();
       if (input.value.trim().length >= 4) playCaptchaDone(slot);
       else { const b = $(captchaBoxId(slot)); if (b) b.classList.remove('captcha-done'); }
     });
@@ -3276,6 +3307,12 @@ function renderGeetest3(slot, opts) {
         challenge: opts.challenge,
         offline: Boolean(opts.offline),
         new_captcha: true,
+        /* 必须显式声明 https：gt.js 的协议是从 window.location.protocol 推出来的
+           （见其内部：config.protocol = window.location.protocol + "//"）。
+           Electron 页面是 file://，于是它去加载 file://static.geetest.com/... 必然失败，
+           widget 永远出不来 —— 这正是"客户端没有极验、网页却正常"的原因。
+           传 https:true 后强制走 https://，与网页端行为一致。 */
+        https: true,
         /* 3.0 的产品形式只有 float / popup（官方 demo 用的就是这两个）。
            'bind' 是 4.0 才有的概念，传给 3.0 会导致 widget 渲染异常。 */
         product: 'float',
@@ -3443,6 +3480,7 @@ function resetCaptcha(slot) {
     return;
   }
   st.validate = null;
+  st.answer = '';
   const input = $(captchaInputId(slot));
   if (input) input.value = '';
   if (st.disabled || st.unavailable) return;
@@ -3472,7 +3510,9 @@ function captchaFields(slot) {
     };
   }
   const input = $(captchaInputId(slot));
-  return { captcha_token: st.token || '', captcha_answer: input ? input.value.trim() : '' };
+  const live = input ? input.value.trim() : '';
+  /* 容器被收起后输入框已不存在，这时回退到状态里存的那份答案 */
+  return { captcha_token: st.token || '', captcha_answer: live || st.answer || '' };
 }
 
 /* 提交前的本地检查（服务端仍会再校验一次，这里只是提前给提示） */
@@ -3493,8 +3533,14 @@ function ensureCaptcha(slot) {
   }
   if (st.mode === 'none') return true;              // 还没加载出来，交给服务端判定
   const input = $(captchaInputId(slot));
-  const val = input ? input.value.trim() : '';
-  if (!val) { toast('请输入图片验证码', 'error'); return false; }
+  const val = (input ? input.value.trim() : '') || st.answer || '';
+  if (!val) {
+    /* 走到这里通常意味着图形码已被收起且没有留存答案。
+       只弹提示的话，容器是空的、用户无处可输，会彻底卡死 —— 所以顺手重新拉一张。 */
+    toast('请重新输入图形验证码', 'error');
+    loadCaptcha(slot, true);
+    return false;
+  }
   return true;
 }
 
