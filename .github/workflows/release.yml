@@ -130,6 +130,12 @@ jobs:
           if ($mb -lt 150) { throw "installer too small ($mb MB) - payload probably missing" }
           Write-Host "OK - installer verified"
 
+      # 体积检查发现不了"文件没打进包"：exe 照样 250MB，但用户点更新就炸。
+      # 所以直接翻开 app.asar 看隐藏触发接口在不在（asar 不压缩，可以当文本查）。
+      - name: Verify packed installer contents
+        shell: bash
+        run: node installer/verify-packed.js "installer/out_v${{ steps.ver.outputs.v }}-final"
+
       - name: Generate release notes
         shell: bash
         run: |
