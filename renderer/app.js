@@ -616,7 +616,9 @@ function doLogout() {
     $('auth-page').classList.remove('hidden');
     /* 顺手收起可能还开着的弹窗，避免退出后界面残留 */
     ['log-viewer-modal', 'diag-modal', 'room-detail-modal', 'announcement-modal', 'update-modal'].forEach((id) => closeModal(id));
-    if (typeof resetCaptcha === 'function') { resetCaptcha('login'); resetCaptcha('reg'); }
+    /* 关键：彻底重置验证码（含已通过的 validate），
+       否则再登录会显示"验证通过"直接放行，验证码形同虚设。 */
+    if (typeof resetCaptchaState === 'function') { resetCaptchaState('login'); resetCaptchaState('reg'); }
     toast('已退出登录', 'success');
 
     /* ---- 以下都是"尽力而为"的收尾：每步独立超时，失败只记日志 ---- */
@@ -2789,6 +2791,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('auth-page').classList.remove('hidden');
   $('main-app').classList.add('hidden');
   setLoginLoading(false);
+  /* 一进登录页就加载验证码，而不是等用户点了登录才出。
+     两块都预加载好，切换 tab 无需等待，也不会闪一下空白。 */
+  loadCaptcha('login');
+  loadCaptcha('reg');
 
   const showStartupError = (source, error) => {
     const message = error instanceof Error ? error.message : String(error);
@@ -3090,6 +3096,97 @@ const captchaSlots = {
 };
 
 function captchaBoxId(slot) { return slot === 'reg' ? 'reg-captcha-box' : 'login-captcha-box'; }
+/* 收起动画的定时器句柄（按槽位存，便于重置时取消） */
+const captchaDoneTimers = {};
+
+/* 把某个槽位彻底恢复到"没加载过"的初始状态。
+   退出登录 / 切换账号时必须调用——否则上一轮验证过的 validate 还留着，
+   再登录会被 ensureCaptcha 当成"已通过"直接放行，等于验证码失效。 */
+function resetCaptchaState(slot) {
+  const st = captchaSlots[slot];
+  if (!st) return;
+  if (st.geetest && typeof st.geetest.reset === 'function') { try { st.geetest.reset(); } catch (_) {} }
+  st.mode = 'none';
+  st.token = '';
+  st.validate = null;
+  st.geetest = null;
+  st.challenge = '';
+  st.offline = false;
+  st.disabled = false;
+  st.unavailable = false;
+  st.loading = false;
+  const box = $(captchaBoxId(slot));
+  if (box) {
+    /* 清掉动画留下的一切痕迹，否则下次复用还停在 height:0 / display:none */
+    box.innerHTML = '';
+    box.classList.remove('captcha-done');
+    box.classList.remove('captcha-playing');
+    box.style.height = '';
+    box.style.overflow = '';
+    box.style.opacity = '';
+    box.style.marginBottom = '';
+    box.style.transition = '';
+    box.style.position = '';
+  }
+  if (captchaDoneTimers[slot]) { clearTimeout(captchaDoneTimers[slot]); captchaDoneTimers[slot] = null; }
+  const input = $(captchaInputId(slot));
+  if (input) input.value = '';
+}
+
+/* 验证成功后的反馈：绿色对勾淡入，然后整块平滑收回（表单上移）。
+   极验的 widget 是 iframe，直接压高度会生硬，所以先让 widget 淡出再收容器。
+   总时长约 0.5 秒。 */
+function playCaptchaDone(slot) {
+  const box = $(captchaBoxId(slot));
+  /* 防重复触发：用 classList 而不是 dataset，兼容性更好 */
+  if (!box || box.classList.contains('captcha-playing')) return;
+  box.classList.add('captcha-playing');
+  if (captchaDoneTimers[slot]) clearTimeout(captchaDoneTimers[slot]);
+
+  const iframe = box.querySelector('iframe');
+  [iframe, box.querySelector('.geetest_holder'), box.querySelector('.geetest_box')].filter(Boolean).forEach((el) => {
+    el.style.transition = 'opacity .18s ease';
+    el.style.opacity = '0';
+  });
+  const img = box.querySelector('.captcha-img');
+  const input = box.querySelector('.captcha-input');
+  if (img) { img.style.transition = 'opacity .18s ease, transform .18s ease'; img.style.opacity = '0'; img.style.transform = 'scale(.94)'; }
+  if (input) { input.style.transition = 'opacity .18s ease'; input.style.opacity = '0'; }
+
+  const ok = document.createElement('div');
+  ok.className = 'captcha-ok';
+  ok.textContent = '✓ 验证通过';
+  const prevPos = box.style.position;
+  if (getComputedStyle(box).position === 'static') box.style.position = 'relative';
+  ok.style.position = 'absolute';
+  ok.style.left = '0';
+  ok.style.top = '0';
+  box.appendChild(ok);
+
+  box.style.height = box.offsetHeight + 'px';
+  box.style.overflow = 'hidden';
+  box.style.transition = 'height .3s cubic-bezier(.4,0,.2,1), opacity .3s ease, margin-bottom .3s ease';
+
+  captchaDoneTimers[slot] = setTimeout(() => {
+    requestAnimationFrame(() => {
+      box.style.height = '0px';
+      box.style.opacity = '0';
+      box.style.marginBottom = '0px';
+    });
+    setTimeout(() => {
+      box.classList.add('captcha-done');
+      box.style.position = prevPos;
+      box.style.height = '';
+      box.style.overflow = '';
+      box.style.opacity = '';
+      box.style.marginBottom = '';
+      box.style.transition = '';
+      box.innerHTML = '';
+      box.classList.remove('captcha-playing');
+    }, 340);
+  }, 420);
+}
+
 function captchaInputId(slot) { return slot === 'reg' ? 'reg-captcha-input' : 'login-captcha-input'; }
 
 /* 渲染内置图形码（服务端签发的 SVG 图片 + 输入框） */
@@ -3100,10 +3197,16 @@ function renderBuiltinCaptcha(slot, token, image) {
     '<div class="captcha-row">' +
       '<img class="captcha-img" alt="验证码" src="' + image + '" title="点击换一张">' +
       '<input class="captcha-input" id="' + captchaInputId(slot) + '" maxlength="4" placeholder="验证码" autocomplete="off" spellcheck="false">' +
-    '</div>' +
-    '<div class="captcha-tip">看不清？点图片换一张</div>';
+    '</div>';
   const img = box.querySelector('.captcha-img');
   if (img) img.onclick = () => loadCaptcha(slot, true);
+  const input = box.querySelector('.captcha-input');
+  if (input && input.addEventListener) {
+    input.addEventListener('input', () => {
+      if (input.value.trim().length >= 4) playCaptchaDone(slot);
+      else { const b = $(captchaBoxId(slot)); if (b) b.classList.remove('captcha-done'); }
+    });
+  }
   captchaSlots[slot].token = token || '';
   captchaSlots[slot].image = image || '';
   captchaSlots[slot].validate = null;
@@ -3195,6 +3298,7 @@ function renderGeetest3(slot, opts) {
         try { captcha.appendTo(box); } catch (e) { done(reject, e); return; }
         captcha.onSuccess(() => {
           try { st.validate = captcha.getValidate() || null; } catch (_) { st.validate = null; }
+          if (st.validate) playCaptchaDone(slot);
         });
         captcha.onError(() => { st.validate = null; });
         done(resolve);
@@ -3253,6 +3357,7 @@ function renderGeetest(slot, captchaId) {
           captcha.onSuccess(() => {
             const v = typeof captcha.getValidate === 'function' ? captcha.getValidate() : null;
             captchaSlots[slot].validate = v || null;
+            if (v) playCaptchaDone(slot);
           });
         }
         captchaSlots[slot].geetest = captcha;
@@ -3270,7 +3375,8 @@ async function loadCaptcha(slot, force) {
   const st = captchaSlots[slot];
   if (!st || st.loading) return;
   const box = $(captchaBoxId(slot));
-  if (box && (force || st.mode === 'none')) box.innerHTML = '<div class="captcha-tip">正在加载人机验证…</div>';
+  /* 加载期间不显示任何占位文字；真出不来时由超时兜底切回内置图形码 */
+  if (box && force) box.innerHTML = '';
   st.loading = true;
   try {
     const data = await api('/auth/captcha');

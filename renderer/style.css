@@ -1575,6 +1575,33 @@ select option { background: #0c0d18; color: var(--text); padding: 8px; }
   background: rgba(255, 255, 255, 0.02);
   font-size: .8rem; color: var(--text3);
   display: flex; align-items: center; justify-content: center; gap: 8px;
+  position: relative;
+}
+/* 还没加载出验证码时不要显示一个空虚线框 */
+.captcha-box:empty { display: none; }
+/* 收起动画结束：彻底移出布局 */
+.captcha-box.captcha-done { display: none; }
+
+/* 验证通过：绿色对勾淡入，随后整块平滑收回（"窗口缩回去"）。
+   JS 把它绝对定位覆盖在容器上，不参与布局、不撑高表单。 */
+@keyframes captchaOkIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.captcha-ok {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 34px; padding: 0 12px; border-radius: 8px;
+  font-size: .85rem; font-weight: 600; color: #16a34a;
+  background: rgba(22, 163, 74, .12);
+  border: 1px solid rgba(22, 163, 74, .38);
+  box-sizing: border-box;
+  animation: captchaOkIn .24s ease both;
+  z-index: 2; pointer-events: none; white-space: nowrap;
+}
+[data-theme="light"] .captcha-ok { background: rgba(22, 163, 74, .1); }
+@media (prefers-reduced-motion: reduce) {
+  .captcha-ok { animation: none; }
+  .captcha-box { transition: none !important; }
 }
 .captcha-row {
   display: flex; align-items: center; gap: 8px; width: 100%;
