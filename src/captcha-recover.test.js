@@ -150,6 +150,17 @@ test('验证通过：加 .captcha-done，并把 inline 高度/透明度清干净
   assert.equal(env.box.classList.contains('captcha-playing'), false, '动画结束后不该还留着 playing');
 });
 
+test('验证通过后容器里不能多出任何元素（用户要求：不出现任何中间的东西）', () => {
+  const env = makeEnv();
+  const before = env.box.children.length;
+  env.sandbox.__done('login');
+  env.flushTimers();
+  assert.equal(env.box.children.length, before,
+    '验证通过后往验证码容器里塞了新元素 —— 用户要的是"直接平滑关闭，不出现任何中间的东西"。'
+    + '之前那个 "✓ 验证通过" 小方块就是被塞进来的，用户报的它的位置是'
+    + ' #login-captcha-box > div:nth-of-type(3)');
+});
+
 test('验证通过后不再出现"✓ 验证通过"小方块，改成一条通知', () => {
   const env = makeEnv();
   env.sandbox.__done('login');

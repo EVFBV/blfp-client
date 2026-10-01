@@ -2160,21 +2160,15 @@ html, body { height: 100%; }
   display: none;
 }
 
-/* 5) 验证码区域内部某个节点微调 -2px
-      老实说这条**无法确认到底命中了什么**：导出时的原始选择器是相对于当前选中元素的
-      相对路径，我按 "#login-captcha-box > ..." 补了前缀，但这串 nth-of-type 是否真能匹配到
-      当初那个节点，取决于极验控件实际生成的层级（见 renderCaptchaRefreshLink：极验是
-      appendTo 在先、刷新链接在后，所以 div:nth-of-type(2) 才是 .captcha-switch）。
-      也就是说它现在很可能是个**空规则**（匹配不到任何元素）。
-      之所以留着而不是删掉：它只是一条 translate，就算指错节点也最多差 2px，
-      不会像 display:none 那样把验证码藏没 —— 风险不对称，所以宁可留着。
-      如果哪天发现某处仍差 2px，请在调试器里点中那个元素、把它的 class 告诉我，
-      我用语义选择器重写这条。 */
-#login-captcha-box > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3),
-#reg-captcha-box > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) {
-  translate: -2px 0px;
-}
-
+/* 说明：这里原本还有一条 "-2px 微调"，用的是
+     #login-captcha-box > div:nth-of-type(2) > div:nth-of-type(2) > ...
+   用户提供了验证码框里的实际结构后可以确定它是**空规则、匹配不到任何元素**：
+     div:nth-of-type(1) = 极验控件本身（appendTo 先执行）
+     div:nth-of-type(2) = .captcha-switch（刷新链接，后执行）
+     div:nth-of-type(3) = 验证通过时那个"✓ 验证通过"小方块（已删除）
+   而 .captcha-switch 里只有一个 <a>（见 renderCaptchaRefreshLink），
+   所以再往下取 div:nth-of-type(2) 永远取不到东西。既然是死的就删掉，
+   免得以后有人以为它在起作用。若某处仍差 2px，请提供目标元素的 class，用语义选择器重写。 */
 /* ==========================================================================
    软件内更新的进度条（更新弹窗里）
    更新全程不出现安装程序界面，所以这个进度条就是用户唯一的反馈，
