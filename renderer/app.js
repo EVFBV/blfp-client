@@ -3173,8 +3173,11 @@ function renderGeetest3(slot, opts) {
         challenge: opts.challenge,
         offline: Boolean(opts.offline),
         new_captcha: true,
-        product: 'bind',
+        /* 3.0 的产品形式只有 float / popup（官方 demo 用的就是这两个）。
+           'bind' 是 4.0 才有的概念，传给 3.0 会导致 widget 渲染异常。 */
+        product: 'float',
         lang: 'zh-cn',
+        width: '100%',
       }, (captcha) => {
         if (!captcha || typeof captcha.appendTo !== 'function') {
           done(reject, new Error('极验 widget 无法挂载'));
