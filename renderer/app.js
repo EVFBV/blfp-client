@@ -3357,6 +3357,14 @@ function resetCaptchaBoxVisual(slot) {
   return box;
 }
 
+/* 验证通过后"收起"的时长（用户反馈过慢，这里统一提成常量，便于测试守住上限）。
+   总时长 = CAPTCHA_SETTLE_MS + CAPTCHA_COLLAPSE_MS。
+   原本是 420 + 340 = 760ms，用户反馈"有点慢了"，现在 150 + 230 = 380ms。
+   再快就没法看清是"收起"而不是"闪一下"了。 */
+const CAPTCHA_SETTLE_MS = 150;
+const CAPTCHA_COLLAPSE_MS = 230;
+const CAPTCHA_COLLAPSE_TRANSITION = 'height .2s cubic-bezier(.4,0,.2,1), opacity .2s ease, margin-bottom .2s ease';
+
 function playCaptchaDone(slot) {
   const box = $(captchaBoxId(slot));
   /* 防重复触发：用 classList 而不是 dataset，兼容性更好 */
@@ -3366,18 +3374,18 @@ function playCaptchaDone(slot) {
 
   const iframe = box.querySelector('iframe');
   [iframe, box.querySelector('.geetest_holder'), box.querySelector('.geetest_box')].filter(Boolean).forEach((el) => {
-    el.style.transition = 'opacity .18s ease';
+    el.style.transition = 'opacity .12s ease';
     el.style.opacity = '0';
   });
   const img = box.querySelector('.captcha-img');
   const input = box.querySelector('.captcha-input');
-  if (img) { img.style.transition = 'opacity .18s ease, transform .18s ease'; img.style.opacity = '0'; img.style.transform = 'scale(.94)'; }
-  if (input) { input.style.transition = 'opacity .18s ease'; input.style.opacity = '0'; }
+  if (img) { img.style.transition = 'opacity .12s ease, transform .12s ease'; img.style.opacity = '0'; img.style.transform = 'scale(.94)'; }
+  if (input) { input.style.transition = 'opacity .12s ease'; input.style.opacity = '0'; }
 
   /* label 跟着淡出，避免"验证完了还剩个人机验证的字" */
   const labelEl = captchaLabelEl(box);
   if (labelEl) {
-    labelEl.style.transition = 'opacity .18s ease, height .3s ease';
+    labelEl.style.transition = 'opacity .12s ease, height .2s ease';
     labelEl.style.overflow = 'hidden';
     labelEl.style.opacity = '0';
   }
@@ -3388,7 +3396,7 @@ function playCaptchaDone(slot) {
 
   box.style.height = box.offsetHeight + 'px';
   box.style.overflow = 'hidden';
-  box.style.transition = 'height .3s cubic-bezier(.4,0,.2,1), opacity .3s ease, margin-bottom .3s ease';
+  box.style.transition = CAPTCHA_COLLAPSE_TRANSITION;
 
   captchaDoneTimers[slot] = setTimeout(() => {
     requestAnimationFrame(() => {
@@ -3407,8 +3415,8 @@ function playCaptchaDone(slot) {
       /* 透明还不够：label 仍占着一行高度，表单会留个空隙，所以要 display:none */
       if (labelEl) labelEl.style.display = 'none';
       box.classList.remove('captcha-playing');
-    }, 340);
-  }, 420);
+    }, CAPTCHA_COLLAPSE_MS);
+  }, CAPTCHA_SETTLE_MS);
 }
 
 /* 找验证码容器前面那个同级的 <label>（"人机验证"那几个字）。

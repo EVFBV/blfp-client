@@ -31,6 +31,19 @@ const ROOT = path.join(__dirname, '..');
 const APP = fs.readFileSync(path.join(ROOT, 'renderer', 'app.js'), 'utf8');
 const CSS = fs.readFileSync(path.join(ROOT, 'renderer', 'style.css'), 'utf8');
 
+
+/* 把 playCaptchaDone 用到的时长常量抽出来，一起放进沙箱 */
+function extractConsts() {
+  const names = ['CAPTCHA_SETTLE_MS', 'CAPTCHA_COLLAPSE_MS', 'CAPTCHA_COLLAPSE_TRANSITION'];
+  const out = [];
+  for (const n of names) {
+    const m = APP.match(new RegExp('const ' + n + '\\s*=\\s*([^;]+);'));
+    assert.ok(m, 'app.js 里找不到常量 ' + n);
+    out.push('const ' + n + ' = ' + m[1] + ';');
+  }
+  return out.join('\n');
+}
+
 /* ---------- 按大括号配对抽出真实函数（不重写一份，否则改了也测不出来） ---------- */
 function extractFn(name) {
   const i = APP.indexOf(`function ${name}(`);
@@ -103,8 +116,11 @@ function makeEnv() {
     + extractFn('captchaBoxId') + '\n'
     + extractFn('captchaLabelEl') + '\n'
     + extractFn('resetCaptchaBoxVisual') + '\n'
+    + extractConsts() + '\n'
     + extractFn('playCaptchaDone') + '\n'
-    + 'globalThis.__done = playCaptchaDone; globalThis.__resetVisual = resetCaptchaBoxVisual;',
+    + 'globalThis.__done = playCaptchaDone; globalThis.__resetVisual = resetCaptchaBoxVisual;'
+    + ';globalThis.__settle = typeof CAPTCHA_SETTLE_MS === "number" ? CAPTCHA_SETTLE_MS : null;'
+    + 'globalThis.__collapse = typeof CAPTCHA_COLLAPSE_MS === "number" ? CAPTCHA_COLLAPSE_MS : null;',
     sandbox
   );
   /* playCaptchaDone 分两段收尾：420ms 后起动画、340ms 后收尾（加 .captcha-done）。
@@ -231,4 +247,27 @@ test('.captcha-ok 样式已删除（不再存在"验证通过"的小方块）', 
   const codeOnly = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
   assert.ok(!/\.captcha-ok\s*\{/.test(codeOnly), 'CSS 里还留着 .captcha-ok 的规则');
   assert.ok(!/captchaOkIn/.test(codeOnly), 'CSS 里还留着 captchaOkIn 动画');
+});
+
+/* ================= 收起动画不能慢（用户反馈过"有点慢了"） ================= */
+
+test('收起动画总时长必须在 450ms 以内（原本 760ms，用户反馈太慢）', () => {
+  const env = makeEnv();
+  assert.equal(typeof env.sandbox.__settle, 'number', 'CAPTCHA_SETTLE_MS 没抽出来');
+  assert.equal(typeof env.sandbox.__collapse, 'number', 'CAPTCHA_COLLAPSE_MS 没抽出来');
+  const total = env.sandbox.__settle + env.sandbox.__collapse;
+  assert.ok(total <= 450,
+    '收起总时长 ' + total + 'ms 太慢了（用户明确反馈过慢）。'
+    + '当前是 ' + env.sandbox.__settle + '+' + env.sandbox.__collapse
+    + '，改小一点；也别小于 200ms，否则看着像"闪一下"而不是"收起"');
+  assert.ok(total >= 200, '收起总时长 ' + total + 'ms 太快了，看不出是收起动画');
+});
+
+test('收起用同一份过渡常量，不允许各处写死的 magics 数字', () => {
+  const body = extractFn('playCaptchaDone');
+  assert.ok(/CAPTCHA_COLLAPSE_TRANSITION/.test(body),
+    '收起过渡没有用 CAPTCHA_COLLAPSE_TRANSITION 常量');
+  /* 定时也必须走常量，否则改了常量但定时没跟着变 */
+  assert.ok(/CAPTCHA_SETTLE_MS/.test(body), '外层定时没有用 CAPTCHA_SETTLE_MS');
+  assert.ok(/CAPTCHA_COLLAPSE_MS/.test(body), '内层定时没有用 CAPTCHA_COLLAPSE_MS');
 });
