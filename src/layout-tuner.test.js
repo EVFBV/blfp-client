@@ -289,3 +289,22 @@ test('新增的 4 个调试器文件都纳入了恢复/剔除清单', () => {
   const missing = need.filter((f) => !prep.includes(f));
   assert.deepEqual(missing, [], '遗漏了：' + missing.join('、'));
 });
+
+/* ---------- 主窗口样式表不该再留浮层面板的死代码 ---------- */
+
+test('layout-tuner.css 只剩主窗口需要的高亮/光标样式', () => {
+  const raw = fs.readFileSync(path.join(R, 'layout-tuner.css'), 'utf8');
+  /* 先剥掉注释再扫：注释里会提到这些已废弃的选择器名字（说明历史），
+     直接 includes 会误报。之前验证码那套 CSS 测试也踩过同一个坑。 */
+  const css = raw.replace(/\/\*[\s\S]*?\*\//g, '');
+  /* 面板已搬到独立窗口，主窗口这份样式表里不该再出现面板相关的选择器。
+     留着是死代码，还会让人误以为调试器仍然嵌在主窗口里（真踩过这个误会）。 */
+  for (const dead of ['#lt-panel', '#lt-sel', '#lt-groups', '#lt-list', '#lt-hint', '#lt-css', '#lt-out']) {
+    assert.equal(css.includes(dead), false,
+      'layout-tuner.css 还有已废弃的浮层面板样式：' + dead);
+  }
+  /* 该有的要有：高亮框、标签、两种光标 */
+  for (const need of ['#lt-hl', '#lt-badge', 'lt-picking', 'lt-dragging']) {
+    assert.ok(css.includes(need), 'layout-tuner.css 缺少 ' + need);
+  }
+});
