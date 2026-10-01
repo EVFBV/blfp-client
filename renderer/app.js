@@ -185,11 +185,13 @@ function askElevation(what) {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
-    $('confirm-title').textContent = '需要管理员权限';
-    $('confirm-msg').textContent = what + ' 需要创建虚拟网卡，必须以管理员身份运行。\n\n点「确定」以管理员身份重启客户端（重启后请重新操作）；点「取消」则保持当前权限（EasyTier 无法使用，可改用 frp 中转模式）。';
+    const t = $('confirm-title');
+    const m = $('confirm-msg');
+    if (t) t.textContent = '需要管理员权限';
+    if (m) m.textContent = what + ' 需要创建虚拟网卡，必须以管理员身份运行。\n\n点「确定」以管理员身份重启客户端（重启后请重新操作）；点「取消」则保持当前权限（EasyTier 无法使用，可改用 frp 中转模式）。';
     openModal('confirm-modal');
-    $('confirm-ok').__handler = () => finish('elevate');
-    $('confirm-cancel').__handler = () => finish('cancel');
+    /* 与 showConfirm 共用同一套安全设置：不再直接往 $('confirm-cancel') 上写属性 */
+    setConfirmHandlers(() => finish('elevate'), () => finish('cancel'));
   });
 }
 
@@ -659,26 +661,61 @@ function doLogout() {
 }
 
 // 通用二次确认弹窗
+/* 取弹窗里的两个按钮，**永远不假设它们存在**。
+   这里曾经是"退出登录点确认没反应"的元凶：取消按钮漏写了 id="confirm-cancel"，
+   而 confirmOk() 里 `$('confirm-cancel').__handler = null` 会往 null 上写属性、
+   直接抛 TypeError —— 抛在 closeModal() 和 handler() 之前，
+   于是弹窗不关、回调也不执行，表现就是"按钮点了没反应"。 */
+function confirmEls() {
+  return { ok: $('confirm-ok'), cancel: $('confirm-cancel') };
+}
+function setConfirmHandlers(okFn, cancelFn) {
+  const { ok, cancel } = confirmEls();
+  if (ok) ok.__handler = okFn || null;
+  if (cancel) cancel.__handler = cancelFn || null;
+  if (!ok || !cancel) {
+    logLine('确认弹窗缺少按钮：' + (!ok ? '#confirm-ok ' : '') + (!cancel ? '#confirm-cancel' : ''));
+  }
+}
+function takeConfirmHandlers() {
+  const { ok, cancel } = confirmEls();
+  const h = { ok: ok ? ok.__handler : null, cancel: cancel ? cancel.__handler : null };
+  if (ok) ok.__handler = null;
+  if (cancel) cancel.__handler = null;
+  return h;
+}
 function showConfirm(title, msg, onConfirm) {
-  $('confirm-title').textContent = title;
-  $('confirm-msg').textContent = msg;
+  const t = $('confirm-title');
+  const m = $('confirm-msg');
+  if (t) t.textContent = title;
+  if (m) m.textContent = msg;
   /* 必须走 openModal/closeModal：直接切 hidden 会绕过退场动画，弹窗会"瞬间消失" */
   openModal('confirm-modal');
-  $('confirm-ok').__handler = onConfirm;
+  setConfirmHandlers(onConfirm, null);
 }
 function confirmOk() {
-  const handler = $('confirm-ok').__handler;
-  $('confirm-ok').__handler = null;
-  $('confirm-cancel').__handler = null;
+  const h = takeConfirmHandlers();
+  /* 顺序很重要：先关弹窗再跑回调。
+     回调里万一抛错，至少不会把弹窗永远晾在界面上（原来的顺序是反的，
+     而且中间那句会抛错，导致两者都执行不到）。 */
   closeModal('confirm-modal');
-  if (handler) handler();
+  if (!h.ok) return;
+  try {
+    h.ok();
+  } catch (e) {
+    logLine('确认操作执行失败: ' + ((e && e.message) || e));
+    toast('操作失败：' + ((e && e.message) || '未知错误'), 'error');
+  }
 }
 function confirmCancel() {
+  const h = takeConfirmHandlers();
   closeModal('confirm-modal');
-  const handler = $('confirm-cancel').__handler;
-  $('confirm-cancel').__handler = null;
-  $('confirm-ok').__handler = null;
-  if (handler) handler();
+  if (!h.cancel) return;
+  try {
+    h.cancel();
+  } catch (e) {
+    logLine('取消操作处理失败: ' + ((e && e.message) || e));
+  }
 }
 
 function syncPresence(online = true) {

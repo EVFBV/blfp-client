@@ -2133,3 +2133,34 @@ html, body { height: 100%; }
 [data-theme="light"] .modal-backdrop.modal-leaving .modal {
   box-shadow: none;
 }
+
+/* ==========================================================================
+   默认布局微调（来自布局调试器的导出，已固化为应用默认样式）
+   --------------------------------------------------------------------------
+   下面三条是用户在调试器里调好后导出的覆盖，现在写进默认样式，
+   这样正式版（不含调试器）也长这样，不必依赖本地 localStorage 里的改动。
+
+   注意 scale：调试器把 scale/rotate 导出成一整行注释（形如 "scale: 0.78" 被包在注释里），
+   看着像"没启用"，其实它在调试器里是**实时生效**的（走 transform），
+   所以这里必须落成真正的 transform，否则固化后就丢了缩放。
+   ========================================================================== */
+
+/* 1) 好友搜索结果项整体下移 8px */
+#friend-search-results > div.friend-item {
+  translate: 0px 8px;
+}
+
+/* 2) 公告弹窗"今日不再显示"开关：左移 10px、上移 5px，并缩到 0.78
+      原导出选择器是 `#announcement-modal > div > label > label > span`
+      —— 那个 `label > label` 是非法嵌套（见 index.html 里公告弹窗那段）。
+      这里改用语义选择器，指向同一个 .slider，将来把嵌套修掉也不会失效。 */
+#announcement-modal .switch .slider {
+  translate: -10px -5px;
+  transform: scale(0.78);
+}
+
+/* 3) 隐藏 EasyTier 节点测速的延迟读数
+      用 visibility 而不是 display：保留占位，避免"测速"按钮所在那一行跳动。 */
+#s-et-latency {
+  visibility: hidden;
+}
