@@ -1,6 +1,6 @@
 {
   "name": "blfp-client",
-  "version": "2.3.13-pre",
+  "version": "2.3.14-pre",
   "description": "BLFP - Minecraft Java 联机软件 - 客户端 (Electron + EasyTier + frpc)",
   "main": "main.js",
   "scripts": {

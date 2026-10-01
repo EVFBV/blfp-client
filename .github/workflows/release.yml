@@ -32,7 +32,18 @@ jobs:
       - name: Extract version
         id: ver
         shell: bash
-        run: echo "v=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+        run: |
+          v="${GITHUB_REF#refs/tags/v}"
+          echo "v=$v" >> "$GITHUB_OUTPUT"
+          # tag 必须和 package.json 的版本一致。
+          # electron-builder 按 package.json 的版本命名产物目录（build_v<版本>），
+          # 打错 tag 时下游只会报"产物目录不存在"，完全看不出真正原因（踩过）。
+          pkg=$(node -p "require('./package.json').version")
+          if [ "$pkg" != "$v" ]; then
+            echo "::error::tag 是 v$v，但 package.json 是 $pkg —— 先把 package.json 的版本改成 $v 再打 tag"
+            exit 1
+          fi
+          echo "✓ tag 与 package.json 版本一致：$v"
 
       - name: Write build info
         shell: bash
