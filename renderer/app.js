@@ -2080,7 +2080,7 @@ async function loadAnnouncement() {
     const announcement = await apiChat('/settings/announcement');
     state.announcement = announcement;
     if (!announcement.enabled || !announcement.content || localStorage.getItem(announcementStorageKey(announcement))) {
-      checkForUpdates(true);
+      checkForUpdates();
       return;
     }
     $('announcement-title').textContent = announcement.title || '公告';
@@ -2102,7 +2102,7 @@ async function loadAnnouncement() {
     }
   } catch (e) {
     logLine('公告加载失败: ' + e.message);
-    checkForUpdates(true);
+    checkForUpdates();
   }
 }
 
@@ -2112,37 +2112,42 @@ function closeAnnouncement() {
   if (state.announcementTimer) clearInterval(state.announcementTimer);
   state.announcementTimer = null;
   closeModal('announcement-modal');
-  checkForUpdates(true);
+  checkForUpdates();
 }
 
-async function checkForUpdates(silent = false) {
+/*
+ * 检查更新。
+ *
+ * 注意：这里**只发一条通知**，而且成功一律用绿色的 toast。
+ * 之前每个分支都是 notify(...) + toast(..., 'success') 两条一起发，
+ * 而 notify 内部就是 toast(msg, type)，于是用户看到"一绿一正常"两条重复通知；
+ * 自动检查那条又被 if (!silent) 挡掉了绿色那条，只剩普通的。
+ * 现在统一成：成功 → 绿色；失败 → 红色。自动检查与手动检查表现完全一致。
+ */
+async function checkForUpdates() {
   try {
     if (!state.appInfo) await loadAppInfo();
-    if (!silent) notify('正在检查更新…');
     const channel = state.updateChannel === 'test' ? 'test' : 'stable';
     const info = await window.mclink.checkGithubUpdate(channel);
     state.updateInfo = info;
     if (channel !== 'test' && info.prerelease) {
       /* 正式版渠道：忽略预发布版本。测试版渠道用户就是要拉最新 pre，不再拦。 */
       state.updateInfo = null;
-      notify('已忽略预发布版本 ' + (info.latestVersion || ''));
-      if (!silent) toast('当前已是最新版本', 'success');
+      toast('当前已是最新版本', 'success');
       return;
     }
     if (info.latestVersion && compareVersions(info.latestVersion, state.appInfo.version) > 0) {
       const tag = info.prerelease && channel === 'test' ? '（测试版）' : '';
-      notify(`GitHub Releases 发现新版本 ${info.latestVersion}${tag}`);
       $('update-title').textContent = `发现新版本 ${info.latestVersion}${tag}`;
       $('update-notes').textContent = info.releaseNotes || '暂无更新说明';
       $('update-download').textContent = info.downloadUrl ? `下载 ${info.assetName || '安装程序'}` : '打开发布页';
       openModal('update-modal');
+      toast(`发现新版本 ${info.latestVersion}${tag}`, 'success');
     } else {
-      notify('当前已是最新版本');
-      if (!silent) toast('当前已是最新版本', 'success');
+      toast('当前已是最新版本', 'success');
     }
   } catch (e) {
-    notify('检查失败：' + e.message, 'error');
-    if (!silent) toast('检查更新失败：' + e.message, 'error');
+    toast('检查更新失败：' + e.message, 'error');
   }
 }
 function openUpdateDownload() {

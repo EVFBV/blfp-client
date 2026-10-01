@@ -5,7 +5,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "node check-payload.js && electron-builder --win portable"
+    "dist": "node check-payload.js && electron-builder --win portable",
+    "test": "node --test install-core.test.js silent-mode.test.js"
   },
   "author": "",
   "license": "MIT",
@@ -24,6 +25,7 @@
     },
     "files": [
       "main.js",
+      "install-core.js",
       "preload.js",
       "renderer/**",
       "package.json"
@@ -32,7 +34,7 @@
       "target": "portable",
       "artifactName": "BLFP-Setup-v${version}.exe",
       "icon": "icon.png",
-      "requestedExecutionLevel": "asInvoker"
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "extraResources": [
       "payload/**"
