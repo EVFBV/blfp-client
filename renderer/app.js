@@ -3136,13 +3136,23 @@ function renderGeetest(slot, captchaId) {
        用户既看不到验证码也无法登录。超时后由上层回退到内置图形码。 */
     let settled = false;
     let timer = null;
+    let onGlobalError = null;
     const done = (fn, arg) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      if (onGlobalError && window.removeEventListener) window.removeEventListener('error', onGlobalError);
       fn(arg);
     };
     timer = setTimeout(() => done(reject, new Error('极验初始化超时')), 8000);
+    /* gt4.js 在极验接口返回错误状态时是"异步 throw"（throwError: 网络错误），
+       既不走 initGeetest4 的回调，也不在下面 try/catch 的调用栈里，
+       只能靠全局 error 事件捕获并立刻转成 reject，避免用户白等满 8 秒超时。 */
+    onGlobalError = (ev) => {
+      const msg = String((ev && (ev.message || (ev.error && ev.error.message))) || '');
+      if (/网络错误|Network error/i.test(msg)) done(reject, new Error('极验接口返回错误'));
+    };
+    if (window.addEventListener) window.addEventListener('error', onGlobalError);
     try {
       window.initGeetest4({ captchaId: captchaId, product: 'bind', language: 'zho' }, (captcha) => {
         const box = $(captchaBoxId(slot));
