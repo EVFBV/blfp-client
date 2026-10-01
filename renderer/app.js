@@ -3340,19 +3340,12 @@ function resetCaptchaBoxVisual(slot) {
   if (!box) return null;
   if (captchaDoneTimers[slot]) { clearTimeout(captchaDoneTimers[slot]); captchaDoneTimers[slot] = null; }
   box.classList.remove('captcha-done', 'captcha-playing');
-  box.style.position = '';
-  box.style.height = '';
-  box.style.overflow = '';
-  box.style.opacity = '';
-  box.style.marginBottom = '';
-  box.style.transition = '';
+  /* 用与收起时同一份清单来清，两边不会漂移 */
+  clearCaptchaCollapseStyles(box);
   const labelEl = captchaLabelEl(box);
   if (labelEl) {
     labelEl.style.display = '';
-    labelEl.style.opacity = '';
-    labelEl.style.height = '';
-    labelEl.style.overflow = '';
-    labelEl.style.transition = '';
+    clearCaptchaCollapseStyles(labelEl);
   }
   return box;
 }
@@ -3370,7 +3363,24 @@ function resetCaptchaBoxVisual(slot) {
  * 总时长 = 100 + 200 = 300ms。 */
 const CAPTCHA_FADE_MS = 100;
 const CAPTCHA_COLLAPSE_MS = 200;
-const CAPTCHA_COLLAPSE_TRANSITION = 'height ' + CAPTCHA_COLLAPSE_MS + 'ms cubic-bezier(.4, 0, .2, 1)';
+/* 过渡必须把**所有影响高度的属性**都列上，不能只写 height。
+   原因见下面第二段的注释：border-box 下 height 收不到 padding+border 以下，
+   而这几个属性如果瞬时归零就是一次跳变，必须一起过渡才是平滑的。 */
+const CAPTCHA_COLLAPSE_TRANSITION = [
+  'height', 'padding-top', 'padding-bottom', 'border-top-width', 'border-bottom-width',
+].map((prop) => prop + ' ' + CAPTCHA_COLLAPSE_MS + 'ms cubic-bezier(.4, 0, .2, 1)').join(', ');
+
+/* 收起动画写进去的 inline 样式清单。设与清共用同一份，
+   避免"设了却没清干净"，那样验证码下次回来会是压扁的状态。 */
+const CAPTCHA_COLLAPSE_KEYS = [
+  'height', 'minHeight', 'paddingTop', 'paddingBottom',
+  'borderTopWidth', 'borderBottomWidth', 'marginBottom', 'overflow', 'transition',
+];
+
+function clearCaptchaCollapseStyles(el) {
+  if (!el) return;
+  CAPTCHA_COLLAPSE_KEYS.forEach((key) => { el.style[key] = ''; });
+}
 const CAPTCHA_FADE_TRANSITION = 'opacity ' + CAPTCHA_FADE_MS + 'ms ease-out';
 
 function playCaptchaDone(slot) {
@@ -3404,21 +3414,48 @@ function playCaptchaDone(slot) {
   /* 第二段：内容已经看不见了，先移出布局，再收空盒子的高度。 */
   captchaDoneTimers[slot] = setTimeout(() => {
     content.forEach((el) => { el.style.display = 'none'; });
+
+    /* 这里是"还收会卡"的真正原因，务必看清楚：
+       .captcha-box 上有 min-height:44px、padding:6px 8px，且全局是 box-sizing:border-box。
+       只把 height 改成 0 是**收不动的** ——
+         · min-height 会把它夹在 44px，height 从 44 变到 0 实际渲染高度始终是 44；
+         · 就算没有 min-height，border-box 下高度也降不到 padding+border 以下。
+       结果是高度过渡从头到尾没有任何视觉变化，等到最后 captcha-done（display:none）
+       才"啪"地一下消失 —— 用户看到的就是"不收、最后卡一下、下面整块突然跳上来"。
+       所以必须把 min-height、上下 padding、上下边框一起归零，并且一起过渡。 */
     box.style.height = startHeight + 'px';
+    box.style.minHeight = '0';        /* 瞬时归零不会跳：此刻 height 已钉在 44px */
     box.style.overflow = 'hidden';
+
+    /* label 也是同一回事：它是 display:block 且有 margin-bottom:6px，
+       只淡出、到最后一 display:none，同样是"啪"地跳一行。这里一并压高度。 */
+    if (labelEl) {
+      labelEl.style.height = labelEl.offsetHeight + 'px';
+      labelEl.style.overflow = 'hidden';
+    }
+
     /* 先钉住起始高度，下一帧再改成 0，过渡才有起点 */
     requestAnimationFrame(() => {
       box.style.transition = CAPTCHA_COLLAPSE_TRANSITION;
       box.style.height = '0px';
+      box.style.paddingTop = '0px';
+      box.style.paddingBottom = '0px';
+      box.style.borderTopWidth = '0px';
+      box.style.borderBottomWidth = '0px';
+      if (labelEl) {
+        labelEl.style.transition = CAPTCHA_COLLAPSE_TRANSITION;
+        labelEl.style.height = '0px';
+        labelEl.style.marginBottom = '0px';
+      }
     });
+
     setTimeout(() => {
+      /* 此时高度已经是 0，display:none 不再产生任何跳动 */
       box.classList.add('captcha-done');
-      box.style.height = '';
-      box.style.overflow = '';
-      box.style.transition = '';
-      box.innerHTML = '';
-      /* 透明还不够：label 仍占着一行高度，表单会留个空隙，所以要 display:none */
       if (labelEl) labelEl.style.display = 'none';
+      clearCaptchaCollapseStyles(box);
+      clearCaptchaCollapseStyles(labelEl);
+      box.innerHTML = '';
       box.classList.remove('captcha-playing');
     }, CAPTCHA_COLLAPSE_MS + 40);
   }, CAPTCHA_FADE_MS);

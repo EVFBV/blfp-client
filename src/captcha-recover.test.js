@@ -34,7 +34,7 @@ const CSS = fs.readFileSync(path.join(ROOT, 'renderer', 'style.css'), 'utf8');
 
 /* 把 playCaptchaDone 用到的时长常量抽出来，一起放进沙箱 */
 function extractConsts() {
-  const names = ['CAPTCHA_FADE_MS', 'CAPTCHA_COLLAPSE_MS', 'CAPTCHA_COLLAPSE_TRANSITION', 'CAPTCHA_FADE_TRANSITION'];
+  const names = ['CAPTCHA_FADE_MS', 'CAPTCHA_COLLAPSE_MS', 'CAPTCHA_COLLAPSE_TRANSITION', 'CAPTCHA_FADE_TRANSITION', 'CAPTCHA_COLLAPSE_KEYS'];
   const out = [];
   for (const n of names) {
     const m = APP.match(new RegExp('const ' + n + '\\s*=\\s*([^;]+);'));
@@ -115,12 +115,14 @@ function makeEnv() {
     'function $(id){ return document.getElementById(id); }\n'
     + extractFn('captchaBoxId') + '\n'
     + extractFn('captchaLabelEl') + '\n'
+    + extractFn('clearCaptchaCollapseStyles') + '\n'
     + extractFn('resetCaptchaBoxVisual') + '\n'
     + extractConsts() + '\n'
     + extractFn('playCaptchaDone') + '\n'
     + 'globalThis.__done = playCaptchaDone; globalThis.__resetVisual = resetCaptchaBoxVisual;'
     + ';globalThis.__fade = typeof CAPTCHA_FADE_MS === "number" ? CAPTCHA_FADE_MS : null;'
-    + 'globalThis.__collapse = typeof CAPTCHA_COLLAPSE_MS === "number" ? CAPTCHA_COLLAPSE_MS : null;',
+    + 'globalThis.__collapse = typeof CAPTCHA_COLLAPSE_MS === "number" ? CAPTCHA_COLLAPSE_MS : null;'
+    + ';globalThis.__collapseTransition = CAPTCHA_COLLAPSE_TRANSITION;',
     sandbox
   );
   /* playCaptchaDone 分两段收尾：420ms 后起动画、340ms 后收尾（加 .captcha-done）。
@@ -200,8 +202,15 @@ test('验证通过 → 登录失败 → 重新渲染：容器必须是"看得见
   /* 3) 断言：藏起来的类没了，inline 样式也清干净了，label 也回来了 */
   assert.equal(env.box.classList.contains('captcha-done'), false, '容器仍然是 display:none，验证码看不见');
   assert.equal(env.box.style.height, '', '残留了 inline 高度，容器会被压成 0');
-  assert.equal(env.box.style.opacity, '', '残留了 inline 透明度');
+  /* 下面几项是收起动画为了"真能收到 0"才写进去的：
+     min-height/padding/边框都会在竖直方向托住高度，reset 必须一并清掉，
+     否则下次渲染出来的验证码是压扁的、或者又收不动了。 */
+  assert.equal(env.box.style.minHeight, '', '残留了 inline min-height —— 下次渲染会被它夹住收不动');
+  assert.equal(env.box.style.paddingTop, '', '残留了 inline padding-top');
+  assert.equal(env.box.style.borderTopWidth, '', '残留了 inline 上边框宽度');
+  assert.equal(env.box.style.transition, '', '残留了 inline transition');
   assert.equal(env.label.style.display, '', 'label 仍然被 display:none —— "人机验证"几个字回不来');
+  assert.equal(env.label.style.height, '', '残留了 label 的 inline 高度 —— 下次渲染 label 会被压扁');
 });
 
 test('所有渲染入口都必须在画之前先复原视觉状态', () => {
@@ -344,3 +353,91 @@ function stripCssLocal(css) {
 function readCss() {
   return fs.readFileSync(path.join(ROOT, 'renderer', 'style.css'), 'utf8');
 }
+
+/* ================= "还收会卡"：高度动画其实收不动 =================
+ *
+ * .captcha-box 上有 min-height:44px、padding:6px 8px，全局又是 box-sizing:border-box。
+ * 只把 height 改成 0 是收不起来的：min-height 会把它夹在 44px，
+ * 而 border-box 下高度也降不到 padding+border 以下。
+ * 结果是高度过渡全程没有视觉变化，最后靠 display:none 一下弹走 ——
+ * 用户原话："还是不顺，还收会卡""就下面那块整体往上移"。
+ */
+
+test('收起时必须把 min-height 归零（否则 height 改到 0 也收不起来）', () => {
+  const body = extractFn('playCaptchaDone');
+  assert.ok(/box\.style\.minHeight\s*=\s*'0(?:px)?'/.test(body),
+    '收起时没有把 min-height 归零 —— .captcha-box 的 min-height:44px 会把高度夹住，'
+    + 'height 从 44 改到 0 实际仍是 44，动画等于没做，最后一下 display:none 会突然跳走');
+});
+
+test('收起时必须把上下 padding 与上下边框也归零（border-box 下它们托着高度）', () => {
+  const body = extractFn('playCaptchaDone');
+  for (const [prop, why] of [
+    ['paddingTop', 'padding:6px 8px'],
+    ['paddingBottom', 'padding:6px 8px'],
+    ['borderTopWidth', '上下边框'],
+    ['borderBottomWidth', '上下边框'],
+  ]) {
+    assert.ok(new RegExp('box\\.style\\.' + prop + "\\s*=\\s*'0(?:px)?'").test(body),
+      '收起时没有把 ' + prop + ' 归零 —— box-sizing:border-box 下高度降不到 ' + why + ' 以下，'
+      + '盒子会停在 14px 收不下去');
+  }
+});
+
+test('这些属性必须都在过渡列表里（瞬时归零就是一次跳变）', () => {
+  const env = makeEnv();
+  const t = env.sandbox.__collapseTransition;
+  assert.equal(typeof t, 'string', 'CAPTCHA_COLLAPSE_TRANSITION 没抽出来');
+  for (const prop of ['height', 'padding-top', 'padding-bottom', 'border-top-width', 'border-bottom-width']) {
+    assert.ok(t.includes(prop), '过渡里没有 ' + prop + ' —— 它会被瞬时改掉，动画中就出现一次跳变');
+  }
+});
+
+test('label 也要一起压高度（否则最后 display:none 会把下面整块跳一行）', () => {
+  const body = extractFn('playCaptchaDone');
+  assert.ok(/labelEl\.style\.height\s*=\s*labelEl\.offsetHeight/.test(body)
+    || /labelEl\.style\.height\s*=\s*\d/.test(body)
+    || /labelEl\.style\.height\s*=\s*[a-zA-Z]+\.offsetHeight/.test(body),
+    'label 没有在收起时被压高度 —— 它带 margin-bottom:6px 占着一行，'
+    + '最后 display:none 会让下面整块突然往上跳');
+});
+
+test('收起写进去的 inline 样式必须能全部清掉（设与清用同一份清单）', () => {
+  const body = extractFn('clearCaptchaCollapseStyles');
+  assert.ok(/CAPTCHA_COLLAPSE_KEYS/.test(body),
+    'clearCaptchaCollapseStyles 没有用共用的 CAPTCHA_COLLAPSE_KEYS —— 设与清会漂移');
+  /* 清单里必须覆盖收起时设过的每一项 */
+  const keys = APP.match(/const CAPTCHA_COLLAPSE_KEYS = \[([\s\S]*?)\];/);
+  assert.ok(keys, '找不到 CAPTCHA_COLLAPSE_KEYS');
+  for (const k of ['height', 'minHeight', 'paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth', 'overflow', 'transition']) {
+    assert.ok(keys[1].includes("'" + k + "'"),
+      'CAPTCHA_COLLAPSE_KEYS 少了 ' + k + ' —— 收起时设了它却不清，验证码下次回来会是压扁/无边框的状态');
+  }
+});
+
+test('CSS 里凡是会托住高度的属性，JS 都必须归零（两处必须一致）', () => {
+  /* 这条是防漂移的关键：以后有人给 .captcha-box 再加 min-height/padding/border，
+     JS 不跟着归零的话，就会重现"收不起来"的 bug。 */
+  const css = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+  const block = css.match(/\.captcha-box\s*\{([^}]*)\}/);
+  assert.ok(block, '找不到 .captcha-box 规则');
+  const body = block[1];
+  const js = extractFn('playCaptchaDone');
+  const pairs = [
+    [/min-height\s*:\s*([^;]+)/, 'minHeight', 'min-height'],
+    [/padding\s*:\s*([^;]+)/, 'paddingTop', 'padding'],
+    [/border\s*:\s*[^;]*/, 'borderTopWidth', 'border'],
+  ];
+  for (const [re, prop, label] of pairs) {
+    if (!re.test(body)) continue;
+    /* 只有"竖直方向会占高度"的写法才要求归零 */
+    const decl = body.match(re)[0];
+    const vertical = /min-height/.test(decl)
+      || /padding\s*:\s*(?!0(?:\s|;|$))/.test(decl)
+      || /border\s*:\s*(?!0(?:\s|;|$))/.test(decl);
+    if (!vertical) continue;
+    assert.ok(new RegExp('box\\.style\\.' + prop + "\\s*=\\s*'0(?:px)?'").test(js),
+      '.captcha-box 声明了 ' + label + '（' + decl.trim() + '，会在竖直方向托住高度），'
+      + '但收起逻辑没有把 ' + prop + ' 归零 —— 高度动画会被它夹住收不动');
+  }
+});
