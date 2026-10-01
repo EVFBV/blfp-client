@@ -3516,9 +3516,18 @@ async function loadCaptcha(slot, force) {
 function resetCaptcha(slot) {
   const st = captchaSlots[slot];
   if (!st) return;
-  if ((st.mode === 'geetest' || st.mode === 'geetest3') && st.geetest) {
+  if (st.mode === 'geetest' || st.mode === 'geetest3') {
     st.validate = null;
-    try { if (typeof st.geetest.reset === 'function') st.geetest.reset(); } catch (_) {}
+    /* 不要用 captcha.reset()！challenge 是一次性的：reset 会让极验拿着同一个
+       （已经被 get.php 消费掉的）challenge 再请求一次，极验返回
+       error_02 "old challenge"，widget 上就显示"网络不给力"，而且之后再也恢复不了。
+       我们的 challenge 由自家服务端签发，所以重新签发一个再渲染才可靠。
+       注意这条路径在"用户第一次没滑对"之后就会走到 —— 不修就会一直"网络不给力"。 */
+    if (captchaDoneTimers[slot]) { clearTimeout(captchaDoneTimers[slot]); captchaDoneTimers[slot] = null; }
+    st.geetest = null;
+    st.answer = '';
+    if (st.disabled || st.unavailable) return;
+    loadCaptcha(slot, true);
     return;
   }
   st.validate = null;

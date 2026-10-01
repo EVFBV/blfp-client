@@ -279,6 +279,20 @@ test("回退路径不能调用本端不存在的函数（会直接把回退打�
   }
 });
 
+test("重置极验时不能调 captcha.reset()（会拿同一个一次性 challenge 再请求，极验报 old challenge → 网络不给力）", () => {
+  const { src } = extract();
+  const i = src.indexOf("function resetCaptcha(slot)");
+  assert.ok(i > 0, "找不到 resetCaptcha");
+  const body = src.slice(i, src.indexOf("\n}", src.indexOf("loadCaptcha(slot, true)", i)) + 2);
+  const code = body.replace(/\/\*[\s\S]*?\*\//g, "");   /* 先去掉注释，注释里提到不算 */
+  assert.equal(/\.reset\(\s*\)/.test(code), false,
+    "resetCaptcha 里仍在调 captcha.reset()：challenge 是一次性的，"
+    + "reset 会用同一个已消费的 challenge 再请求，极验返回 error_02 old challenge，"
+    + "widget 上显示\"网络不给力\"且无法恢复");
+  assert.ok(code.includes("loadCaptcha(slot, true)"),
+    "极验重置没有重新签发 challenge，而是复用了旧的");
+});
+
 /* ---------- 极验"网络不给力"时必须能自救 ---------- */
 
 const GEETEST3 = {
