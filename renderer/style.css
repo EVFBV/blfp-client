@@ -1582,25 +1582,9 @@ select option { background: #0c0d18; color: var(--text); padding: 8px; }
 /* 收起动画结束：彻底移出布局 */
 .captcha-box.captcha-done { display: none; }
 
-/* 验证通过：绿色对勾淡入，随后整块平滑收回（"窗口缩回去"）。
-   JS 把它绝对定位覆盖在容器上，不参与布局、不撑高表单。 */
-@keyframes captchaOkIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.captcha-ok {
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 34px; padding: 0 12px; border-radius: 8px;
-  font-size: .85rem; font-weight: 600; color: #16a34a;
-  background: rgba(22, 163, 74, .12);
-  border: 1px solid rgba(22, 163, 74, .38);
-  box-sizing: border-box;
-  animation: captchaOkIn .24s ease both;
-  z-index: 2; pointer-events: none; white-space: nowrap;
-}
-[data-theme="light"] .captcha-ok { background: rgba(22, 163, 74, .1); }
+/* 验证通过后不再插入任何"✓ 验证通过"小方块（用户要求）：
+   直接把整块平滑收回，只发一条通知。相关的 .captcha-ok 样式已随之删除。 */
 @media (prefers-reduced-motion: reduce) {
-  .captcha-ok { animation: none; }
   .captcha-box { transition: none !important; }
 }
 .captcha-row {
@@ -2176,11 +2160,16 @@ html, body { height: 100%; }
   display: none;
 }
 
-/* 5) 极验控件内部某个节点微调 -2px
-      这条是位置选择器，钻进了极验自己的 DOM（导出时的原始选择器就是这串 nth-of-type）。
-      **它比上面几条脆弱**：极验换版本、或控件内部结构变化时，这条会指到别的节点上。
-      好在只是 2px 的位移，指错了也几乎看不出来，不会像 display:none 那样出事。
-      登录/注册都写上，免得两个验证码长得不一样。 */
+/* 5) 验证码区域内部某个节点微调 -2px
+      老实说这条**无法确认到底命中了什么**：导出时的原始选择器是相对于当前选中元素的
+      相对路径，我按 "#login-captcha-box > ..." 补了前缀，但这串 nth-of-type 是否真能匹配到
+      当初那个节点，取决于极验控件实际生成的层级（见 renderCaptchaRefreshLink：极验是
+      appendTo 在先、刷新链接在后，所以 div:nth-of-type(2) 才是 .captcha-switch）。
+      也就是说它现在很可能是个**空规则**（匹配不到任何元素）。
+      之所以留着而不是删掉：它只是一条 translate，就算指错节点也最多差 2px，
+      不会像 display:none 那样把验证码藏没 —— 风险不对称，所以宁可留着。
+      如果哪天发现某处仍差 2px，请在调试器里点中那个元素、把它的 class 告诉我，
+      我用语义选择器重写这条。 */
 #login-captcha-box > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3),
 #reg-captcha-box > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) {
   translate: -2px 0px;

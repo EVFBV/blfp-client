@@ -517,8 +517,13 @@ async function doLogin() {
     localStorage.removeItem('mclink_server');
     enterApp();
   } catch (e) {
-    /* 验证码错误时服务端会作废该挑战，必须换一张再试 */
-    handleCaptchaError('login', e);
+    /* 服务端在**校验账号密码之前**就先消耗掉了人机验证
+       （routes/auth.js 里 requireCaptcha 排在密码校验前面），
+       所以任何一次登录失败都会让这次的 challenge 作废 ——
+       不只是"验证码错误"那一种。
+       必须重新签发并重新渲染，否则用户下次提交必然被判定验证码无效，
+       而且（以前）连验证码本身都看不到。 */
+    if (!handleCaptchaError('login', e)) resetCaptcha('login');
     showAuthErr(e.message);
   } finally {
     setLoginLoading(false);
@@ -593,7 +598,9 @@ async function doRegister() {
     $('l-user').value = username;
   } catch (e) {
     /* 验证码错误时服务端会作废该挑战，必须换一张再试 */
-    handleCaptchaError('reg', e);
+    /* 同登录：注册路由也是先 requireCaptcha 再校验用户名/邮箱是否存在，
+       所以"用户名已存在"这类失败同样会让 challenge 作废，必须换一张。 */
+    if (!handleCaptchaError('reg', e)) resetCaptcha('reg');
     showAuthErr(e.message);
   }
 }
@@ -3317,6 +3324,39 @@ function resetCaptchaState(slot) {
 /* 验证成功后的反馈：绿色对勾淡入，然后整块平滑收回（表单上移）。
    极验的 widget 是 iframe，直接压高度会生硬，所以先让 widget 淡出再收容器。
    总时长约 0.5 秒。 */
+/*
+ * 把 playCaptchaDone 造成的"已收起"状态**彻底复原**。
+ *
+ * 为什么必须有这个：playCaptchaDone 在验证通过后会给容器加 .captcha-done
+ * （CSS 里是 display:none）并把前面的 <label> 也 display:none 掉。
+ * 而重新渲染验证码时没人把这些清掉 —— 于是"验证过一次之后"，
+ * 极验再怎么重新渲染都画在一个 display:none 的容器里，用户看到的就是**什么都没有**。
+ * 这正是"登录一次后人机验证会失效、失败后啥都不出现"的根因。
+ *
+ * 所以任何一次重新渲染之前，都必须先调它。
+ */
+function resetCaptchaBoxVisual(slot) {
+  const box = $(captchaBoxId(slot));
+  if (!box) return null;
+  if (captchaDoneTimers[slot]) { clearTimeout(captchaDoneTimers[slot]); captchaDoneTimers[slot] = null; }
+  box.classList.remove('captcha-done', 'captcha-playing');
+  box.style.position = '';
+  box.style.height = '';
+  box.style.overflow = '';
+  box.style.opacity = '';
+  box.style.marginBottom = '';
+  box.style.transition = '';
+  const labelEl = captchaLabelEl(box);
+  if (labelEl) {
+    labelEl.style.display = '';
+    labelEl.style.opacity = '';
+    labelEl.style.height = '';
+    labelEl.style.overflow = '';
+    labelEl.style.transition = '';
+  }
+  return box;
+}
+
 function playCaptchaDone(slot) {
   const box = $(captchaBoxId(slot));
   /* 防重复触发：用 classList 而不是 dataset，兼容性更好 */
@@ -3342,15 +3382,9 @@ function playCaptchaDone(slot) {
     labelEl.style.opacity = '0';
   }
 
-  const ok = document.createElement('div');
-  ok.className = 'captcha-ok';
-  ok.textContent = '✓ 验证通过';
-  const prevPos = box.style.position;
-  if (getComputedStyle(box).position === 'static') box.style.position = 'relative';
-  ok.style.position = 'absolute';
-  ok.style.left = '0';
-  ok.style.top = '0';
-  box.appendChild(ok);
+  /* 用户要求：验证通过后**不要**再出现"✓ 验证通过"那个小方块，
+     不要任何中间产物，直接平滑收回；通过与否改用一条通知告知。 */
+  toast('人机验证通过', 'success');
 
   box.style.height = box.offsetHeight + 'px';
   box.style.overflow = 'hidden';
@@ -3364,7 +3398,6 @@ function playCaptchaDone(slot) {
     });
     setTimeout(() => {
       box.classList.add('captcha-done');
-      box.style.position = prevPos;
       box.style.height = '';
       box.style.overflow = '';
       box.style.opacity = '';
@@ -3395,6 +3428,7 @@ function captchaInputId(slot) { return slot === 'reg' ? 'reg-captcha-input' : 'l
 
 /* 渲染内置图形码（服务端签发的 SVG 图片 + 输入框） */
 function renderBuiltinCaptcha(slot, token, image) {
+  resetCaptchaBoxVisual(slot);
   const box = $(captchaBoxId(slot));
   if (!box) return;
   box.innerHTML =
@@ -3536,7 +3570,7 @@ function renderGeetest3(slot, opts) {
           done(reject, new Error('极验 widget 无法挂载'));
           return;
         }
-        const box = $(captchaBoxId(slot));
+        const box = resetCaptchaBoxVisual(slot);
         if (!box) { done(reject, new Error('验证码容器不存在')); return; }
         box.innerHTML = '';
         const st = captchaSlots[slot];

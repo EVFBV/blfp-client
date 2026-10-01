@@ -179,6 +179,34 @@ test('隐藏刷新入口必须用类选择器，绝不能用会误伤极验的�
     '同一个框里还挂着极验控件，渲染顺序一变就会把极验藏没，导致所有人都登不进去');
 });
 
+test('禁止"没有 id/class 锚点"的裸 nth-of-type 全局规则（调试器导出的另一种危险形态）', () => {
+  /* 调试器会把"相对当前选中元素"的路径原样导出，例如
+       div > div:nth-of-type(2) > div:nth-of-type(2) > div > div:nth-of-type(2)
+     这种选择器**没有任何 id/class 锚点**，作为全局 CSS 会同时命中全应用大量无关元素。
+     用户这次导出的覆盖里就有一条这样的 display:none —— 照抄会把界面藏得莫名其妙。
+     这里只允许"带 # 或 . 锚点"的规则使用 nth-of-type。 */
+  const css = stripCss(readCss());
+  const rules = css.split('}');
+  const offenders = [];
+  for (const rule of rules) {
+    const brace = rule.indexOf('{');
+    if (brace < 0) continue;
+    const selector = rule.slice(0, brace);
+    const body = rule.slice(brace + 1);
+    if (!/nth-of-type/.test(selector)) continue;
+    if (!/display\s*:\s*none/.test(body)) continue;
+    /* 逐个选择器片段检查：每一段都必须带 # 或 . 锚点 */
+    for (const part of selector.split(',')) {
+      const t = part.trim();
+      if (!t || !/nth-of-type/.test(t)) continue;
+      if (!/[#.]/.test(t)) offenders.push(t);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    '这些规则没有 id/class 锚点却用 nth-of-type 下 display:none，会命中全应用无关元素：\n  '
+    + offenders.join('\n  '));
+});
+
 test('验证码框在 HTML 里是空的（结构由 JS 渲染，不会被静态内容干扰）', () => {
   const html = fs.readFileSync(HTML, 'utf8');
   const m = html.match(/id="login-captcha-box"[^>]*>([\s\S]*?)<\/div>/);
