@@ -3128,6 +3128,80 @@ function loadGeetestSdk() {
 }
 
 /* 渲染极验 widget */
+/* ---------- 极验 3.0 ----------
+   与 4.0 完全不同的产品：脚本是 static/tools/gt.js，初始化函数是 initGeetest
+   （注意没有 4），参数是 {gt, challenge, offline, new_captcha}。
+   challenge 由**服务端**向极验申请（见 /api/auth/captcha），
+   验证通过后 getValidate() 返回 geetest_challenge / geetest_validate / geetest_seccode。 */
+function loadGeetest3Sdk() {
+  if (window.initGeetest) return Promise.resolve();
+  if (loadGeetest3Sdk._p) return loadGeetest3Sdk._p;
+  loadGeetest3Sdk._p = new Promise((resolve, reject) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://static.geetest.com/static/tools/gt.js';
+    sc.async = true;
+    const timer = setTimeout(() => reject(new Error('极验 SDK 加载超时')), 8000);
+    sc.onload = () => { clearTimeout(timer); window.initGeetest ? resolve() : reject(new Error('极验 3.0 SDK 未初始化')); };
+    sc.onerror = () => { clearTimeout(timer); reject(new Error('极验 SDK 加载失败')); };
+    document.head.appendChild(sc);
+  }).catch((e) => { loadGeetest3Sdk._p = null; throw e; });
+  return loadGeetest3Sdk._p;
+}
+
+function renderGeetest3(slot, opts) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer = null;
+    let onGlobalError = null;
+    const done = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (onGlobalError && window.removeEventListener) window.removeEventListener('error', onGlobalError);
+      fn(arg);
+    };
+    /* 必须带超时：3.0 的 gt.js 在接口异常时也可能不回调，否则页面会永久卡在加载中 */
+    timer = setTimeout(() => done(reject, new Error('极验初始化超时')), 8000);
+    onGlobalError = (ev) => {
+      const msg = String((ev && (ev.message || (ev.error && ev.error.message))) || '');
+      if (/网络错误|Network error/i.test(msg)) done(reject, new Error('极验接口返回错误'));
+    };
+    if (window.addEventListener) window.addEventListener('error', onGlobalError);
+    try {
+      window.initGeetest({
+        gt: opts.gt,
+        challenge: opts.challenge,
+        offline: Boolean(opts.offline),
+        new_captcha: true,
+        product: 'bind',
+        lang: 'zh-cn',
+      }, (captcha) => {
+        if (!captcha || typeof captcha.appendTo !== 'function') {
+          done(reject, new Error('极验 widget 无法挂载'));
+          return;
+        }
+        const box = $(captchaBoxId(slot));
+        if (!box) { done(reject, new Error('验证码容器不存在')); return; }
+        box.innerHTML = '';
+        const st = captchaSlots[slot];
+        st.geetest = captcha;
+        st.mode = 'geetest3';
+        st.offline = Boolean(opts.offline);
+        st.challenge = opts.challenge || '';
+        st.validate = null;
+        try { captcha.appendTo(box); } catch (e) { done(reject, e); return; }
+        captcha.onSuccess(() => {
+          try { st.validate = captcha.getValidate() || null; } catch (_) { st.validate = null; }
+        });
+        captcha.onError(() => { st.validate = null; });
+        done(resolve);
+      });
+    } catch (e) {
+      done(reject, e);
+    }
+  });
+}
+
 function renderGeetest(slot, captchaId) {
   return new Promise((resolve, reject) => {
     /* 必须带超时：initGeetest4 的回调在多种情况下不会触发
@@ -3206,6 +3280,20 @@ async function loadCaptcha(slot, force) {
       return;
     }
     st.disabled = false;
+    if (data.provider === 'geetest3' && data.gt && data.challenge) {
+      try {
+        await loadGeetest3Sdk();
+        await renderGeetest3(slot, { gt: data.gt, challenge: data.challenge, offline: data.offline });
+        return;
+      } catch (e) {
+        logLine('人机验证：' + e.message + '，已回退内置图形码');
+        if (data.fallback_token && data.fallback_image) {
+          renderBuiltinCaptcha(slot, data.fallback_token, data.fallback_image);
+          return;
+        }
+        throw e;
+      }
+    }
     if (data.provider === 'geetest' && data.captcha_id) {
       try {
         await loadGeetestSdk();
@@ -3240,7 +3328,7 @@ async function loadCaptcha(slot, force) {
 function resetCaptcha(slot) {
   const st = captchaSlots[slot];
   if (!st) return;
-  if (st.mode === 'geetest' && st.geetest) {
+  if ((st.mode === 'geetest' || st.mode === 'geetest3') && st.geetest) {
     st.validate = null;
     try { if (typeof st.geetest.reset === 'function') st.geetest.reset(); } catch (_) {}
     return;
@@ -3264,6 +3352,16 @@ function captchaFields(slot) {
       gen_time: v.gen_time || '',
     };
   }
+  if (st.mode === 'geetest3') {
+    /* 3.0 的三个字段名固定；offline 时 validate 由极验 SDK 在本地生成 */
+    const v = st.validate || {};
+    return {
+      geetest_challenge: v.geetest_challenge || '',
+      geetest_validate: v.geetest_validate || '',
+      geetest_seccode: v.geetest_seccode || '',
+      geetest_offline: st.offline ? true : false,
+    };
+  }
   const input = $(captchaInputId(slot));
   return { captcha_token: st.token || '', captcha_answer: input ? input.value.trim() : '' };
 }
@@ -3276,6 +3374,12 @@ function ensureCaptcha(slot) {
     if (st.validate && st.validate.lot_number) return true;
     toast('请先完成人机验证', 'error');
     try { if (st.geetest && typeof st.geetest.showCaptcha === 'function') st.geetest.showCaptcha(); } catch (_) {}
+    return false;
+  }
+  if (st.mode === 'geetest3') {
+    if (st.validate && st.validate.geetest_validate) return true;
+    toast('请先完成人机验证', 'error');
+    if (st.geetest && typeof st.geetest.reset === 'function') { try { st.geetest.reset(); } catch (_) {} }
     return false;
   }
   if (st.mode === 'none') return true;              // 还没加载出来，交给服务端判定
