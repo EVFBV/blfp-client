@@ -1571,7 +1571,16 @@ select option { background: #0c0d18; color: var(--text); padding: 8px; }
 .captcha-box {
   min-height: 44px; padding: 6px 8px;
   border-radius: 8px;
-  border: 1px dashed rgba(255, 255, 255, 0.12);
+  /* 这里**故意不画边框**，尤其不能用虚线。
+     原因（用户实测定位到的卡顿元凶）：收起动画要改这个盒子的 height，
+     而虚线边框必须**沿周长重新生成虚线图案**再栅格化 ——
+     高度每变一帧，周长就变一次，边框就得整圈重画一次；
+     加上 border-radius 还要沿圆角对齐虚线相位，是纯 CPU 的路径描边，
+     没法交给合成层。于是掉帧，看起来就是"收起时卡一下"。
+     实线边框便宜得多，虚线 + 圆角在尺寸动画里是最贵的一种组合。
+     去掉边框后，这个盒子在动画期间只剩一块纯色圆角矩形要重绘，代价可以忽略。
+
+     注意：不要为了"好看"把它换成 dashed/dotted，有测试守着这条。 */
   background: rgba(255, 255, 255, 0.02);
   font-size: .8rem; color: var(--text3);
   display: flex; align-items: center; justify-content: center; gap: 8px;
@@ -1613,7 +1622,8 @@ select option { background: #0c0d18; color: var(--text); padding: 8px; }
 .captcha-switch a { color: hsl(28, 90%, 60%); cursor: pointer; text-decoration: underline; opacity: .9; }
 .captcha-switch a:hover { opacity: 1; }
 
-[data-theme="light"] .captcha-box { border-color: rgba(0, 0, 0, 0.12); background: rgba(0, 0, 0, 0.02); }
+/* 只留背景色：.captcha-box 已经没有边框了，再写 border-color 是死写入 */
+[data-theme="light"] .captcha-box { background: rgba(0, 0, 0, 0.02); }
 [data-theme="light"] .captcha-input { background: #fff; border-color: rgba(0, 0, 0, 0.14); }
 
 

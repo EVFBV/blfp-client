@@ -305,3 +305,42 @@ test('收起用同一份过渡常量，不允许各处写死的 magics 数字', 
   assert.ok(/CAPTCHA_FADE_MS/.test(body), '外层定时没有用 CAPTCHA_FADE_MS');
   assert.ok(/CAPTCHA_COLLAPSE_MS/.test(body), '内层定时没有用 CAPTCHA_COLLAPSE_MS');
 });
+
+/* ================= 收起动画必须"便宜"：不要虚线边框 ================= */
+
+/*
+ * 用户实测定位到的卡顿元凶（原话）：
+ *   "把那个人机验证边缘的虚线删掉，他是导致卡顿的元凶"
+ *
+ * 原理：收起动画要改 .captcha-box 的 height，而**虚线边框**必须沿周长重新
+ * 生成虚线图案再栅格化 —— 高度每变一帧周长就变一次，整圈边框都要重画；
+ * 再加上 border-radius 要沿圆角对齐虚线相位，这是纯 CPU 的路径描边，
+ * 没法交给合成层。虚线 + 圆角 + 尺寸动画是最贵的一种组合，掉帧就是"卡一下"。
+ */
+test('.captcha-box 不能用虚线/点线边框（尺寸动画里每帧都要重画整圈，是卡顿元凶）', () => {
+  const css = stripCssLocal(readCss());
+  /* 取出 .captcha-box 的规则体（不含 :empty / .captcha-done 那些派生选择器） */
+  const m = css.match(/(^|\})\s*\.captcha-box\s*\{([^}]*)\}/);
+  assert.ok(m, '找不到 .captcha-box 的规则');
+  const body = m[2];
+  assert.ok(!/dashed|dotted/i.test(body),
+    '.captcha-box 又用上了虚线/点线边框 —— 收起动画期间它每帧都要重画整圈虚线，'
+    + '这正是用户实测到的"卡一下"。要边框就用实线（solid），或者干脆不画。');
+});
+
+test('整个样式表里都不该有虚线边框（唯一那条已删除）', () => {
+  const css = stripCssLocal(readCss());
+  const hits = css.split('}').map((r) => r.split('{')[0]).filter((sel) => /dashed|dotted/i.test(sel));
+  /* 只看声明体，不看选择器：上面拿到的其实是"声明体开头"，这里直接整体扫一遍更稳 */
+  const all = css.match(/border[^;]*:\s*[^;]*(?:dashed|dotted)[^;]*;/gi) || [];
+  assert.deepEqual(all, [],
+    '样式表里还有虚线/点线边框：' + all.join(' | ')
+    + '（人机验证那条是导致收起卡顿的元凶，已按用户要求删除）');
+});
+
+function stripCssLocal(css) {
+  return css.replace(/\/\*[\s\S]*?\*\//g, '');
+}
+function readCss() {
+  return fs.readFileSync(path.join(ROOT, 'renderer', 'style.css'), 'utf8');
+}
