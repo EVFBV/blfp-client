@@ -77,9 +77,10 @@ jobs:
         shell: powershell
         run: |
           $ver = "${{ steps.ver.outputs.v }}"
-          $outDir = (node -p "require('./package.json').build.directories.output.split('${version}').join(require('./package.json').version)")
-          Write-Host "build output dir: $outDir"
-          $root = Join-Path $outDir "win-unpacked"
+          # 目录名规则与 package.json 的 build.directories.output 一致（build_v + 版本号），
+          # 那条由测试守着，别在这里另写一套；也**不要**在这里写美元大括号，
+          # PowerShell 会把双引号里的变量引用展开成空串（踩过）。
+          $root = Join-Path "build_v$ver" "win-unpacked"
           if (-not (Test-Path $root)) { throw "unpacked build not found: $root" }
           $required = @(
             (Join-Path $root "BLFP.exe"),
@@ -136,8 +137,7 @@ jobs:
         shell: powershell
         run: |
           $ver = "${{ steps.ver.outputs.v }}"
-          $outDir = (node -p "require('./package.json').build.directories.output.split('${version}').join(require('./package.json').version)")
-          $clientOutput = Join-Path $outDir "win-unpacked"
+          $clientOutput = Join-Path "build_v$ver" "win-unpacked"
           $payloadDir = Join-Path "installer" "payload"
           if (Test-Path $payloadDir) { Remove-Item -Recurse -Force $payloadDir }
           New-Item -ItemType Directory -Path $payloadDir -Force | Out-Null

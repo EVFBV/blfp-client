@@ -103,3 +103,36 @@ test('CI 会在产物里断言 PRE 有调试器、正式版没有', () => {
   assert.ok(yml.includes('PRE 版本') && yml.includes('缺少布局调试器'), 'PRE 断言缺失');
   assert.ok(yml.includes('正式版本') && yml.includes('混入了布局调试器'), '正式版断言缺失');
 });
+
+/* ---------- 打包输出目录：工作流与 package.json 必须一致 ---------- */
+
+test('package.json 的输出目录跟随版本号，不写死', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const out = pkg.build && pkg.build.directories && pkg.build.directories.output;
+  assert.ok(out, '缺少 build.directories.output');
+  /* 曾经写死成 build_v2.3.5-pre，与工作流的 build_v$ver 靠"碰巧同名"才对上，
+     换版本号就构建失败。这里禁止再出现硬编码的版本号。 */
+  assert.equal(/\d+\.\d+\.\d+/.test(out), false,
+    '输出目录里写死了版本号（' + out + '），应为 build_v${version}');
+  /* 必须是 electron-builder 的 ${version} 宏，或完全不含版本占位 */
+  assert.ok(out.includes('${version}'), '输出目录应使用 ${version} 宏，实际：' + out);
+});
+
+test('工作流的目录名规则与 package.json 一致', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const out = pkg.build.directories.output;
+  const yml = fs.readFileSync(WF, 'utf8');
+
+  /* package.json 用 build_v${version} → 展开后就是 build_v<版本号>，
+     工作流用 "build_v$ver"（$ver 来自 tag 名）。两者必须等价。 */
+  const expected = out.replace('${version}', '\\d+\\.\\d+\\.\\d+[^"]*');
+  assert.ok(/^build_v/.test(out), '输出目录前缀变了，工作流会找不到产物：' + out);
+  assert.ok(yml.includes('"build_v$ver"'),
+    '工作流没使用 build_v$ver，与 package.json 的 ' + out + ' 不一致');
+
+  /* 工作流里不能再用 node 解析 package.json 的模板串：
+     PowerShell 会把双引号里的 ${version} 当变量展开成空串，导致目录名是垃圾。 */
+  assert.equal(/node\s+-(p|e)\s+"[^"]*\$\{/.test(yml), false,
+    '工作流里在 PowerShell 字符串中出现了 ${...}，会被 PowerShell 展开成空串');
+  assert.equal(yml.includes('$outDir'), false, '还有残留的 $outDir 变量');
+});
