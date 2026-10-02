@@ -44,6 +44,14 @@ function extractConsts() {
   return out.join('\n');
 }
 
+/* 去掉 JS 注释再断言 —— 之前踩过：说明里写了一句"不要写 box.innerHTML = ''"，
+   结果把它自己匹配上了。断言必须只看代码。 */
+function stripJsComments(code) {
+  return code
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+
 /* ---------- 按大括号配对抽出真实函数（不重写一份，否则改了也测不出来） ---------- */
 function extractFn(name) {
   const i = APP.indexOf(`function ${name}(`);
@@ -440,4 +448,38 @@ test('CSS 里凡是会托住高度的属性，JS 都必须归零（两处必须�
       '.captcha-box 声明了 ' + label + '（' + decl.trim() + '，会在竖直方向托住高度），'
       + '但收起逻辑没有把 ' + prop + ' 归零 —— 高度动画会被它夹住收不动');
   }
+});
+
+/* ================= "最后还是会卡顿一下（顿挫）" =================
+ *
+ * 收尾时写 box.innerHTML = '' 会**销毁极验那个 iframe**。
+ * 删 iframe 要让浏览器拆掉它的渲染上下文/子进程，是主线程上的重活 ——
+ * 动画本身很顺，偏偏在最后这一下顿住。
+ *
+ * 所以规则是：动画里绝不销毁节点；清理残留节点由 resetCaptchaBoxVisual 负责
+ * （所有渲染入口都会先调它，那时本来就在加载新控件，顿一下不会被察觉）。
+ */
+test('收起动画的收尾**不能**销毁容器内容（销毁极验 iframe = 最后那一下顿挫）', () => {
+  const body = stripJsComments(extractFn('playCaptchaDone'));
+  assert.ok(!/box\.innerHTML\s*=/.test(body),
+    '收起动画里清空了容器 —— 那会销毁极验 iframe，浏览器要拆渲染上下文，'
+    + '动画末尾就会顿一下（用户报的"最后还是会卡顿一下（顿挫）"）。'
+    + '节点留着即可：盒子已 display:none 且高度为 0，看不见也不占布局；'
+    + '清理交给 resetCaptchaBoxVisual。');
+});
+
+test('清理残留节点的职责在 resetCaptchaBoxVisual（唯一一处）', () => {
+  const body = stripJsComments(extractFn('resetCaptchaBoxVisual'));
+  assert.ok(/box\.innerHTML\s*=\s*''/.test(body),
+    'resetCaptchaBoxVisual 没有清掉上一次残留的节点 —— '
+    + '收起时刻意不销毁 iframe，这里不清的话下次渲染会叠在旧控件上');
+});
+
+test('refreshCaptchaBox 不能被残留节点骗过去（captcha-done 的盒子要当成空的）', () => {
+  const i = APP.indexOf('function refreshCaptchaBox');
+  assert.ok(i > 0, '找不到 refreshCaptchaBox');
+  const body = stripJsComments(APP.slice(i, i + 900));
+  assert.ok(/captcha-done/.test(body),
+    'refreshCaptchaBox 只看 childElementCount —— 收起后残留的节点会让它以为"已经有验证码了"，'
+    + '从此再也不加载；必须把 captcha-done 的盒子当成空的');
 });

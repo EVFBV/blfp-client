@@ -3342,6 +3342,10 @@ function resetCaptchaBoxVisual(slot) {
   box.classList.remove('captcha-done', 'captcha-playing');
   /* 用与收起时同一份清单来清，两边不会漂移 */
   clearCaptchaCollapseStyles(box);
+  /* 顺手清掉上一次残留的节点（含极验那个 iframe）。
+     收起动画里**不做**这件事 —— 那会在动画末尾造成顿挫，见 playCaptchaDone 的注释。
+     所有渲染入口都会先调本函数，所以这里是清理的唯一位置。 */
+  box.innerHTML = '';
   const labelEl = captchaLabelEl(box);
   if (labelEl) {
     labelEl.style.display = '';
@@ -3455,7 +3459,13 @@ function playCaptchaDone(slot) {
       if (labelEl) labelEl.style.display = 'none';
       clearCaptchaCollapseStyles(box);
       clearCaptchaCollapseStyles(labelEl);
-      box.innerHTML = '';
+      /* 这里**故意不写 box.innerHTML = ''**。
+         极验控件是个 iframe，删掉它要让浏览器拆掉整个渲染上下文/子进程，
+         是主线程上的重活 —— 动画本身很顺，偏偏在收尾这一下顿住。
+         用户报的就是"最后还是会卡顿一下（顿挫）"。
+         残留的节点留在已经 display:none、高度为 0 的盒子里完全看不见、也不占布局，
+         等下次真正要渲染验证码时由 resetCaptchaBoxVisual 一并清掉 ——
+         那时本来就在加载新控件，顿一下不会被察觉。 */
       box.classList.remove('captcha-playing');
     }, CAPTCHA_COLLAPSE_MS + 40);
   }, CAPTCHA_FADE_MS);
@@ -3622,7 +3632,8 @@ function renderGeetest3(slot, opts) {
         }
         const box = resetCaptchaBoxVisual(slot);
         if (!box) { done(reject, new Error('验证码容器不存在')); return; }
-        box.innerHTML = '';
+        /* 清空已由 resetCaptchaBoxVisual 负责，这里不再重复写一次 */
+
         const st = captchaSlots[slot];
         st.geetest = captcha;
         st.mode = 'geetest3';
@@ -3791,8 +3802,11 @@ function refreshCaptchaBox(slot, attempt) {
   const box = $(captchaBoxId(slot));
   if (!st || !box) return Promise.resolve();
   const n = attempt || 0;
-  /* 已经有内容就别重渲染：否则会把用户已经填好/已通过验证的验证码清掉 */
-  if (box.childElementCount > 0) return Promise.resolve();
+  /* 已经有内容就别重渲染：否则会把用户已经填好/已通过验证的验证码清掉。
+     但 captcha-done 的盒子要当成空的 —— 它虽然还留着上一次的节点
+     （收起时故意不销毁，见 playCaptchaDone），可已经是"收起来"的状态，
+     不当成空的就会一直以为"已经有验证码了"，从此再也不加载。 */
+  if (box.childElementCount > 0 && !box.classList.contains('captcha-done')) return Promise.resolve();
   return loadCaptcha(slot, true).then(() => {
     const now = $(captchaBoxId(slot));
     /* 服务端关掉了人机验证：空白是正常的，不要白重试 */

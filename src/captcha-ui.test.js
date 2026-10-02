@@ -171,16 +171,23 @@ test('bug3 图形码填满 4 位后，答案必须留存下来（容器随后会
   assert.equal(sandbox.__slots.login.answer, 'AB12', '答案没有存进状态');
 });
 
-test('bug3 收起动画把容器清空后，提交仍能带上正确答案（核心回归）', async () => {
+test('bug3 收起动画结束后容器收起但不销毁节点，提交仍能带上正确答案（核心回归）', async () => {
   const { sandbox, inputs, groups } = makeEnv(BUILTIN);
   await sandbox.__load('login');
   await settle();
   const input = inputs['login-captcha-input'];
   input.value = 'AB12';
   input.fire('input');
-  /* 等收起动画走完：420ms 后开始收，再过 340ms 清空容器 */
+  /* 等收起动画走完（淡出 + 收起两段） */
   await sleep(900);
-  assert.equal(groups.login.box.innerHTML, '', '前提：动画结束后容器应已清空（输入框随之消失）');
+  /* 收起之后容器是"藏起来"的状态：加了 captcha-done、高度归零、内容被隐藏。
+     但节点**故意留着不销毁** —— 删掉极验那个 iframe 会让浏览器拆渲染上下文，
+     动画末尾就会顿一下（用户报的"最后还是会卡顿一下"）。
+     清理残留节点的职责挪到了 resetCaptchaBoxVisual，等下次真渲染时再做。 */
+  assert.equal(groups.login.box.classList.contains('captcha-done'), true,
+    '前提：动画结束后容器应已收起（captcha-done）');
+  assert.notEqual(groups.login.box.innerHTML, '',
+    '容器在收起时被清空了 —— 销毁极验 iframe 正是动画末尾顿挫的原因');
   assert.equal(sandbox.__slots.login.answer, 'AB12', '答案应仍在状态里');
 
   const f = sandbox.__fields('login');

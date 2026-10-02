@@ -99,7 +99,16 @@ function makeEnv(opts) {
   const o = opts || {};
   const log = [];
   const timers = [];
-  const box = { childElementCount: o.children || 0 };
+  /* 盒桩要带上 classList：refreshCaptchaBox 会看 captcha-done 来决定是否当成空盒 */
+  const box = {
+    childElementCount: o.children || 0,
+    classList: {
+      _s: new Set(o.classes || []),
+      contains(c) { return this._s.has(c); },
+      add(c) { this._s.add(c); },
+      remove(c) { this._s.delete(c); },
+    },
+  };
   const st = { disabled: false };
   const sandbox = {
     captchaSlots: { login: st },
@@ -126,6 +135,16 @@ test('框里已经有东西时不重复加载（不能把用户填好的验证�
   const env = makeEnv({ children: 2 });
   await env.sandbox.refreshCaptchaBox('login');
   assert.deepEqual(env.log, [], '框里已有内容却重新加载了，会清掉用户已通过/已填写的验证码');
+});
+
+test('已收起（captcha-done）的框即使还留着节点，也必须重新加载', async () => {
+  /* 收起动画故意**不**销毁极验 iframe —— 删它会在动画末尾顿挫（用户报的"最后还是会卡顿一下"）。
+     所以盒子里会残留上一次的节点。不能被这个残留骗过去以为"已经有验证码了"，
+     否则收起一次之后就再也不加载了。 */
+  const env = makeEnv({ children: 2, classes: ['captcha-done'], afterLoad: 1 });
+  await env.sandbox.refreshCaptchaBox('login');
+  assert.ok(env.log.includes('load:login:true'),
+    '已收起的框残留着节点，被当成"已有验证码"而不再加载 —— 收起之后就再也出不来验证码了');
 });
 
 test('框是空的时候就加载，成功后不再重试', async () => {
