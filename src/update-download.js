@@ -17,6 +17,19 @@ const DEFAULT_MIRRORS = [
 ];
 
 /** 拼出某个镜像下的完整地址 */
+/*
+ * 解析一个源的最终下载地址。两种源：
+ *   - { name, fullUrl }：地址是完整的，直接用它。
+ *     自家下载服务器属于这种 —— 它的路径（/download/<文件名>）跟 GitHub 的
+ *     releases/download/... 完全不同，套不上"前缀拼接"。
+ *   - { name, prefix }：把 GitHub 原始地址拼到加速前缀后面。
+ */
+function resolveMirrorUrl(mirror, url) {
+  const m = mirror || {};
+  if (typeof m.fullUrl === 'string' && m.fullUrl) return m.fullUrl;
+  return mirrorUrl(m.prefix, url);
+}
+
 function mirrorUrl(prefix, url) {
   if (!prefix) return url;
   return prefix.replace(/\/+$/, '') + '/' + String(url).replace(/^\/+/, '');
@@ -35,7 +48,7 @@ async function probeMirrors(options) {
   const log = typeof o.log === 'function' ? o.log : () => {};
 
   const probeOne = async (mirror) => {
-    const target = mirrorUrl(mirror.prefix, url);
+    const target = resolveMirrorUrl(mirror, url);
     const started = Date.now();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -52,9 +65,9 @@ async function probeMirrors(options) {
       const ok = res.status === 200 || res.status === 206;
       /* 探针只读了一个字节，把连接放掉，别一直占着 */
       try { if (res.body && res.body.cancel) await res.body.cancel(); } catch (e) {}
-      return { name: mirror.name, prefix: mirror.prefix, url: target, ok, ms, status: res.status };
+      return { name: mirror.name, prefix: mirror.prefix, fullUrl: mirror.fullUrl, url: target, ok, ms, status: res.status };
     } catch (e) {
-      return { name: mirror.name, prefix: mirror.prefix, url: target, ok: false, ms: Date.now() - started, error: (e && e.message) || String(e) };
+      return { name: mirror.name, prefix: mirror.prefix, fullUrl: mirror.fullUrl, url: target, ok: false, ms: Date.now() - started, error: (e && e.message) || String(e) };
     } finally {
       clearTimeout(timer);
     }
@@ -67,7 +80,7 @@ async function probeMirrors(options) {
   dead.forEach((r) => log(`镜像不可用：${r.name}（${r.error || ('HTTP ' + r.status)}）`));
   /* 一个都不通时，把原始直连放在最前面：至少让下载去试一次，
      而不是因为"探测失败"就直接告诉用户没网。 */
-  const fallback = results.filter((r) => !r.prefix);
+  const fallback = results.filter((r) => !r.prefix && !r.fullUrl);
   return usable.length ? usable : fallback;
 }
 
@@ -176,4 +189,5 @@ async function downloadOne(options) {
   }
 }
 
-module.exports = { DEFAULT_MIRRORS, mirrorUrl, probeMirrors, downloadWithFallback, downloadOne };
+module.exports = {
+  resolveMirrorUrl, DEFAULT_MIRRORS, mirrorUrl, probeMirrors, downloadWithFallback, downloadOne };

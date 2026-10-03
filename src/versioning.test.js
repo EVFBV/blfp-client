@@ -6,7 +6,7 @@
  * 这里盯三件事：
  *   1) 升位算得对不对（新功能=次版本，只修 bug=修订号，不兼容=主版本）；
  *   2) 新号必须严格大于已发布的 tag（版本号回退会让老用户永远收不到更新）；
- *   3) 这套规则**只有一处实现**（scripts/version-lib.js），
+ *   3) 这套规则**只有一处实现**（src/version-lib.js），
  *      并且它的比较语义必须跟 renderer/app.js 里的 compareVersions 一致 ——
  *      否则"哪个版本更新"这件事在两处会给出不同答案（本项目的老毛病：写两处必漂移）。
  */
@@ -17,7 +17,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
-const lib = require(path.join(ROOT, 'scripts', 'version-lib.js'));
+const lib = require(path.join(ROOT, 'src', 'version-lib.js'));
 const APP = fs.readFileSync(path.join(ROOT, 'renderer', 'app.js'), 'utf8');
 const WORKFLOW = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8');
 const BUMP = fs.readFileSync(path.join(ROOT, 'scripts', 'bump-version.js'), 'utf8');
@@ -91,8 +91,8 @@ test('按语义升位的判断必须由脚本做，不能靠人每次手写版�
   for (const flag of ['--pre', '--pre-next', '--promote']) {
     assert.ok(BUMP.includes(flag), 'bump-version.js 不支持 ' + flag);
   }
-  assert.ok(/require\(.\.\/version-lib.\)/.test(BUMP),
-    'bump-version.js 没有复用 scripts/version-lib.js —— 规则实现了两份，一定会漂移');
+  assert.ok(/require\(.\.\.\/src\/version-lib.\)/.test(BUMP),
+    'bump-version.js 没有复用 src/version-lib.js —— 规则实现了两份，一定会漂移');
 });
 
 /* ---------- 防漂移：和 renderer 里的比较语义必须一致 ---------- */

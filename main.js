@@ -9,6 +9,7 @@ const FrpcManager = require('./src/frpc-manager');
 const MotdBroadcaster = require('./src/motd-broadcast');
 const EasyTierManager = require('./src/easytier-manager');
 const { downloadWithFallback } = require('./src/update-download');
+const { fetchServerRelease, serverDownloadUrl } = require('./src/update-source');
 const { startSilentInstaller } = require('./src/update-launch');
 
 /* 后台/遮挡时不挂起渲染，避免恢复窗口后出现黑屏 */
@@ -276,15 +277,22 @@ ipcMain.handle('open-external', async (_e, url) => {
  * 注意：安装器**只有**在被这样带参调用时才是无头的；
  * 用户自己双击安装器仍然是正常的图形界面安装。
  */
-function buildUpdateMirrors() {
-  /* 直接把原始地址拼在前面的加速服务。直连放第一，但排序是按实测速度来的，
+function buildUpdateMirrors(assetName) {
+  /* 源的顺序只是"初始顺序"，真正用哪个是按实测速度排的 ——
      所以"自动选择能用的镜像源"是真的测过再选，而不是写死顺序。 */
-  return [
+  const mirrors = [
     { name: 'GitHub 直连', prefix: '' },
     { name: 'ghfast.top', prefix: 'https://ghfast.top/' },
     { name: 'ghproxy.net', prefix: 'https://ghproxy.net/' },
     { name: 'gh-proxy.com', prefix: 'https://gh-proxy.com/' },
   ];
+  /* 自家下载服务器：它在国内，通常比所有 GitHub 加速都快。
+     它属于"完整地址"型源（路径是 /download/<文件名>，套不上海外加速的前缀拼接），
+     所以用 fullUrl 而不是 prefix。下载失败会自动落到下面的其它源。 */
+  if (assetName) {
+    mirrors.unshift({ name: 'BLFP 下载服务器', fullUrl: serverDownloadUrl(assetName) });
+  }
+  return mirrors;
 }
 
 /* 安装程序放在临时目录；同名会覆盖，避免堆积一堆 200MB 的安装包 */
@@ -324,7 +332,7 @@ ipcMain.handle('start-update', async (evt, opts) => {
       dest,
       fsImpl: fs,
       fetchImpl: fetch,
-      mirrors: buildUpdateMirrors(),
+      mirrors: buildUpdateMirrors(assetName),
       onProgress: (p) => send({ phase: 'download', percent: p.percent, received: p.received, total: p.total }),
       log: (m) => console.log('[更新] ' + m),
     });
@@ -395,10 +403,28 @@ ipcMain.handle('read-update-status', async () => {
 ipcMain.handle('check-github-update', async (_e, channel) => {
   /* 更新渠道：'stable'（正式版，只拉最新正式 release）| 'test'（测试版，拉最新 release，含 pre 测试版）
      GitHub 的 /releases/latest 永远不会返回 pre-release，所以测试渠道必须列全量再挑。 */
+  const wantBeta = channel === 'test';
+  /* 先问自家下载服务器：它在国内、快，而且 GitHub API 在国内经常连不上。
+     ⚠️ 但它**不看渠道**（它的"最新"可能就是预发布），
+     所以过滤交给 fetchServerRelease —— 正式渠道一律拒绝预发布，
+     否则正式用户会被推去测试版。它挑不出合适的就返回 null，我们回退 GitHub。 */
+  try {
+    const fromServer = await fetchServerRelease({
+      fetchImpl: fetch,
+      channel: wantBeta ? 'test' : 'stable',
+      log: logLine,
+    });
+    if (fromServer) {
+      logLine('更新来源：BLFP 下载服务器 ' + fromServer.latestVersion);
+      return fromServer;
+    }
+  } catch (e) {
+    logLine('下载服务器不可用，回退 GitHub：' + ((e && e.message) || e));
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12000);
   try {
-    const wantBeta = channel === 'test';
     const url = wantBeta
       ? 'https://api.github.com/repos/EVFBV/BLFP-client/releases?per_page=30'
       : GITHUB_RELEASE_API;

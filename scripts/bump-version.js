@@ -18,7 +18,7 @@
  *   node scripts/bump-version.js --promote          # 预发布转正式版（号不变，只去掉 -pre）
  *   node scripts/bump-version.js 2.4.0              # 也可以直接给版本号（会校验单调递增）
  *
- * 规则实现只在 scripts/version-lib.js 一处，这里只负责写文件。
+ * 规则实现只在 src/version-lib.js 一处（放在 src 是为了打进客户端，主进程也要用），这里只负责写文件。
  * 做的事：
  *   1) 三处 package.json 的 version
  *   2) 三处 package-lock.json 的 version 与 packages[""].version
@@ -28,7 +28,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const lib = require('./version-lib');
+const lib = require('../src/version-lib');
 
 const ROOT = path.resolve(__dirname, '..');
 
