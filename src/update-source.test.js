@@ -182,3 +182,25 @@ test('版本发现必须先问下载服务器，失败再回退 GitHub', () => {
   assert.ok(githubAt > 0, '版本发现没有保留 GitHub 回退');
   assert.ok(serverAt < githubAt, '应该先问下载服务器再回退 GitHub（国内 GitHub API 经常连不上）');
 });
+
+/* 注释里提到 logLine 不该把断言弄红（踩过：断言被自己写的注释骗到）。
+   captcha-recover.test.js 里有同样的处理。 */
+function stripJsComments(code) {
+  return code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+test('主进程不能调用渲染层才有的 logLine（会在运行时直接抛）', () => {
+  /* 实测事故：v2.4.0-pre 点「检查更新」直接报
+     Error invoking remote method 'check-github-update':
+     ReferenceError: logLine is not defined
+     —— logLine 只定义在 renderer/app.js，主进程里根本没有。
+     当时的 185 条测试全绿，因为它们只断言"代码结构"，没人真的执行过这段。
+     同类错误在 app.js 那边犯过一次（见 captcha-ui.test.js 的守卫），这是第二次。 */
+  const code = stripJsComments(MAIN);
+  if (/function\s+logLine\b/.test(code)) return; /* main.js 自己定义了就不管 */
+  assert.equal(/\blogLine\b/.test(code), false,
+    "main.js 用了 logLine —— 它只在 renderer/app.js 里定义，主进程调用会抛 " +
+    "ReferenceError: logLine is not defined，检查更新直接失败。" +
+    "main.js 的日志约定是 console.log('[更新] ' + m)");
+});
+

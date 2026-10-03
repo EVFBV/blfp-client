@@ -412,14 +412,14 @@ ipcMain.handle('check-github-update', async (_e, channel) => {
     const fromServer = await fetchServerRelease({
       fetchImpl: fetch,
       channel: wantBeta ? 'test' : 'stable',
-      log: logLine,
+      log: (m) => console.log('[更新] ' + m),
     });
     if (fromServer) {
-      logLine('更新来源：BLFP 下载服务器 ' + fromServer.latestVersion);
+      console.log('[更新] 更新来源：BLFP 下载服务器 ' + fromServer.latestVersion);
       return fromServer;
     }
   } catch (e) {
-    logLine('下载服务器不可用，回退 GitHub：' + ((e && e.message) || e));
+    console.log('[更新] 下载服务器不可用，回退 GitHub：' + ((e && e.message) || e));
   }
 
   const controller = new AbortController();
