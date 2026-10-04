@@ -155,10 +155,14 @@ test('结构不认识时返回 null，交给调用方回退 GitHub', () => {
 test('下载源里必须包含自家下载服务器，且它是"完整地址"型', () => {
   const i = MAIN.indexOf('function buildUpdateMirrors');
   assert.ok(i > 0, '找不到 buildUpdateMirrors');
-  const body = MAIN.slice(i, i + 1200);
+  const body = MAIN.slice(i, i + 1600);
   assert.ok(/BLFP 下载服务器/.test(body), '下载源列表里没有自家下载服务器');
-  assert.ok(/fullUrl:\s*serverDownloadUrl\(assetName\)/.test(body),
+  assert.ok(/fullUrl:\s*serverDownloadUrl\(assetName,\s*base\)/.test(body),
     '下载服务器必须用 fullUrl 表达 —— 它的路径跟 GitHub 不同，套不上海外加速的前缀拼接');
+  /* 关键：base 必须从主地址取，否则会往候选里塞写死的 http 地址，
+     而 downloadWithFallback 内部不重新校验协议 = 明文下载后门 */
+  assert.ok(/new URL\(primaryUrl\)\.origin/.test(body),
+    '镜像候选没有跟随主地址的协议 —— 会在"只允许 https"的守卫旁边开明文后门');
 });
 
 test('完整地址型源能被解析出来（不能只支持前缀型）', () => {

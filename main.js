@@ -8,6 +8,7 @@ const { scanJavaPorts } = require('./src/port-scanner');
 const FrpcManager = require('./src/frpc-manager');
 const MotdBroadcaster = require('./src/motd-broadcast');
 const McStatusProxy = require('./src/mc-status-proxy');
+const { createMirrorFetch } = require('./src/mirror-fetch');
 const EasyTierManager = require('./src/easytier-manager');
 const { downloadWithFallback } = require('./src/update-download');
 const { fetchServerRelease, serverDownloadUrl } = require('./src/update-source');
@@ -278,7 +279,7 @@ ipcMain.handle('open-external', async (_e, url) => {
  * 注意：安装器**只有**在被这样带参调用时才是无头的；
  * 用户自己双击安装器仍然是正常的图形界面安装。
  */
-function buildUpdateMirrors(assetName) {
+function buildUpdateMirrors(assetName, primaryUrl) {
   /* 源的顺序只是"初始顺序"，真正用哪个是按实测速度排的 ——
      所以"自动选择能用的镜像源"是真的测过再选，而不是写死顺序。 */
   const mirrors = [
@@ -289,11 +290,60 @@ function buildUpdateMirrors(assetName) {
   ];
   /* 自家下载服务器：它在国内，通常比所有 GitHub 加速都快。
      它属于"完整地址"型源（路径是 /download/<文件名>，套不上海外加速的前缀拼接），
-     所以用 fullUrl 而不是 prefix。下载失败会自动落到下面的其它源。 */
+     所以用 fullUrl 而不是 prefix。下载失败会自动落到下面的其它源。
+
+     ⚠️ base 必须取**主地址的 origin**，不能再用写死的 http 那个：
+     downloadWithFallback 内部不会重新校验协议，塞一个 http 进去
+     等于在"只允许 https"的守卫旁边开了个明文后门。 */
   if (assetName) {
-    mirrors.unshift({ name: 'BLFP 下载服务器', fullUrl: serverDownloadUrl(assetName) });
+    let base;
+    try { base = new URL(primaryUrl).origin; } catch (e) { base = undefined; }
+    mirrors.unshift({ name: 'BLFP 下载服务器', fullUrl: serverDownloadUrl(assetName, base) });
   }
   return mirrors;
+}
+
+/*
+ * 更新下载用的 fetch。
+ *
+ * 自家下载服务器没有域名（阿里云按 SNI 拦未备案域名），拿不到 CA 签发的证书，
+ * 只能用自签证书。全局 fetch 没法注入自定义 CA，所以对镜像那台主机改用
+ * node:https 实现（src/mirror-fetch.js），**只额外信任镜像那一张证书**。
+ *
+ * 其它源（GitHub 直连、各家加速）照常走系统信任链，不做任何放宽 ——
+ * 绝不能图省事去开 ignore-certificate-errors，那等于对所有源都关掉校验。
+ */
+const MIRROR_HOSTS = new Set(['47.103.142.240']);
+
+function loadMirrorCa() {
+  try {
+    return fs.readFileSync(path.join(__dirname, 'assets', 'blfp-mirror-ca.pem'), 'utf8');
+  } catch (e) {
+    /* 还没装镜像证书：镜像的 https 会连不上（自签不被信任），
+       但其它源不受影响，更新仍然能走通 */
+    return null;
+  }
+}
+
+const mirrorFetchImpl = (() => {
+  const ca = loadMirrorCa();
+  if (!ca) return null;
+  try {
+    return createMirrorFetch({ ca });
+  } catch (e) {
+    console.error('[更新] 镜像证书加载失败，将不使用自建下载服务器：', e.message);
+    return null;
+  }
+})();
+
+function updateFetch(url, opts) {
+  try {
+    const parsed = new URL(url);
+    if (mirrorFetchImpl && parsed.protocol === 'https:' && MIRROR_HOSTS.has(parsed.hostname)) {
+      return mirrorFetchImpl(url, opts);
+    }
+  } catch (e) { /* 地址不合法就交给下面的 fetch 去报错 */ }
+  return fetch(url, opts);
 }
 
 /* 安装程序放在临时目录；同名会覆盖，避免堆积一堆 200MB 的安装包 */
@@ -332,8 +382,8 @@ ipcMain.handle('start-update', async (evt, opts) => {
       url,
       dest,
       fsImpl: fs,
-      fetchImpl: fetch,
-      mirrors: buildUpdateMirrors(assetName),
+      fetchImpl: updateFetch,
+      mirrors: buildUpdateMirrors(assetName, url),
       onProgress: (p) => send({ phase: 'download', percent: p.percent, received: p.received, total: p.total }),
       log: (m) => console.log('[更新] ' + m),
     });

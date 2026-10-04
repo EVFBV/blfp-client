@@ -52,8 +52,9 @@ test('客户端拉安装器用的隐藏参数必须和安装器认的完全一�
 test('start-update 用 update-download 模块下载（挑源与换源都在里面）', () => {
   const body = handler('start-update');
   assert.ok(/downloadWithFallback\(/.test(body), '没有用统一的下载器，挑源/换源就无从谈起');
-  /* 现在要带上 assetName：自家下载服务器是按文件名拼 /download/<file> 的 */
-  assert.ok(/mirrors:\s*buildUpdateMirrors\(assetName\)/.test(body), '没有传入镜像源候选（或没带上 assetName）');
+  /* 现在要带上 assetName：自家下载服务器是按文件名拼 /download/<file> 的；
+     还要带上主地址 url —— 镜像候选必须跟随主地址协议，不能写死 http */
+  assert.ok(/mirrors:\s*buildUpdateMirrors\(assetName,\s*url\)/.test(body), '没有传入镜像源候选（或没带上 assetName / 主地址）');
   assert.ok(/onProgress:/.test(body), '没有把下载进度接出来 —— 用户就看不到进度条');
 });
 
