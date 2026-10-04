@@ -767,7 +767,6 @@ function enterApp() {
   applyUserAppearance(state.user);
   fillUserPanel();
   const welcome = state.user.role === 'sponsor' ? `感谢赞助，${state.user.username}！欢迎回到 BLFP。` : `欢迎回来，${state.user.username}。`;
-  if ($('home-welcome')) $('home-welcome').textContent = welcome;
   if ($('us-logged-in-as')) $('us-logged-in-as').textContent = '登录为: ' + state.user.username;
   logLine(welcome);
   const home = $('page-home');
@@ -785,12 +784,62 @@ function enterApp() {
   loadAnnouncement();
 }
 
+/* ============ 主页的"当前状态" ============
+   打开软件时用户第一眼要回答的只有一个问题：我现在能不能玩、房间号是多少。
+   以前主页只有一句欢迎语和两个按钮，这三个问题一个都答不上来。
+   这里只读 state，不自己存一份状态 —— 免得两处漂移。 */
+function renderHomeStatus() {
+  const box = $('home-status');
+  if (!box) return;
+
+  const inRoom = Boolean(state.role && state.roomCode);
+  if (!inRoom) {
+    const name = state.user?.username || '';
+    box.innerHTML = `
+      <div class="hs-idle">
+        <div class="hs-idle-title">${escapeHtml(greetingText() + (name ? '，' + name : ''))}</div>
+        <div class="hs-idle-sub">现在没有联机 · 建个房间，把房间号发给朋友就能一起玩</div>
+        <div class="hs-actions">
+          <button class="btn btn-primary" onclick="openStartHostDialog()">开始联机</button>
+          <button class="btn btn-outline" onclick="navTo('rooms')">看看别人的房间</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  const isHost = state.role === 'host';
+  const total = Array.isArray(state.members) && state.members.length ? state.members.length : 1;
+  const max = Number(state.maxMembers) || 8;
+  const modeText = state.mode === 'frp' ? 'frp 中转' : 'EasyTier 组网';
+
+  box.innerHTML = `
+    <div class="hs-live">
+      <div class="hs-live-head">
+        <span class="hs-dot"></span>
+        <span class="hs-live-title">${isHost ? '房间已开' : '已连上房间'}</span>
+        <span class="hs-mode">${escapeHtml(modeText)}</span>
+      </div>
+      <div class="hs-code" onclick="copyRoomCode()" title="点一下复制房间号">${escapeHtml(String(state.roomCode))}</div>
+      <div class="hs-meta">
+        <span>${total}/${max} 人在线</span>
+        <span>游戏端口 ${Number(state.mcPort) || 25565}</span>
+      </div>
+      <div class="hs-actions">
+        <button class="btn btn-primary" onclick="copyRoomCode()">复制房间号</button>
+        <button class="btn btn-outline" onclick="navTo('${isHost ? 'host' : 'rooms'}')">${isHost ? '房间控制' : '连接信息'}</button>
+        <button class="btn btn-outline" onclick="leaveRoom()">退出</button>
+      </div>
+    </div>`;
+}
+
 /* ============ 导航 ============ */
 const NAV_ORDER = ['home', 'host', 'rooms', 'friends', 'chat'];
 let currentPage = 'home';
 let navTimer = null;
 let navLock = false;
 function navTo(page, btn) {
+  /* 进主页前刷新一次状态面板：房间状态可能在别的页面被改过 */
+  if (page === 'home') renderHomeStatus();
   if (page === 'user-settings') { setTimeout(applyPrivilegeUI, 50); setTimeout(fillUserPanel, 30); }
   // When navigating to any page other than settings, remove .active from gear-btn
   if (page !== 'settings' && page !== 'user-settings') {
@@ -1434,6 +1483,7 @@ async function onRoomCreated(msg) {
   setHostPhase('active');
   $('room-code-display').textContent = code;
   $('host-online-count').textContent = `1/${state.maxMembers}`;
+  renderHomeStatus();
 
   if (mode === 'frp' && typeof msg === 'object' && msg.frp) {
     const { host, port } = msg.frp;
@@ -1495,6 +1545,7 @@ function onMembers(msg) {
   state.members = Array.isArray(msg.members) ? msg.members : [];
   state.maxMembers = Number(msg.maxMembers) || state.maxMembers;
   updateHostPeers();
+  renderHomeStatus();
   if ($('guest-members')) $('guest-members').innerHTML = state.members.map((m) => memberRow(m, false)).join('');
 }
 
@@ -1880,6 +1931,7 @@ async function joinRoom() {
     await connectSignaling();
     state.role = 'guest';
     state.roomCode = code;
+    renderHomeStatus();
     sendSignal({ type: 'join', room: code });
 
     /* 超时保护：15 秒内没收到 joined/error 就判定失败并恢复界面 */
@@ -2009,6 +2061,7 @@ async function leaveRoom() {
     $('btn-join').disabled = false;
     logLine('已断开连接');
   }
+  renderHomeStatus();
 }
 
 async function onRoomClosed(msg) {
@@ -2025,6 +2078,7 @@ async function onRoomClosed(msg) {
   } else if (state.role === 'host') {
     await resetHostRoom(reason);
   } else await cleanupGuestConnection();
+  renderHomeStatus();
 }
 
 /* ============ 运行时事件桥接 ============ */
@@ -3249,27 +3303,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
 
-/* ====== 主页欢迎语随时间切换 ====== */
-function updateWelcomeText() {
-  const el = document.querySelector('.home-welcome') || $('home-welcome');
-  if (!el) return;
+/* 按时段给一句短问候。以前这里拼了"今天是X月X日 星期X，祝你游玩愉快"，
+   信息量为零还占一整行 —— 主页那一行应该留给"现在能不能玩"。 */
+function greetingText() {
   const h = new Date().getHours();
-  let greeting;
-  if (h >= 5 && h < 9) greeting = '早上好';
-  else if (h >= 9 && h < 12) greeting = '上午好';
-  else if (h >= 12 && h < 14) greeting = '中午好';
-  else if (h >= 14 && h < 18) greeting = '下午好';
-  else if (h >= 18 && h < 23) greeting = '晚上好';
-  else greeting = '夜深了';
-  const username = state.user?.username || '';
-  const week = ['日', '一', '二', '三', '四', '五', '六'][new Date().getDay()];
-  const dateStr = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
-  el.textContent = username
-    ? greeting + '，' + username + ' · 今天是' + dateStr + ' 星期' + week + '，祝你游玩愉快'
-    : greeting + ' · 今天是' + dateStr + ' 星期' + week;
+  if (h >= 5 && h < 9) return '早上好';
+  if (h >= 9 && h < 12) return '上午好';
+  if (h >= 12 && h < 14) return '中午好';
+  if (h >= 14 && h < 18) return '下午好';
+  if (h >= 18 && h < 23) return '晚上好';
+  return '夜深了';
 }
-// 每 60 秒刷新一次（跨时段自动切换）
-setInterval(updateWelcomeText, 60000);
+/* 每分钟重画一次主页：跨时段问候语自动切换，房间人数也保持新鲜。
+   只在主页可见时做，别在后台白跑。 */
+setInterval(() => { if (currentPage === 'home') renderHomeStatus(); }, 60000);
 
 /* ====== 设置页「实时日志(PowerShell)」按钮 ====== */
 async function toggleLiveLog() {

@@ -673,59 +673,38 @@ body.sidebar-collapsed .sidebar-gear-btn { margin-left: 0; }
   padding: 0 2px;
 }
 
-.home-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  margin: 20px 0;
-}
-.home-action-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 32px 20px;
+/* ====== 主页「当前状态」 ======
+   主页要回答的是"我现在能不能玩、房间号多少"，不是"欢迎使用"。
+   两态：未联机（给两个入口）／在房间里（房间号放大 + 复制 + 退出）。 */
+.home-status { margin: 4px 0 20px; }
+
+.hs-idle, .hs-live {
+  border: 1px solid rgba(var(--ov-rgb), 0.06);
+  background: rgba(var(--surface-rgb), 0.5);
   border-radius: var(--radius);
-  cursor: pointer;
-  border: 1px solid rgba(var(--ov-rgb),0.06);
-  background: rgba(var(--surface-rgb), 0.4);
-  color: var(--text);
-  font-family: inherit;
-  font-size: .95rem;
-  font-weight: 600;
-  transition: all var(--base);
-  position: relative;
-  overflow: hidden;
+  padding: 20px 22px;
 }
-.home-action-btn::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse at 50% 0%, hsla(var(--lg-accent-h), 50%, 60%, 0.06), transparent 60%);
+.hs-idle-title { font-size: 1.05rem; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.hs-idle-sub { font-size: .84rem; color: var(--text2); margin-bottom: 16px; }
+.hs-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.hs-live-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.hs-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--success);
 }
-.home-action-btn:hover {
-  transform: translateY(-3px);
-  border-color: hsla(var(--lg-accent-h), 50%, 50%, 0.2);
-  box-shadow: 0 12px 40px var(--inset-2), 0 0 30px hsla(var(--lg-accent-h), 50%, 50%, 0.06);
+.hs-live-title { font-size: .9rem; font-weight: 600; color: var(--text); }
+.hs-mode { margin-left: auto; font-size: .72rem; color: var(--text2); }
+
+/* 房间号是这一屏最重要的信息：放大、等宽、可点复制 */
+.hs-code {
+  font-family: "SF Mono", "JetBrains Mono", Consolas, monospace;
+  font-size: 2.2rem; font-weight: 700; letter-spacing: 8px;
+  color: var(--accent); cursor: pointer; user-select: none;
+  margin: 2px 0 10px;
 }
-.home-action-btn:active { transform: translateY(-1px) scale(0.97); }
-.home-action-btn > * { position: relative; z-index: 1; }
-.home-action-btn .action-icon {
-  width: 40px; height: 40px;
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 1.1rem;
-}
-.home-action-btn .action-icon.primary { background: hsla(var(--lg-accent-h), 50%, 50%, 0.12); color: var(--accent2); }
-.home-action-btn .action-icon.secondary { background: rgba(74, 222, 128, 0.1); color: var(--success); }
-.home-action-btn .action-desc {
-  font-size: .76rem;
-  color: var(--text2);
-  font-weight: 400;
-}
+.hs-code:hover { opacity: .75; }
+.hs-meta { display: flex; gap: 14px; font-size: .78rem; color: var(--text2); margin-bottom: 16px; }
 
 .steps { display: flex; flex-direction: column; gap: 8px; }
 .step { display: flex; align-items: baseline; gap: 10px; }
@@ -1265,7 +1244,6 @@ body.perf-off *, body.perf-off *::before, body.perf-off *::after { transition: n
   .sidebar .sidebar-bottom-row { justify-content: center; }
   .sidebar .sidebar-gear-btn { margin-left: 0; }
   .page.page-leaving { top: 16px; left: 14px; right: 14px; }
-  .home-actions { grid-template-columns: 1fr; }
 }
 /* === 鼠标跟随光晕 === */
 .glow-follow {

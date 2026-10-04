@@ -150,30 +150,15 @@
   <!-- 内容区 -->
   <main class="content">
 
-    <!-- 主页 — 公告 -->
+    <!-- 主页 — 当前状态 + 公告 -->
     <div id="page-home" class="page active">
-      <h1 class="page-title" id="home-title">欢迎使用 BLFP</h1>
-      <p id="home-welcome" class="home-welcome"></p>
+      <h1 class="page-title" id="home-title">BLFP</h1>
 
-      <!-- 核心操作 -->
-      <div class="home-actions">
-        <button class="home-action-btn glow-follow" onclick="openStartHostDialog()">
-          <div class="action-icon primary">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          </div>
-          <span>开始联机</span>
-          <span class="action-desc">创建房间，与好友一同游戏</span>
-        </button>
-        <button class="home-action-btn glow-follow" onclick="navTo('rooms')">
-          <div class="action-icon secondary">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-          </div>
-          <span>看看房间</span>
-          <span class="action-desc">浏览公开房间，查找联机伙伴</span>
-        </button>
-      </div>
+      <!-- 当前状态：打开软件第一眼要回答的是"我现在能不能玩、房间号多少"。
+           以前这里只有一句欢迎语和两个按钮，这三个问题一个都答不上来。 -->
+      <div id="home-status" class="home-status"></div>
 
-      <!-- 公告区域（选项卡下面） -->
+      <!-- 公告区域 -->
       <div id="home-announcements" style="margin-top:16px"></div>
     </div>
 
