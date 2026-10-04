@@ -198,7 +198,7 @@
 
         <div id="frp-node-section" class="frp-node-section collapsed">
           <div class="form-group">
-            <label>选择 frp 节点</label>
+            <label>中转线路</label>
             <div class="frp-node-row" style="display:flex;gap:8px;align-items:center">
               <select id="frp-node-select" style="flex:1" onchange="selectFrpNode(this.value)"><option value="">-- 加载中 --</option></select>
               <span id="frp-node-latency" class="latency-badge"></span>
@@ -210,11 +210,11 @@
 
         <div class="form-group public-toggle">
           <label class="toggle-label"><span>公开房间</span><label class="switch"><input id="host-public" type="checkbox"><span class="slider"></span></label></label>
-          <small>公开房间容量由服务端决定，默认关闭。</small>
+          <small>别人能在房间列表里看到并加入</small>
         </div>
         <div id="port-section" style="margin-top:16px">
           <div class="form-group">
-            <label>Minecraft 端口</label>
+            <label>游戏端口</label>
             <div class="port-row">
               <input id="mc-port" type="number" value="25565" min="1" max="65535">
               <button class="btn btn-outline btn-sm" onclick="detectPort()">自动检测</button>
@@ -230,10 +230,10 @@
         <div class="form-group">
           <label>房间简介</label>
           <input id="host-desc" type="text" maxlength="200" placeholder="例如：纯净生存 / 原版生存 / 欢迎萌新">
-          <small>房客在房间列表里看到的就是这句，让他一眼知道这是什么类型的房间。</small>
+          <small>房客在房间列表里看到的就是这句</small>
         </div>
         <div class="form-group">
-          <label>Minecraft 版本</label>
+          <label>游戏版本</label>
           <input id="host-version" type="text" maxlength="32" list="mc-version-options" placeholder="例如：1.21.4">
           <datalist id="mc-version-options">
             <option value="1.21.4"></option>
@@ -247,12 +247,12 @@
             <option value="1.12.2"></option>
             <option value="1.8.9"></option>
           </datalist>
-          <small>房客按这个版本进游戏。版本对不上会连不上，所以别乱填。</small>
+          <small>版本对不上会连不上</small>
         </div>
         <div class="form-group">
-          <label>房间密码（可选）</label>
-          <input id="host-password" type="password" maxlength="64" placeholder="留空表示任何人可直接复制地址">
-          <small>设置后，房客在房间列表里点「复制地址」时必须先输入这个密码。</small>
+          <label>房间密码</label>
+          <input id="host-password" type="password" maxlength="64" placeholder="留空则不需要密码">
+          
         </div>
 
         <button class="btn btn-primary btn-glow" onclick="createRoom()" id="btn-create">创建房间</button>
@@ -364,7 +364,7 @@
 
       <div class="card">
         <h2>外观</h2>
-        <div class="form-group"><label>主题</label><div class="theme-toggle-row"><button id="theme-system" class="theme-btn active" onclick="setTheme('system')">跟随系统</button><button id="theme-dark" class="theme-btn" onclick="setTheme('dark')">深色</button><button id="theme-light" class="theme-btn" onclick="setTheme('light')">浅色</button></div><small>默认跟随系统：系统切深色，客户端跟着切，不用重启。</small></div>
+        <div class="form-group"><label>主题</label><div class="theme-toggle-row"><button id="theme-system" class="theme-btn active" onclick="setTheme('system')">跟随系统</button><button id="theme-dark" class="theme-btn" onclick="setTheme('dark')">深色</button><button id="theme-light" class="theme-btn" onclick="setTheme('light')">浅色</button></div></div>
       </div>
 
       <div class="card">
@@ -388,17 +388,17 @@
 
       <div class="card">
         <h2>外观</h2>
-        <div class="form-group"><label>侧边栏模式</label><select id="sidebar-mode" onchange="setSidebarMode(this.value)"><option value="normal">正常（展开）</option><option value="collapsed">收起（仅图标）</option></select></div>
-        <div class="form-group"><label>动画性能档位</label><select id="perf-level" onchange="setPerfLevel(this.value)"><option value="high">高（全特效）</option><option value="medium" selected>中（推荐）</option><option value="low">低（省电）</option><option value="off">关闭</option></select></div>
-        <div class="form-group"><label class="toggle-label"><span>交互粒子背景</span><label class="switch"><input type="checkbox" id="cursor-trail-toggle" onchange="setCursorTrail(this.checked)"><span class="slider"></span></label></label></div>
+        <div class="form-group"><label>侧边栏</label><select id="sidebar-mode" onchange="setSidebarMode(this.value)"><option value="normal">完整显示</option><option value="collapsed">只显示图标</option></select></div>
+        <div class="form-group"><label>界面动效</label><select id="perf-level" onchange="setPerfLevel(this.value)"><option value="high">高</option><option value="medium" selected>中</option><option value="low">低</option><option value="off">关闭</option></select></div>
+        <div class="form-group"><label class="toggle-label"><span>背景粒子</span><label class="switch"><input type="checkbox" id="cursor-trail-toggle" onchange="setCursorTrail(this.checked)"><span class="slider"></span></label></label></div>
       </div>
 
       <div class="card">
         <h2>连接</h2>
         <div class="form-group hidden"><input id="s-server" type="hidden" value="http://154.40.43.136:4000"></div>
-        <div class="form-group"><label>更新渠道</label><select id="s-update-channel"><option value="stable">正式版（只提示正式版本）</option><option value="test">测试版（可拉取最新 pre 测试版）</option></select></div>
-        <div class="form-group"><label>默认 MC 端口</label><input id="s-mc-port" type="number" value="25565" min="1" max="65535"></div>
-        <div class="form-group"><label>启动行为</label><select id="s-launch-behavior"><option value="ask">每次询问</option><option value="home">打开主页</option><option value="host">直接创建房间</option></select></div>
+        <div class="form-group"><label>接收哪个版本</label><select id="s-update-channel"><option value="stable">稳定版</option><option value="test">测试版</option></select></div>
+        <div class="form-group"><label>游戏端口</label><input id="s-mc-port" type="number" value="25565" min="1" max="65535"></div>
+        <div class="form-group"><label>启动时</label><select id="s-launch-behavior"><option value="ask">每次询问</option><option value="home">停在主页</option><option value="host">直接开房</option></select></div>
         <button class="btn btn-primary btn-glow" onclick="saveSettings()">保存设置</button>
       </div>
 
@@ -406,47 +406,47 @@
         <h2>个性化</h2>
         <div class="form-group" style="margin-bottom:16px"><label>界面字体</label><select id="font-select" onchange="setFontFamily(this.value)">
           <option value="default">系统默认</option>
-          <option value="'Segoe UI Variable Display', 'Segoe UI', 'Microsoft YaHei'">Segoe UI（微软雅黑）</option>
-          <option value="'SF Pro Display', 'PingFang SC', 'Microsoft YaHei'">苹方（SF Pro）</option>
+          <option value="'Segoe UI Variable Display', 'Segoe UI', 'Microsoft YaHei'">微软雅黑</option>
+          <option value="'SF Pro Display', 'PingFang SC', 'Microsoft YaHei'">苹方</option>
           <option value="'HarmonyOS Sans SC', 'Microsoft YaHei'">HarmonyOS Sans</option>
-          <option value="'MiSans', 'Microsoft YaHei'">MiSans（小米）</option>
+          <option value="'MiSans', 'Microsoft YaHei'">小米 MiSans</option>
           <option value="Inter, 'Microsoft YaHei'">Inter</option>
-          <option value="'JetBrains Mono', Consolas, monospace">等宽（JetBrains Mono）</option>
-          <option value="'Comic Sans MS', 'Microsoft YaHei'">Comic Sans（趣味）</option>
+          <option value="'JetBrains Mono', Consolas, monospace">等宽字体</option>
+          <option value="'Comic Sans MS', 'Microsoft YaHei'">Comic Sans</option>
         </select></div>
-        <div class="form-group" style="margin-bottom:16px"><label>标题栏样式</label>
+        <div class="form-group" style="margin-bottom:16px"><label>标题栏</label>
           <select id="titlebar-mode" onchange="setCustomTitlebar(this.value)">
-            <option value="default">默认（BLFP）</option>
-            <option value="text">自定义文本</option>
-            <option value="image">自定义图片</option>
-            <option value="mixed">混合（文本+图片）</option>
+            <option value="default">默认</option>
+            <option value="text">文字</option>
+            <option value="image">图片</option>
+            <option value="mixed">文字加图片</option>
           </select>
           <input id="titlebar-text-input" type="text" class="text-input-cond" placeholder="标题栏文本" style="display:none" oninput="applyTitlebarPreview()">
           <input id="titlebar-image-input" type="text" class="text-input-cond" placeholder="标题栏图片 URL 或本地路径" style="display:none" oninput="applyTitlebarPreview()">
           <div id="titlebar-preview" style="margin-top:8px;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);font-size:.8rem;display:none"></div>
         </div>
-        <div class="form-group" style="margin-bottom:16px"><label>背景自定义</label>
+        <div class="form-group" style="margin-bottom:16px"><label>背景</label>
           <select id="bg-mode" onchange="setCustomBackground(this.value)">
-            <option value="blocks">色块（多彩光斑）</option>
-            <option value="default">默认（动态光晕）</option>
+            <option value="blocks">多彩光斑</option>
+            <option value="default">动态光晕</option>
             <option value="color">纯色</option>
             <option value="image">图片</option>
           </select>
           <input id="bg-color-input" type="color" value="#08080f" style="margin-top:8px;width:100%;height:38px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);cursor:pointer;display:none" oninput="applyBackgroundPreview()">
           <input id="bg-image-input" type="text" class="text-input-cond" placeholder="背景图片 URL 或本地路径" style="display:none" oninput="applyBackgroundPreview()">
           <div id="bg-blocks-hint" style="margin-top:8px;font-size:.78rem;color:var(--text2)">多彩光斑背景</div>
-          <div class="form-group"><label>背景模糊度</label><input type="range" id="bg-blur" min="0" max="30" value="0" oninput="applyBackgroundPreview()"></div>
+          <div class="form-group"><label>背景模糊</label><input type="range" id="bg-blur" min="0" max="30" value="0" oninput="applyBackgroundPreview()"></div>
         </div>
       </div>
 
       <div class="card">
         <h2>开发者</h2>
-        <div class="form-group"><label class="toggle-label"><span>开发者调试模式（保留完整底层日志）</span><label class="switch"><input type="checkbox" id="debug-mode-toggle" onchange="setDebugMode(this.checked)"><span class="slider"></span></label></label></div>
+        <div class="form-group"><label class="toggle-label"><span>开发者日志</span><label class="switch"><input type="checkbox" id="debug-mode-toggle" onchange="setDebugMode(this.checked)"><span class="slider"></span></label></label></div>
       </div>
 
       <div class="card">
         <h2>EasyTier 节点</h2>
-        <div class="form-group"><label>节点选择</label><select id="s-et-node"><option value="auto">自动（选择延迟最低的节点）</option></select><div class="et-node-actions" style="display:flex;align-items:center;gap:10px;margin-top:8px"><button type="button" class="btn btn-outline btn-sm" onclick="testEtNodes()">测速</button><span id="s-et-latency" class="latency-badge hidden"></span></div><div id="s-et-results" class="et-results hidden"></div></div>
+        <div class="form-group"><label>联机线路</label><select id="s-et-node"><option value="auto">自动选最快的</option></select><div class="et-node-actions" style="display:flex;align-items:center;gap:10px;margin-top:8px"><button type="button" class="btn btn-outline btn-sm" onclick="testEtNodes()">测速</button><span id="s-et-latency" class="latency-badge hidden"></span></div><div id="s-et-results" class="et-results hidden"></div></div>
       </div>
 
       <div class="card">
@@ -504,7 +504,7 @@
     </div>
 
     <div class="form-group">
-      <label>联机模式</label>
+      <label>联机方式</label>
       <div class="mode-select" style="margin-bottom:0">
         <div class="mode-card active" id="start-mode-easytier" onclick="selectStartMode('easytier')">
           <div class="mc-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
@@ -522,7 +522,7 @@
     <!-- frp 节点选择（点 frp 时伸长展开） -->
     <div class="frp-node-section collapsed" id="modal-frp-node-section">
       <div class="frp-node-header">
-        <label>frp 节点选择</label>
+        <label>中转线路</label>
         <span class="frp-node-status" id="frp-node-status">加载中...</span>
       </div>
       <div class="frp-node-list" id="frp-node-list">
