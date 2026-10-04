@@ -166,3 +166,20 @@ test('镜像主机走专用的 https 实现（能校验自签证书），其它�
   assert.equal(/ignore-certificate-errors|rejectUnauthorized:\s*false/.test(code), false,
     '出现了全局放宽证书校验的写法 —— 那等于对所有源都关掉了校验');
 });
+
+test('随包发布的镜像证书与预期一致（换证书必须是有意的改动）', () => {
+  const pem = fs.readFileSync(path.join(__dirname, '..', 'assets', 'blfp-mirror-ca.pem'), 'utf8');
+  /* 钉死指纹：证书文件被误替换、或者镜像换了证书而客户端没跟着发版，
+     都必须在这里就红，而不是等用户更新失败 */
+  assert.equal(spkiFingerprint(pem), 'sMKjRr/5jz+6aDAlrakP6e7wGeaB6OZthUPdjphHMWA=',
+    '镜像证书变了 —— 确认是有意更换后，同步更新这里的指纹');
+
+  const { X509Certificate } = require('node:crypto');
+  const cert = new X509Certificate(pem);
+  assert.match(cert.subject, /blfp-mirror/);
+  /* 客户端连的是 IP，所以证书 SAN 里必须有这个 IP，否则主机名校验过不了 */
+  assert.match(cert.subjectAltName || '', /IP Address:47\.103\.142\.240/,
+    '证书 SAN 里没有镜像 IP —— 客户端连 IP 时会被主机名校验拒绝');
+  assert.ok(new Date(cert.validTo) > new Date('2031-01-01'),
+    '证书有效期太短：换证书要跟着发客户端，别给自己找麻烦');
+});
