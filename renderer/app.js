@@ -1376,6 +1376,17 @@ function setHostCreatingText(text) {
   if (el) el.textContent = text;
 }
 
+/* 房主自定义信息：简介 / MC 版本 / 密码。
+   EasyTier 与 FRP 两条建房路径共用这一份，避免各写一遍导致两边漂移。
+   长度上限与服务端 security-logic.js 的 ROOM_TEXT_LIMITS 保持一致。 */
+function hostCustomFields() {
+  return {
+    description: ($('host-desc')?.value || '').trim().slice(0, 200),
+    mcVersion: ($('host-version')?.value || '').trim().slice(0, 32),
+    password: ($('host-password')?.value || '').slice(0, 64),
+  };
+}
+
 async function createRoom(options = {}) {
   if (state.role) { setHostPhase('setup'); return toast('当前已在房间中，请先退出当前房间', 'warn'); }
   const inputId = options.inputId || 'mc-port';
@@ -1399,7 +1410,7 @@ async function createRoom(options = {}) {
     setHostCreatingText('正在创建房间…');
     state.role = 'host';
     state.isPublic = !!(options.isPublic ?? $('host-public')?.checked);
-    sendSignal({ type: 'create', mode: 'easytier', username: state.user.username, userId: state.user.id, mcPort: port, isPublic: state.isPublic });
+    sendSignal({ type: 'create', mode: 'easytier', username: state.user.username, userId: state.user.id, mcPort: port, isPublic: state.isPublic, ...hostCustomFields() });
   } catch (e) {
     toast(e.message, 'error');
     button.disabled = false;
@@ -1593,6 +1604,25 @@ async function createFrpRoom(button = $('btn-create')) {
   try {
     button.disabled = true;
 
+    /* 先起 MC 探测代理：房客在 MC 服务器列表里看到的将是 BLFP 的图标和 MOTD，
+       而不是房主那个存档的名字。frpc 的公网端口指向代理，代理再把游戏流量转给 MC。
+       代理起不来就退回直连 MC —— 宁可没有品牌，也不能让人连不上。 */
+    let localPort = state.mcPort;
+    try {
+      const proxy = await window.mclink.mcStatusProxyStart({
+        targetPort: state.mcPort,
+        motd: 'BLFP 联机 | ' + (state.user?.username || '房主'),
+      });
+      if (proxy && proxy.ok && proxy.port) {
+        localPort = proxy.port;
+        logLine('MC 探测代理已启动，端口 ' + proxy.port + '（服务器列表将显示 BLFP）');
+      } else {
+        logLine('MC 探测代理未启动，将直连 MC：' + ((proxy && proxy.error) || '未知原因'));
+      }
+    } catch (e) {
+      logLine('MC 探测代理启动失败，将直连 MC：' + e.message);
+    }
+
     // 1. 在 2000–5000 中随机选择公网端口；冲突时重新随机，不顺序递增
     let remotePort;
     let res;
@@ -1605,7 +1635,7 @@ async function createFrpRoom(button = $('btn-create')) {
         serverPort: node.port || 7000,
         token: node.token || undefined,
         tls: Boolean(node.tls_enabled),
-        localPort: state.mcPort,
+        localPort,
         remotePort,
       });
       if (res.ok) {
@@ -1632,6 +1662,7 @@ async function createFrpRoom(button = $('btn-create')) {
       mcPort: state.mcPort,
       frp: { host: node.host, port: remotePort, node: node.id },
       isPublic: !!($('host-public')?.checked),
+      ...hostCustomFields(),
     });
     // 等待 'created' 回调处理 UI
   } catch (e) {
@@ -2317,7 +2348,8 @@ function loadSettings() {
   state.mcPort = mcPort;
   state.debugMode = !!s.debugMode;
   state.etNodeMode = s.etNodeMode || 'auto';
-  applyTheme(s.theme || 'dark', false);
+  applyTheme(s.theme || 'system', false);
+  watchSystemTheme();
   applySidebarMode(s.sidebarMode || 'normal', false);
   applyPerfLevel(s.perf || 'medium', false);
   state.updateChannel = s.updateChannel === 'test' ? 'test' : 'stable';
@@ -2344,7 +2376,9 @@ function saveSettings() {
   const perf = $('perf-level').value;
   const cursorTrail = $('cursor-trail-toggle').checked;
   const debugMode = $('debug-mode-toggle').checked;
-  const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+  /* 存的是"模式"（system/light/dark），不是解析后的 light/dark ——
+     否则用户选了"跟随系统"，一保存就被固化成当时的那个主题了 */
+  const theme = readSettingsSafe().theme || 'system';
   const etNodeMode = $('s-et-node') ? $('s-et-node').value : 'auto';
   const updateChannel = $('s-update-channel') ? $('s-update-channel').value : 'stable';
 
@@ -2390,18 +2424,58 @@ function setTheme(t) {
   applyTheme(t, true);
 }
 
+/* 主题三选一：system（默认，跟随系统）/ light / dark。
+   系统模式不写死 data-theme，而是实时跟随 prefers-color-scheme，
+   并且监听它的变化 —— 用户在系统里切深色，客户端要跟着变，不用重启。 */
+const THEME_MODES = ['system', 'light', 'dark'];
+
+function systemPrefersLight() {
+  try {
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+  } catch (e) {
+    return false;
+  }
+}
+
+function resolveTheme(mode) {
+  const m = THEME_MODES.includes(mode) ? mode : 'system';
+  if (m === 'system') return systemPrefersLight() ? 'light' : 'dark';
+  return m;
+}
+
 function applyTheme(t, save) {
-  const theme = t === 'light' ? 'light' : 'dark';
+  const mode = THEME_MODES.includes(t) ? t : 'system';
+  const theme = resolveTheme(mode);
   document.documentElement.setAttribute('data-theme', theme);
-  $('theme-dark') && $('theme-dark').classList.toggle('active', t !== 'light');
-  $('theme-light') && $('theme-light').classList.toggle('active', t === 'light');
+  /* 三个按钮各自高亮，别把"跟随系统"错当成"深色" */
+  ['theme-system', 'theme-dark', 'theme-light'].forEach((id) => {
+    const el = $(id);
+    if (el) el.classList.toggle('active', id === 'theme-' + mode);
+  });
   if (window.mclink && window.mclink.setTitlebarOverlay) {
     window.mclink.setTitlebarOverlay(theme).catch(() => {});
   }
   if (save) {
     const s = readSettingsSafe();
-    s.theme = t; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+    s.theme = mode; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   }
+}
+
+/* 系统主题变化时，只有"跟随系统"模式才需要重画。
+   加锁避免重复注册监听（loadSettings 被多次调用时会叠加）。 */
+let systemThemeWatched = false;
+function watchSystemTheme() {
+  if (systemThemeWatched) return;
+  systemThemeWatched = true;
+  try {
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    const onChange = () => {
+      const mode = readSettingsSafe().theme || 'system';
+      if (mode === 'system') applyTheme('system', false);
+    };
+    if (mq.addEventListener) mq.addEventListener('change', onChange);
+    else if (mq.addListener) mq.addListener(onChange);
+  } catch (e) { /* 拿不到 matchMedia 就退化成固定主题，不影响使用 */ }
 }
 
 function setPerfLevel(level) { applyPerfLevel(level, true); }
@@ -2565,22 +2639,108 @@ function renderPublicRooms(rooms) {
     const code = /^\d{6}$/.test(rawCode) ? rawCode : '';
     const total = Number(room.total ?? room.members ?? 1);
     const maxMembers = Number(room.max_members ?? room.maxMembers ?? 8);
-    const motd = String(room.motd || '').trim();
-    const motdHtml = motd ? '<div class="pr-motd"><span class="pr-motd-inner">' + escapeHtml(motd) + '</span></div>' : '';
+    const isFrp = room.mode === 'frp';
+    const desc = String(room.description || '').trim();
+    const version = String(room.mc_version || '').trim();
+    const locked = room.has_password === true;
+    const address = room.frp_host && room.frp_port ? room.frp_host + ':' + room.frp_port : '';
+
+    /* 版本是房客最先要确认的事（版本对不上直接连不上），所以放在房主名后面当标签 */
+    const versionTag = version ? `<span class="tag tag-version">${escapeHtml(version)}</span>` : '';
+    /* 简介替代了原来的 MOTD：房客要看的是"这房间是什么类型"，不是服务器标语 */
+    const descHtml = desc ? `<div class="pr-desc">${escapeHtml(desc)}</div>` : '';
+    const addrHtml = isFrp
+      ? (address
+          ? `<div class="pr-addr">${escapeHtml(address)}</div>`
+          : (locked
+              ? '<div class="pr-addr pr-addr-locked">需要密码才能查看地址</div>'
+              : '<div class="pr-addr pr-addr-pending">房主正在建立隧道…</div>'))
+      : '';
+
+    /* FRP 模式访客不用进房间：直接复制地址去 MC 里连。
+       有密码的房间先弹密码框，密码不对服务端不会给地址。 */
+    const action = isFrp
+      ? `<div class="pr-join" onclick="event.stopPropagation();copyRoomAddress('${code}')">${locked && !address ? '输密码取地址' : '复制地址'}</div>`
+      : `<div class="pr-join" onclick="event.stopPropagation();quickJoinRoom('${code}')">加入</div>`;
+
     return `
     <div class="public-room" onclick="showRoomDetail('${code}')">
       <div class="pr-code">${escapeHtml(code)}</div>
       <div class="pr-info">
-        <div class="pr-host">${escapeHtml(room.host || '未知用户')}</div>
+        <div class="pr-host">${escapeHtml(room.host || '未知用户')} ${versionTag}</div>
         <div class="pr-meta">
-          <span class="tag ${room.mode === 'frp' ? 'tag-frp' : 'tag-p2p'}">${room.mode === 'frp' ? 'frp 中转' : 'EasyTier 智能组网'}</span>
+          <span class="tag ${isFrp ? 'tag-frp' : 'tag-p2p'}">${isFrp ? 'frp 中转' : 'EasyTier 智能组网'}</span>
           <span>${total}/${maxMembers} 人在线</span>
         </div>
-        ${motdHtml}
+        ${descHtml}
+        ${addrHtml}
       </div>
-      <div class="pr-join" onclick="event.stopPropagation();quickJoinRoom('${code}')">加入</div>
+      ${action}
     </div>`;
   }).join('');
+}
+
+/* ===== FRP 房间：复制直连地址（有密码的先验密码）===== */
+
+let roomPasswordResolver = null;
+
+function askRoomPassword() {
+  return new Promise((resolve) => {
+    roomPasswordResolver = resolve;
+    const input = $('room-password-input');
+    if (input) input.value = '';
+    openModal('room-password-modal');
+    setTimeout(() => { if (input) input.focus(); }, 60);
+  });
+}
+
+function submitRoomPassword() {
+  const value = $('room-password-input')?.value || '';
+  const resolve = roomPasswordResolver;
+  roomPasswordResolver = null;
+  closeModal('room-password-modal');
+  if (resolve) resolve(value);
+}
+
+function cancelRoomPassword() {
+  const resolve = roomPasswordResolver;
+  roomPasswordResolver = null;
+  closeModal('room-password-modal');
+  if (resolve) resolve(null);
+}
+
+/* 复制 FRP 房间的直连地址。访客不需要进房间 —— 拿到地址直接在 MC 里连。
+   有密码的房间地址不随列表下发，必须先向服务端换取；密码不对服务端会拒绝。 */
+async function copyRoomAddress(code) {
+  const room = state.publicRooms.find((r) => String(r.room_code) === String(code));
+  if (!room) return toast('房间已不在列表中，请刷新', 'warn');
+
+  let address = room.frp_host && room.frp_port ? room.frp_host + ':' + room.frp_port : '';
+  if (!address) {
+    if (room.has_password !== true) return toast('房主还没建立好隧道，稍后再试', 'warn');
+    const password = await askRoomPassword();
+    if (password === null) return; /* 用户取消 */
+    try {
+      const res = await api('/rooms/public/' + code + '/reveal', {
+        method: 'POST',
+        body: JSON.stringify({ password }),
+      });
+      address = res.frp_host + ':' + res.frp_port;
+      /* 回填缓存，免得同一次会话里反复问密码 */
+      room.frp_host = res.frp_host;
+      room.frp_port = res.frp_port;
+      renderPublicRooms(state.publicRooms);
+    } catch (e) {
+      return toast(e.message || '密码不正确', 'error');
+    }
+  }
+
+  try {
+    await navigator.clipboard.writeText(address);
+    toast('已复制连接地址：' + address + '（在 Minecraft 里直接连接）', 'success');
+  } catch (e) {
+    toast('复制失败，地址是：' + address, 'warn');
+  }
 }
 async function quickJoinRoom(code) {
   const roomCode = String(code ?? '').replace(/\D/g, '').slice(0, 6);
@@ -3235,7 +3395,11 @@ async function showRoomDetail(code) {
       max_members: cached.max_members,
       members: [],
       latency: null,
-      motd: cached.motd || '',
+      description: cached.description || '',
+      mc_version: cached.mc_version || '',
+      has_password: cached.has_password === true,
+      frp_host: cached.frp_host || null,
+      frp_port: cached.frp_port || null,
     };
   }
   try {
@@ -3254,13 +3418,24 @@ async function showRoomDetail(code) {
         <span>${escapeHtml(m.username || '未知')}</span>
         ${m.title ? '<span class="user-title">' + escapeHtml(m.title) + '</span>' : ''}
       </div>`).join('');
-    const motdHtml = room.motd
-      ? `<div style="margin-top:10px"><div style="font-size:.78rem;color:var(--text3);margin-bottom:6px">服务器 MOTD（超过3行隐藏）</div><div class="room-detail-motd-full">${escapeHtml(room.motd)}</div></div>`
+    /* MC 版本也进 stats 区：房客最先要确认的就是"我用哪个版本能进" */
+    const versionHtml = room.mc_version
+      ? `<div class="room-detail-stat"><div class="stat-value">${escapeHtml(room.mc_version)}</div><div class="stat-label">MC 版本</div></div>`
       : '';
-    const iconHtml = room.icon
-      ? `<img class="room-detail-server-icon" src="${escapeHtml(room.icon)}" onerror="this.style.display='none'">`
+    /* 房主自定义简介取代了原来的 MOTD：房客要判断的是"这房间是什么类型" */
+    const descHtml = room.description
+      ? `<div style="margin-top:10px"><div style="font-size:.78rem;color:var(--text3);margin-bottom:6px">房间简介</div><div class="room-detail-desc">${escapeHtml(room.description)}</div></div>`
       : '';
-    showModal('room-detail-modal', `<h3>房间 ${escapeHtml(code)} 详情</h3>` + iconHtml + (fallbackUsed ? '<div style="font-size:.75rem;color:var(--warn);margin-bottom:8px">服务器未提供详情接口，以下为房间列表数据（更新服务器后可显示成员与延迟）</div>' : '') + `<div class="room-detail-grid">` + statsHtml + `</div><div style="font-size:.78rem;color:var(--text3);margin-bottom:6px">在线成员</div><div class="room-detail-members">` + membersHtml + `</div>` + motdHtml + `<div class="modal-actions"><button class="btn btn-outline btn-sm" onclick="closeModal('room-detail-modal')">关闭</button><button class="btn btn-primary btn-sm" onclick="closeModal('room-detail-modal');quickJoinRoom('${code}')">加入房间</button></div>`);
+    const isFrp = room.mode === 'frp';
+    const address = room.frp_host && room.frp_port ? room.frp_host + ':' + room.frp_port : '';
+    const addrHtml = isFrp
+      ? `<div style="margin-top:10px"><div style="font-size:.78rem;color:var(--text3);margin-bottom:6px">直连地址（在 Minecraft 里直接连接）</div><div class="room-detail-addr">${address ? escapeHtml(address) : (room.has_password ? '需要密码，点下方按钮获取' : '房主正在建立隧道…')}</div></div>`
+      : '';
+    /* FRP 访客不用进房间，复制地址即可；EasyTier 仍然要走加入流程拿虚拟网地址 */
+    const actionBtn = isFrp
+      ? `<button class="btn btn-primary btn-sm" onclick="closeModal('room-detail-modal');copyRoomAddress('${code}')">${address ? '复制地址' : '输密码取地址'}</button>`
+      : `<button class="btn btn-primary btn-sm" onclick="closeModal('room-detail-modal');quickJoinRoom('${code}')">加入房间</button>`;
+    showModal('room-detail-modal', `<h3>房间 ${escapeHtml(code)} 详情</h3>` + (fallbackUsed ? '<div style="font-size:.75rem;color:var(--warn);margin-bottom:8px">服务器未提供详情接口，以下为房间列表数据（更新服务器后可显示成员与延迟）</div>' : '') + `<div class="room-detail-grid">` + statsHtml + versionHtml + `</div>` + descHtml + addrHtml + `<div style="font-size:.78rem;color:var(--text3);margin:10px 0 6px">在线成员</div><div class="room-detail-members">` + membersHtml + `</div><div class="modal-actions"><button class="btn btn-outline btn-sm" onclick="closeModal('room-detail-modal')">关闭</button>` + actionBtn + `</div>`);
   } catch (e) {
     toast('获取房间详情失败: ' + e.message, 'error');
   }

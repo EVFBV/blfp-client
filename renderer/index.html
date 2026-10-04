@@ -226,6 +226,35 @@
           </div>
         </div>
 
+        <!-- 房主自定义信息：房客在房间列表里靠这三项决定"要不要进、用哪个版本进" -->
+        <div class="form-group">
+          <label>房间简介</label>
+          <input id="host-desc" type="text" maxlength="200" placeholder="例如：纯净生存 / 原版生存 / 欢迎萌新">
+          <small>房客在房间列表里看到的就是这句，让他一眼知道这是什么类型的房间。</small>
+        </div>
+        <div class="form-group">
+          <label>Minecraft 版本</label>
+          <input id="host-version" type="text" maxlength="32" list="mc-version-options" placeholder="例如：1.21.4">
+          <datalist id="mc-version-options">
+            <option value="1.21.4"></option>
+            <option value="1.21.1"></option>
+            <option value="1.20.6"></option>
+            <option value="1.20.4"></option>
+            <option value="1.20.1"></option>
+            <option value="1.19.4"></option>
+            <option value="1.18.2"></option>
+            <option value="1.16.5"></option>
+            <option value="1.12.2"></option>
+            <option value="1.8.9"></option>
+          </datalist>
+          <small>房客按这个版本进游戏。版本对不上会连不上，所以别乱填。</small>
+        </div>
+        <div class="form-group">
+          <label>房间密码（可选）</label>
+          <input id="host-password" type="password" maxlength="64" placeholder="留空表示任何人可直接复制地址">
+          <small>设置后，房客在房间列表里点「复制地址」时必须先输入这个密码。</small>
+        </div>
+
         <button class="btn btn-primary btn-glow" onclick="createRoom()" id="btn-create">创建房间</button>
       </div>
 
@@ -335,7 +364,7 @@
 
       <div class="card">
         <h2>外观</h2>
-        <div class="form-group"><label>主题</label><div class="theme-toggle-row"><button id="theme-dark" class="theme-btn active" onclick="setTheme('dark')">深色</button><button id="theme-light" class="theme-btn" onclick="setTheme('light')">浅色</button></div></div>
+        <div class="form-group"><label>主题</label><div class="theme-toggle-row"><button id="theme-system" class="theme-btn active" onclick="setTheme('system')">跟随系统</button><button id="theme-dark" class="theme-btn" onclick="setTheme('dark')">深色</button><button id="theme-light" class="theme-btn" onclick="setTheme('light')">浅色</button></div><small>默认跟随系统：系统切深色，客户端跟着切，不用重启。</small></div>
       </div>
 
       <div class="card">
@@ -579,6 +608,21 @@
     <div class="modal-actions">
       <button class="btn btn-outline btn-sm" onclick="closeModal('join-room-modal')">取消</button>
       <button class="btn btn-primary btn-sm" onclick="confirmJoinRoom()">加入</button>
+    </div>
+  </div>
+</div>
+
+<!-- FRP 房间：房主设了密码时，复制直连地址前先验密码 -->
+<div class="modal-backdrop hidden" id="room-password-modal">
+  <div class="modal">
+    <h3>这间房需要密码</h3>
+    <p style="color:var(--text2);font-size:.85rem;margin-bottom:12px">房主给这间房设了密码，输入正确后才能拿到直连地址。</p>
+    <div class="room-input-wrap">
+      <input id="room-password-input" type="password" class="room-input" placeholder="请输入房间密码" maxlength="64" onkeydown="if(event.key==='Enter')submitRoomPassword()">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline btn-sm" onclick="cancelRoomPassword()">取消</button>
+      <button class="btn btn-primary btn-sm" onclick="submitRoomPassword()">确定</button>
     </div>
   </div>
 </div>

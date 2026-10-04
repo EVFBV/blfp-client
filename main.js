@@ -7,6 +7,7 @@ const os = require('os');
 const { scanJavaPorts } = require('./src/port-scanner');
 const FrpcManager = require('./src/frpc-manager');
 const MotdBroadcaster = require('./src/motd-broadcast');
+const McStatusProxy = require('./src/mc-status-proxy');
 const EasyTierManager = require('./src/easytier-manager');
 const { downloadWithFallback } = require('./src/update-download');
 const { fetchServerRelease, serverDownloadUrl } = require('./src/update-source');
@@ -725,6 +726,46 @@ ipcMain.handle('motd-stop', async () => {
   return { ok: true };
 });
 
+// ====== IPC: MC 服务器列表探测代理 ======
+// 房主开 FRP 房间时，公网端口先进这里：探测包回 BLFP 的图标+MOTD，
+// 游戏流量原样转发给真正的 MC。这样房客在 MC 服务器列表里看到的是 BLFP。
+let mcStatusProxy = null;
+let blfpFaviconCache;
+
+function blfpFavicon() {
+  if (blfpFaviconCache !== undefined) return blfpFaviconCache;
+  try {
+    const iconPath = path.join(__dirname, 'assets', 'server-icon-64.png');
+    blfpFaviconCache = 'data:image/png;base64,' + fs.readFileSync(iconPath).toString('base64');
+  } catch (e) {
+    /* 图标读不到就不带 favicon —— 不能让"没有图标"升级成"联机不可用" */
+    blfpFaviconCache = '';
+  }
+  return blfpFaviconCache;
+}
+
+ipcMain.handle('mc-status-proxy-start', async (_e, { targetPort, motd } = {}) => {
+  try {
+    if (mcStatusProxy) { mcStatusProxy.stop(); mcStatusProxy = null; }
+    const proxy = new McStatusProxy();
+    const result = await proxy.start({
+      targetPort: Number(targetPort),
+      motd: motd || 'BLFP 联机',
+      favicon: blfpFavicon(),
+    });
+    mcStatusProxy = proxy;
+    return { ok: true, port: result.port };
+  } catch (e) {
+    mcStatusProxy = null;
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('mc-status-proxy-stop', async () => {
+  if (mcStatusProxy) { mcStatusProxy.stop(); mcStatusProxy = null; }
+  return { ok: true };
+});
+
 // ====== IPC: 端口扫描 ======
 ipcMain.handle('scan-ports', async () => {
   return scanJavaPorts();
@@ -752,6 +793,10 @@ ipcMain.handle('frpc-start', async (_e, cfg) => {
 
 ipcMain.handle('frpc-stop', async () => {
   frpcMgr.stop();
+  /* 探测代理和 frpc 是同一条链路：frpc 一停，代理就必须跟着停。
+     放在这里而不是渲染层的每个 frpcStop 调用点（那里有 5 处，
+     漏一处就会留下一个没人管的监听端口）。 */
+  if (mcStatusProxy) { mcStatusProxy.stop(); mcStatusProxy = null; }
   return { ok: true };
 });
 

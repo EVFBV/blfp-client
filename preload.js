@@ -63,6 +63,10 @@ const blfpApi = {
   onFrpcPort: (cb) => ipcRenderer.on('frpc-port', (_e, port) => cb(port)),
   onFrpcError: (cb) => ipcRenderer.on('frpc-error', (_e, err) => cb(err)),
 
+  // MC 服务器列表探测代理（房主侧：探测回 BLFP 品牌，游戏流量透传）
+  mcStatusProxyStart: (cfg) => ipcRenderer.invoke('mc-status-proxy-start', cfg),
+  mcStatusProxyStop: () => ipcRenderer.invoke('mc-status-proxy-stop'),
+
   // EasyTier 主进程
   easytierStart: (config) => ipcRenderer.invoke('easytier-start', config),
   easytierStop: () => ipcRenderer.invoke('easytier-stop'),
